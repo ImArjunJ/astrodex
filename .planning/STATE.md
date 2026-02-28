@@ -15,10 +15,10 @@ progress:
 
 ## Current Status
 - **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline)
-- **Phase:** 1 — in progress (2/4 plans complete)
-- **Current Plan:** 01-03-PLAN.md
-- **Next Action:** `/gsd:execute-phase 1` (continue)
-- **Last Session:** 2026-02-28T18:20:10Z — Completed 01-02-PLAN.md
+- **Phase:** 1 — in progress (3/4 plans complete)
+- **Current Plan:** 01-04-PLAN.md (Wave 3 — CoordinateMatcher + DataFusionEngine + CacheManager)
+- **Next Action:** `/gsd:execute-phase 1` (continue — only Plan 01-04 remains)
+- **Last Session:** 2026-02-28 — Completed Plans 01-01, 01-02, 01-03
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
@@ -28,6 +28,7 @@ progress:
 - [x] Research: NASA TAP API, OEC, CDS/VizieR, Gaia DR3, BERT/BART/TabTransformer
 - [x] Phase 01 Plan 01: Build infrastructure + NASA client foundation (15.6 min, 3 tasks, 3 commits)
 - [x] Phase 01 Plan 02: OEC client with XML parsing (10 min, 2 tasks, 2 commits)
+- [x] Phase 01 Plan 03: Gaia DR3 + CDS/VizieR TAP clients (8 test cases, 75 assertions passing)
 
 ## Key Decisions
 1. **Platform:** Desktop (C++/Vulkan) first, WebGPU later — active branches (feat-render, Tej) have migrated from OpenGL to Vulkan/Metal with IRenderer.hpp abstraction
