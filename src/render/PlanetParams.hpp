@@ -7,6 +7,9 @@
 
 namespace astrocore {
 
+// Forward declaration for ExoplanetData-based parameter mapping
+struct ExoplanetData;
+
 // Comprehensive parametric planet generation system
 // Every parameter can be AI-inferred from observational data
 
@@ -299,6 +302,9 @@ struct CelestialBodyParams {
         float orbitalPeriodDays,
         const std::string& starType
     );
+
+    // Generate from enriched exoplanet data (physics-based)
+    static CelestialBodyParams fromObservations(const ExoplanetData& data);
 };
 
 }  // namespace astrocore

@@ -1,4 +1,7 @@
 #include "render/PlanetParams.hpp"
+#include "data/ExoplanetData.hpp"
+#include <functional>
+#include <algorithm>
 
 namespace astrocore {
 
@@ -522,6 +525,16 @@ CelestialBodyParams CelestialBodyParams::fromObservations(
         }
     }
 
+    return p;
+}
+
+// ============================================================================
+// Generate params from enriched ExoplanetData (physics-based) - STUB
+// ============================================================================
+CelestialBodyParams CelestialBodyParams::fromObservations(const ExoplanetData& data) {
+    CelestialBodyParams p;
+    p.name = data.name;
+    // Stub: returns defaults -- tests should fail
     return p;
 }
 
