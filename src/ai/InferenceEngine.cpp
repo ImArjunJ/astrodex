@@ -140,16 +140,13 @@ ExoplanetData InferenceEngine::fillMissingParametersSync(ExoplanetData data) {
         return data;
     }
 
-    // Infer atmosphere if missing key parameters
+    // Infer atmosphere if missing key parameters.
+    // Visual render parameters are handled separately by inferRenderParamsSync,
+    // which uses the structured render-params prompt.
     if (!data.surface_pressure_atm.hasValue() ||
         !data.albedo.hasValue() ||
         !data.atmosphere_composition.hasValue()) {
         inferAtmosphere(data);
-    }
-
-    // Infer render hints if missing
-    if (!data.biome_classification.hasValue()) {
-        inferRenderHints(data);
     }
 
     return data;
@@ -159,6 +156,47 @@ std::future<ExoplanetData> InferenceEngine::fillMissingParameters(ExoplanetData 
     return std::async(std::launch::async, [this, data = std::move(data)]() mutable {
         return fillMissingParametersSync(std::move(data));
     });
+}
+
+nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData&         data,
+                                                       const std::string&           analogContext,
+                                                       const std::set<std::string>& skipFields) {
+    if (!isAvailable()) {
+        LOG_DEBUG("AI inference not available, skipping render params");
+        return {};
+    }
+
+    LOG_INFO("Inferring render params for {}", data.name);
+
+    InferenceRequest request;
+    request.system_prompt = std::string(prompts::RENDER_PARAMS_SYSTEM_PROMPT);
+    request.user_prompt   = prompts::buildRenderParamsPrompt(data, analogContext, skipFields);
+
+    auto response = m_bedrock->inferSync(request);
+
+    if (!response.success) {
+        LOG_WARN("Render params inference failed for {}: {}", data.name, response.error_message);
+        return {};
+    }
+
+    if (response.inferred_values.empty()) {
+        LOG_WARN("Render params response was empty for {}", data.name);
+        return {};
+    }
+
+    LOG_INFO("Render params inferred for {} ({:.0f}ms)", data.name, response.latency_ms);
+    return response.inferred_values;
+}
+
+std::future<nlohmann::json> InferenceEngine::inferRenderParams(ExoplanetData        data,
+                                                                std::string          analogContext,
+                                                                std::set<std::string> skipFields) {
+    return std::async(std::launch::async,
+        [this, data = std::move(data),
+               analogContext = std::move(analogContext),
+               skipFields    = std::move(skipFields)]() {
+            return inferRenderParamsSync(data, analogContext, skipFields);
+        });
 }
 
 }  // namespace astrocore

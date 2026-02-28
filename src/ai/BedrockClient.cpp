@@ -110,6 +110,10 @@ InferenceResponse BedrockClient::parseResponse(const std::string& response) cons
 
                 if (contentJson.contains("inferred_values")) {
                     result.inferred_values = contentJson["inferred_values"];
+                } else {
+                    // Claude returned a raw JSON object (e.g. render params).
+                    // Store it directly so callers can inspect inferred_values.
+                    result.inferred_values = contentJson;
                 }
                 if (contentJson.contains("reasoning")) {
                     result.reasoning = contentJson["reasoning"].get<std::string>();

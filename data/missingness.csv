@@ -1,0 +1,17 @@
+column,n_filled,fill_rate,type
+discoverymethod,6128,1.0,categorical
+st_mass,6070,0.9905,numerical
+pl_orbper,5796,0.9458,numerical
+pl_orbsmax,5762,0.9403,numerical
+st_teff,5642,0.9207,numerical
+st_rad,5431,0.8863,numerical
+st_met,5358,0.8743,numerical
+pl_orbeccen,5105,0.8331,numerical
+pl_radj,4584,0.748,numerical
+pl_orbincl,4362,0.7118,numerical
+pl_eqt,4346,0.7092,numerical
+pl_insol,3477,0.5674,numerical
+pl_bmassj,2925,0.4773,numerical
+st_lum,1731,0.2825,numerical
+st_spectype,1637,0.2671,categorical
+pl_dens,1224,0.1997,numerical

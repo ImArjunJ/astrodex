@@ -7,6 +7,16 @@
 
 namespace astrocore {
 
+namespace constants {
+    constexpr double JUPITER_TO_EARTH_MASS = 317.8;
+    constexpr double JUPITER_TO_EARTH_RADIUS = 11.2;
+    constexpr double EARTH_DENSITY_GCC = 5.51;
+    constexpr double SOLAR_RADIUS_AU = 0.00465047;
+    constexpr double DEFAULT_ALBEDO = 0.3;
+    constexpr double HZ_INNER_FACTOR = 0.95;   // Conservative HZ inner edge factor
+    constexpr double HZ_OUTER_FACTOR = 1.67;   // Conservative HZ outer edge factor
+}  // namespace constants
+
 // Data source tracking for visualization color-coding
 enum class DataSource {
     NASA_TAP,       // NASA Exoplanet Archive (ground truth - white)

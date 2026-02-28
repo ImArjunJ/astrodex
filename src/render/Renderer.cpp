@@ -15,7 +15,7 @@ Renderer::~Renderer() {
     if (m_noiseTexture) glDeleteTextures(1, &m_noiseTexture);
 }
 
-void Renderer::init(int width, int height) {
+void Renderer::init(int width, int height, void* /*nativeWindow*/) {
     m_width = width;
     m_height = height;
 
