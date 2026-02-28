@@ -33,6 +33,13 @@ Plans:
 
 **Requirements:** R2.1, R2.2, R2.3
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — InferenceEngine integration into DataFusionEngine + deterministic fallback + JSON serialization (R2.1)
+- [ ] 02-02-PLAN.md — Physics-based CelestialBodyParams::fromObservations(ExoplanetData) mapping (R2.2)
+- [ ] 02-03-PLAN.md — Python ML benchmarking harness: BERT, BART, TabTransformer, ReMasker (R2.3)
+
 **Success Criteria:**
 - [ ] InferenceEngine wired into data pipeline: fetch → identify gaps → infer → merge
 - [ ] AI-inferred values correctly marked with DataSource::AI_INFERRED and reasoning
