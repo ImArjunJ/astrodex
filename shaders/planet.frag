@@ -46,11 +46,19 @@ uniform float uTransition;
 // Camera
 uniform vec3 uCameraPosition;
 uniform mat4 uInvView;
+uniform mat4 uInvProjection;
+uniform mat4 uViewProjection;
 
 // Extra color uniforms
 uniform vec3 uCloudColor;
 uniform vec3 uSunColor;
 uniform vec3 uDeepSpaceColor;
+
+// Emissive body flag (for stars)
+uniform int uIsEmissive;
+
+// Noise type (0=Standard, 1=Ridged, 2=Billowy, 3=Warped, 4=Voronoi, 5=Swiss, 6=Hybrid)
+uniform int uNoiseType;
 
 // Terrain diversity
 uniform int uFbmOctaves;
@@ -61,6 +69,7 @@ uniform float uDomainWarpStrength;
 uniform float uRidgedStrength;
 uniform float uCraterStrength;
 uniform float uContinentScale;
+uniform float uContinentBlend;
 uniform float uWaterLevel;
 uniform float uPolarCapSize;
 uniform float uBandingStrength;
@@ -225,13 +234,104 @@ float cloudNoiseCheap(vec3 p) {
     return cloudFBM(p);
 }
 
+// ── Additional Noise Types ──────────────────────────────────────────────────
+
+// Billowy noise - soft, rounded terrain
+float billowyFBM(vec3 p, int octaves, float persistence, float lacunarity) {
+    float amplitude = 0.5;
+    float frequency = 3.0;
+    float total = 0.0;
+    float normalization = 0.0;
+    int qualityDegradation = 2 - int(floor(uQuality));
+    int oct = max(octaves - qualityDegradation, 1);
+
+    for (int i = 0; i < oct; ++i) {
+        float n = noise(p * frequency);
+        n = n * n;  // Square for soft, rounded shapes
+        total += n * amplitude;
+        normalization += amplitude;
+        amplitude *= persistence;
+        frequency *= lacunarity;
+    }
+
+    return total / normalization;
+}
+
+// Swiss noise - eroded, holey terrain
+float swissFBM(vec3 p, int octaves, float persistence, float lacunarity) {
+    float amplitude = 0.5;
+    float frequency = 3.0;
+    float total = 0.0;
+    float normalization = 0.0;
+    float warp = 0.0;
+    int qualityDegradation = 2 - int(floor(uQuality));
+    int oct = max(octaves - qualityDegradation, 1);
+
+    for (int i = 0; i < oct; ++i) {
+        float n = noise((p + warp * 0.15) * frequency);
+        n = 1.0 - abs(n * 2.0 - 1.0);
+        n = n * n;
+        total += n * amplitude;
+        normalization += amplitude;
+        warp += n * amplitude;
+        amplitude *= persistence * (1.0 - n * 0.3);
+        frequency *= lacunarity;
+    }
+
+    return total / normalization;
+}
+
+// Voronoi terrain noise
+float voronoiTerrain(vec3 p) {
+    vec3 cell = floor(p);
+    vec3 frac = fract(p);
+    float minDist = 1e10;
+    float secondDist = 1e10;
+
+    for (int x = -1; x <= 1; x++)
+    for (int y = -1; y <= 1; y++)
+    for (int z = -1; z <= 1; z++) {
+        vec3 neighbor = vec3(x, y, z);
+        vec3 cellId = cell + neighbor;
+        vec3 offset = vec3(
+            noise(cellId * 0.37),
+            noise(cellId * 0.37 + vec3(17.3, 0.0, 0.0)),
+            noise(cellId * 0.37 + vec3(0.0, 43.7, 0.0)));
+        float dist = length(frac - neighbor - offset);
+        if (dist < minDist) {
+            secondDist = minDist;
+            minDist = dist;
+        } else if (dist < secondDist) {
+            secondDist = dist;
+        }
+    }
+
+    // Edge-based terrain (interesting ridges between cells)
+    return secondDist - minDist;
+}
+
+// Hybrid noise - combines multiple types
+float hybridFBM(vec3 p, int octaves, float persistence, float lacunarity, float exponentiation) {
+    float standard = fbm(p, octaves, persistence, lacunarity, exponentiation);
+    float ridged = ridgedFBM(p * 0.8, octaves, persistence, lacunarity);
+    float billowy = billowyFBM(p * 1.2, octaves, persistence, lacunarity);
+
+    // Blend based on position
+    float blend = noise(p * 0.5);
+    return mix(mix(standard, ridged, smoothstep(0.3, 0.7, blend)),
+               billowy, smoothstep(0.6, 0.9, blend));
+}
+
 // ── Terrain ──────────────────────────────────────────────────────────────────
 
 float planetNoise(vec3 p) {
     vec3 tp = p * uTerrainScale;
 
-    // Domain warping for organic/alien shapes (use fewer octaves for warp)
-    if (uDomainWarpStrength > 0.0) {
+    // Apply domain warping for Warped type or if strength > 0
+    bool applyWarp = (uNoiseType == 3) || (uDomainWarpStrength > 0.0);
+    float warpStrength = (uNoiseType == 3) ? max(0.5, uDomainWarpStrength) : uDomainWarpStrength;
+
+    if (applyWarp && warpStrength > 0.0) {
         int warpOct = max(uFbmOctaves / 2, 2);
         vec3 warpOffset = vec3(
             fbm(tp, warpOct, uFbmPersistence, uFbmLacunarity, uFbmExponentiation),
@@ -240,11 +340,38 @@ float planetNoise(vec3 p) {
         tp = tp + uDomainWarpStrength * warpOffset;
     }
 
-    // Base terrain FBM
-    float baseFBM = fbm(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity, uFbmExponentiation);
+    // Select noise type based on uniform
+    float baseFBM;
+    if (uNoiseType == 0) {
+        // Standard FBM
+        baseFBM = fbm(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity, uFbmExponentiation);
+    } else if (uNoiseType == 1) {
+        // Ridged
+        baseFBM = ridgedFBM(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity);
+    } else if (uNoiseType == 2) {
+        // Billowy
+        baseFBM = billowyFBM(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity);
+        baseFBM = pow(baseFBM, uFbmExponentiation * 0.5);
+    } else if (uNoiseType == 3) {
+        // Warped (domain warp already applied above)
+        baseFBM = fbm(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity, uFbmExponentiation);
+    } else if (uNoiseType == 4) {
+        // Voronoi
+        baseFBM = voronoiTerrain(tp * 2.0);
+        baseFBM = pow(baseFBM, uFbmExponentiation * 0.3);
+    } else if (uNoiseType == 5) {
+        // Swiss
+        baseFBM = swissFBM(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity);
+        baseFBM = pow(baseFBM, uFbmExponentiation * 0.5);
+    } else if (uNoiseType == 6) {
+        // Hybrid
+        baseFBM = hybridFBM(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity, uFbmExponentiation);
+    } else {
+        baseFBM = fbm(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity, uFbmExponentiation);
+    }
 
-    // Ridged mountains
-    if (uRidgedStrength > 0.0) {
+    // Additional ridged mountains blend (for non-ridged types)
+    if (uNoiseType != 1 && uRidgedStrength > 0.0) {
         float ridged = ridgedFBM(tp, uFbmOctaves, uFbmPersistence, uFbmLacunarity);
         baseFBM = mix(baseFBM, ridged, uRidgedStrength);
     }
@@ -259,9 +386,24 @@ float planetNoise(vec3 p) {
 
     // Continental shaping — large-scale land/ocean mask
     if (uContinentScale > 0.0) {
+        // Smooth continent base shape (low frequency, no holes)
         float continent = noise(p * uContinentScale * 0.15);
-        float continentMask = smoothstep(0.38, 0.58, continent);
-        f = f * mix(0.15, 1.0, continentMask);
+        // Add slight variation to continent edges
+        continent += noise(p * uContinentScale * 0.4) * uContinentBlend;
+
+        // Continent threshold based on water level (higher water = less land)
+        float landThreshold = 0.35 + uWaterLevel * 2.0;
+        float continentMask = smoothstep(landThreshold, landThreshold + uContinentBlend, continent);
+
+        // On continents: floor terrain at coastline level, preventing inland seas
+        float coastline = (uSandLevel + uWaterLevel) / 5.0;
+        float landBase = coastline + 0.001;  // Just above water
+
+        // Blend: ocean areas keep original height, land areas get floored then add detail
+        float oceanHeight = f * 0.15;  // Reduce terrain in ocean
+        float landHeight = landBase + f * continentMask;  // Land base + terrain detail
+
+        f = mix(oceanHeight, landHeight, continentMask);
     }
 
     return mix(
@@ -340,6 +482,65 @@ vec3 atmosphereColor(vec3 ro, vec3 rd, float spaceMask) {
     atmosphere += pow(planetEdge, 5.) * .04 * planetMask;
 
     return atmosphere * uAtmosphereColor * atmosphereMask;
+}
+
+// ── Star/Emissive Body Rendering ─────────────────────────────────────────────
+
+// Animated stellar surface noise - creates granulation/convection patterns
+float stellarNoise(vec3 p, float time) {
+    // Multiple scales of convection cells
+    float n1 = noise(p * 3.0 + vec3(time * 0.1));
+    float n2 = noise(p * 6.0 + vec3(0.0, time * 0.15, 0.0));
+    float n3 = noise(p * 12.0 + vec3(time * 0.2, 0.0, time * 0.1));
+
+    // Combine for granulation pattern
+    float granulation = n1 * 0.5 + n2 * 0.3 + n3 * 0.2;
+
+    // Add slower large-scale convection
+    float largeCells = noise(p * 1.5 + vec3(time * 0.03));
+
+    return mix(granulation, largeCells, 0.3);
+}
+
+// Render an emissive star - simple glowing sphere
+vec3 renderStar(vec3 ro, vec3 rd, out float alpha, out float depth) {
+    Sphere star = getPlanet();
+    float t = sphIntersect(ro, rd, star);
+
+    alpha = 0.0;
+    depth = 1.0;
+
+    if (t < 0.0) {
+        return vec3(0.0);  // Miss star
+    }
+
+    // Hit the star surface
+    vec3 hitPos = ro + rd * t;
+    vec3 localPos = hitPos - star.position;
+    vec3 normal = normalize(localPos);
+
+    // Limb darkening - edges dimmer than center
+    float viewAngle = abs(dot(normal, -rd));
+    float limb = 0.4 + 0.6 * pow(viewAngle, 0.3);
+
+    // Simple animated surface variation using noise
+    mat3 rot = rotateY(uTime * 0.1);
+    vec3 surfaceCoord = rot * normal * 5.0;
+    float variation = noise(surfaceCoord + vec3(uTime * 0.05)) * 0.2 + 0.9;
+
+    // Base star color - bright yellow/orange
+    vec3 baseColor = vec3(1.0, 0.9, 0.5);
+
+    // Final color with limb darkening and variation
+    vec3 surfaceColor = baseColor * limb * variation;
+
+    alpha = 1.0;
+
+    // Depth calculation
+    vec4 clipPos = uViewProjection * vec4(hitPos, 1.0);
+    depth = (clipPos.z / clipPos.w) * 0.5 + 0.5;
+
+    return surfaceColor;
 }
 
 // ── Volumetric clouds ────────────────────────────────────────────────────────
@@ -467,8 +668,9 @@ Hit intersectPlanet(vec3 ro, vec3 rd) {
     float waterDepth = clamp(rawNoise / max(coastline, 0.001), 0.0, 1.0);
     vec3 waterColor = mix(uWaterColorDeep, uWaterColorSurface, waterDepth);
 
-    // Land: altitude-based biome coloring
-    float altitude = 5.0 * rawNoise;
+    // Land: altitude-based biome coloring (relative to water level)
+    float relativeHeight = rawNoise - coastline;  // Height above water
+    float altitude = 5.0 * max(relativeHeight, 0.0);  // Only positive (above water)
     vec3 landColor = uSandColor;
     landColor = mix(landColor, uTreeColor, smoothstep(uTreeLevel, uTreeLevel + uTransition, altitude));
     landColor = mix(landColor, uRockColor, smoothstep(uRockLevel, uRockLevel + uTransition, altitude));
@@ -481,10 +683,49 @@ Hit intersectPlanet(vec3 ro, vec3 rd) {
     float latitude = abs(localDir.y);
 
     if (uBandingStrength > 0.0) {
-        float band = sin(localDir.y * uBandingFrequency) * 0.5 + 0.5;
-        float bandNoise = noise(rotatedCoord * 2.0) * 0.3;
-        band = clamp(band + bandNoise, 0.0, 1.0);
-        color = mix(color, color * (0.6 + 0.8 * band), uBandingStrength);
+        // Jupiter-style bands with turbulent flow
+        float lon = atan(localDir.z, localDir.x);
+        float lat = localDir.y;
+
+        // Warp latitude with flowing turbulence
+        vec3 nc = rotatedCoord * 2.0;
+        float warp1 = noise(nc + vec3(uTime * 0.02, 0.0, 0.0)) - 0.5;
+        float warp2 = noise(nc * 1.5 + vec3(0.0, uTime * 0.015, 17.0)) - 0.5;
+        float warpedLat = lat + (warp1 * 0.06 + warp2 * 0.04) * uBandingStrength;
+
+        // Multiple band frequencies for varied width bands
+        float b1 = sin(warpedLat * uBandingFrequency) * 0.5 + 0.5;
+        float b2 = sin(warpedLat * uBandingFrequency * 0.4 + 0.5) * 0.5 + 0.5;
+        float b3 = sin(warpedLat * uBandingFrequency * 1.7 - 0.3) * 0.5 + 0.5;
+
+        // Combine for complex band structure
+        float band = b1 * 0.5 + b2 * 0.3 + b3 * 0.2;
+
+        // Flowing streaks within bands (longitude variation)
+        float streak = noise(vec3(lon * 8.0, lat * uBandingFrequency * 2.0, uTime * 0.05));
+        band += (streak - 0.5) * 0.15;
+
+        // Small turbulent eddies
+        float eddy = noise(rotatedCoord * 12.0 + vec3(uTime * 0.03));
+        float eddyMask = noise(rotatedCoord * 3.0);  // Where eddies appear
+        eddyMask = smoothstep(0.55, 0.7, eddyMask);
+        band += (eddy - 0.5) * 0.2 * eddyMask;
+
+        band = clamp(band, 0.0, 1.0);
+
+        // Three-tone color palette
+        vec3 darkBand = uTreeColor;
+        vec3 midBand = uRockColor;
+        vec3 lightBand = uSandColor;
+
+        vec3 bandColor;
+        if (band < 0.5) {
+            bandColor = mix(darkBand, midBand, band * 2.0);
+        } else {
+            bandColor = mix(midBand, lightBand, (band - 0.5) * 2.0);
+        }
+
+        color = mix(color, bandColor, uBandingStrength);
     }
 
     if (uPolarCapSize > 0.0) {
@@ -508,17 +749,13 @@ vec3 radiance(vec3 ro, vec3 rd) {
         spaceMask = 0.;
         vec3 hitPosition = ro + hit.len * rd;
 
-        // Diffuse
-        float directLightIntensity = pow(clamp(dot(hit.normal, uSunDirection), 0.0, 1.0), 2.) * uSunIntensity;
+        // Diffuse lighting
+        float NdotL = dot(hit.normal, uSunDirection);
+        float directLightIntensity = pow(clamp(NdotL, 0.0, 1.0), 2.) * uSunIntensity;
         vec3 diffuseLight = directLightIntensity * uSunColor;
         vec3 diffuseColor = hit.material.color.rgb * (uAmbientLight + diffuseLight);
 
-        // Phong specular
-        vec3 reflected = normalize(reflect(-uSunDirection, hit.normal));
-        float phongValue = pow(max(0.0, dot(rd, reflected)), 10.) * .2 * uSunIntensity;
-        vec3 specularColor = hit.material.specular * vec3(phongValue);
-
-        color = diffuseColor + specularColor;
+        color = diffuseColor;
     } else {
         color = spaceColor(rd);
     }
@@ -533,17 +770,76 @@ vec3 radiance(vec3 ro, vec3 rd) {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 void main() {
-    vec2 screenUV = uv;
-    screenUV.x *= uResolution.x / uResolution.y;
+    // Construct ray direction using inverse projection for correct FOV
+    // uv is in [-1, 1] clip space
+    vec4 clipNear = vec4(uv, -1.0, 1.0);
+    vec4 clipFar = vec4(uv, 1.0, 1.0);
 
+    // Unproject to view space
+    vec4 viewNear = uInvProjection * clipNear;
+    vec4 viewFar = uInvProjection * clipFar;
+    viewNear /= viewNear.w;
+    viewFar /= viewFar.w;
+
+    // Ray direction in view space
+    vec3 viewDir = normalize(viewFar.xyz - viewNear.xyz);
+
+    // Transform to world space
     vec3 ro = uCameraPosition;
-    vec3 rd = normalize(vec3(screenUV, -1));
-    rd = (uInvView * vec4(rd, 0.0)).xyz;
+    vec3 rd = normalize((uInvView * vec4(viewDir, 0.0)).xyz);
 
-    vec3 color = radiance(ro, rd);
+    // Special path for emissive bodies (stars)
+    if (uIsEmissive != 0) {
+        float starAlpha;
+        float starDepth;
+        vec3 starColor = renderStar(ro, rd, starAlpha, starDepth);
 
-    color = simpleReinhardToneMapping(color);
-    color *= 1. - 0.5 * pow(length(screenUV), 3.);
+        if (starAlpha <= 0.0) {
+            discard;
+        }
 
-    fragColor = vec4(color, 1.0);
+        // Tone map the star
+        starColor = simpleReinhardToneMapping(starColor);
+        fragColor = vec4(starColor, starAlpha);
+        gl_FragDepth = starDepth;
+        return;
+    }
+
+    // Check if ray hits this planet surface
+    Hit hit = intersectPlanet(ro, rd);
+
+    // Check atmosphere bounds (larger than planet)
+    float atmosRadius = uPlanetRadius * (1.0 + uAtmosphereDensity * 0.5);
+    Sphere atmosSphere = Sphere(uPlanetPosition, atmosRadius);
+    float atmosHit = sphIntersect(ro, rd, atmosSphere);
+
+    // Discard if we don't hit planet or atmosphere
+    if (hit.len >= INFINITY && atmosHit < 0.0) {
+        discard;
+    }
+
+    float alpha = 1.0;
+
+    if (hit.len >= INFINITY) {
+        // Ray is in atmosphere but didn't hit surface - render atmosphere only with alpha
+        float spaceMask = 1.0;
+        vec3 color = atmosphereColor(ro, rd, spaceMask);
+        color = simpleReinhardToneMapping(color);
+        // Use atmosphere intensity as alpha for blending with background
+        alpha = clamp(length(color) * 2.0, 0.0, 0.8);
+        fragColor = vec4(color, alpha);
+        // Write depth at atmosphere edge
+        vec3 atmosHitPos = ro + rd * atmosHit;
+        vec4 clipPos = uViewProjection * vec4(atmosHitPos, 1.0);
+        gl_FragDepth = (clipPos.z / clipPos.w) * 0.5 + 0.5;
+    } else {
+        // Hit the planet - render full planet with clouds and atmosphere
+        vec3 color = radiance(ro, rd);
+        color = simpleReinhardToneMapping(color);
+        fragColor = vec4(color, 1.0);
+        // Write proper depth for planet surface
+        vec3 hitPos = ro + rd * hit.len;
+        vec4 clipPos = uViewProjection * vec4(hitPos, 1.0);
+        gl_FragDepth = (clipPos.z / clipPos.w) * 0.5 + 0.5;
+    }
 }

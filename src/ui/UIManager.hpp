@@ -1,6 +1,9 @@
 #pragma once
 
 #include <imgui.h>
+#include <string>
+#include <functional>
+#include "render/RingRenderer.hpp"
 
 struct GLFWwindow;
 
@@ -23,6 +26,9 @@ public:
 
     // Render planet editor UI — edits params directly
     void render(PlanetParams& params);
+    void renderPlanetEditor(const std::string& bodyName, PlanetParams& params,
+                            RingParams* ringParams = nullptr,
+                            std::function<void()> onRingChanged = nullptr);
 
 private:
     void setupStyle();

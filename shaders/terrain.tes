@@ -1,0 +1,90 @@
+#version 450 core
+
+layout(quads, fractional_odd_spacing, ccw) in;
+
+in TCS_OUT {
+    vec2 uv;
+    float face;
+    float level;
+} tes_in[];
+
+out TES_OUT {
+    vec3 worldPos;
+    vec3 normal;
+    vec3 sphereDir;
+    float height;
+} tes_out;
+
+uniform mat4 uModel;
+uniform mat4 uViewProjection;
+uniform vec3 uPlanetCenter;
+uniform float uPlanetRadius;
+uniform float uNoiseStrength;
+uniform float uTerrainScale;
+uniform sampler3D uNoiseTexture;
+
+vec3 cubeToSphere(int face, vec2 uv) {
+    vec3 pos;
+    if (face == 0) pos = vec3( 1.0, uv.y, -uv.x);
+    else if (face == 1) pos = vec3(-1.0, uv.y,  uv.x);
+    else if (face == 2) pos = vec3(uv.x,  1.0, -uv.y);
+    else if (face == 3) pos = vec3(uv.x, -1.0,  uv.y);
+    else if (face == 4) pos = vec3(uv.x, uv.y,  1.0);
+    else pos = vec3(-uv.x, uv.y, -1.0);
+    return normalize(pos);
+}
+
+float sampleNoise(vec3 p) {
+    // Noise texture expects coords in [0,1] range, use fract for repeat
+    return texture(uNoiseTexture, fract(p * 0.05)).r;
+}
+
+float getHeight(vec3 dir) {
+    vec3 p = dir * uTerrainScale;
+
+    // Simple 2-octave noise
+    float h = sampleNoise(p) * 0.6;
+    h += sampleNoise(p * 2.0) * 0.3;
+    h += sampleNoise(p * 4.0) * 0.1;
+
+    // Normalize and apply strength
+    h = h * uNoiseStrength;
+
+    return h;
+}
+
+void main() {
+    vec2 uv = mix(
+        mix(tes_in[0].uv, tes_in[1].uv, gl_TessCoord.x),
+        mix(tes_in[3].uv, tes_in[2].uv, gl_TessCoord.x),
+        gl_TessCoord.y
+    );
+
+    int face = int(tes_in[0].face);
+    vec3 sphereDir = cubeToSphere(face, uv);
+
+    float height = getHeight(sphereDir);
+    vec3 worldPos = uPlanetCenter + sphereDir * (uPlanetRadius + height);
+
+    // Compute normal from height gradient
+    float eps = 0.01;
+    vec3 t1 = normalize(cross(vec3(0.0, 1.0, 0.0), sphereDir));
+    if (length(t1) < 0.1) t1 = normalize(cross(vec3(1.0, 0.0, 0.0), sphereDir));
+    vec3 t2 = normalize(cross(sphereDir, t1));
+
+    float hL = getHeight(normalize(sphereDir - t1 * eps));
+    float hR = getHeight(normalize(sphereDir + t1 * eps));
+    float hD = getHeight(normalize(sphereDir - t2 * eps));
+    float hU = getHeight(normalize(sphereDir + t2 * eps));
+
+    vec3 normal = normalize(sphereDir +
+        t1 * (hL - hR) / (2.0 * eps) +
+        t2 * (hD - hU) / (2.0 * eps));
+
+    tes_out.worldPos = worldPos;
+    tes_out.normal = normal;
+    tes_out.sphereDir = sphereDir;
+    tes_out.height = height;
+
+    gl_Position = uViewProjection * uModel * vec4(worldPos, 1.0);
+}

@@ -13,7 +13,7 @@ include(Dependencies)
 
 find_package(OpenGL REQUIRED)
 
-# Core sources - just what we need
+# Core sources
 set(ASTROCORE_SOURCES
     src/core/Window.cpp
     src/core/Application.cpp
@@ -21,7 +21,17 @@ set(ASTROCORE_SOURCES
     src/render/ShaderProgram.cpp
     src/render/Renderer.cpp
     src/render/Camera.cpp
+    src/render/SphereRenderer.cpp
+    src/render/OrbitRenderer.cpp
+    src/render/RingRenderer.cpp
     src/ui/UIManager.cpp
+    # Physics engine
+    src/physics/CelestialBody.cpp
+    src/physics/Octree.cpp
+    src/physics/Integrator.cpp
+    src/physics/PhysicsWorld.cpp
+    # Simulation
+    src/simulation/Simulation.cpp
 )
 
 add_library(astrocore_lib STATIC ${ASTROCORE_SOURCES})

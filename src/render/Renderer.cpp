@@ -10,6 +10,8 @@ namespace astrocore {
 Renderer::Renderer() = default;
 
 Renderer::~Renderer() {
+    m_sphereRenderer.shutdown();
+    m_orbitRenderer.shutdown();
     if (m_quadVAO) glDeleteVertexArrays(1, &m_quadVAO);
     if (m_quadVBO) glDeleteBuffers(1, &m_quadVBO);
     if (m_noiseTexture) glDeleteTextures(1, &m_noiseTexture);
@@ -21,13 +23,23 @@ void Renderer::init(int width, int height) {
 
     createQuad();
 
-    // Load shader
+    // Load shaders
     if (!m_shader.loadFromFiles("shaders/planet.vert", "shaders/planet.frag")) {
         LOG_ERROR("Failed to load planet shader");
     }
 
+    if (!m_starfieldShader.loadFromFiles("shaders/starfield.vert", "shaders/starfield.frag")) {
+        LOG_ERROR("Failed to load starfield shader");
+    }
+
     // Generate high-res 3D noise texture procedurally
     generateNoiseTexture(512);
+
+    // Initialize sphere renderer for multi-body rendering
+    m_sphereRenderer.init();
+
+    // Initialize orbit renderer for trail visualization
+    m_orbitRenderer.init();
 
     glEnable(GL_DEPTH_TEST);
 }
@@ -101,10 +113,21 @@ void Renderer::beginFrame() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
-void Renderer::render(const Camera& camera) {
+void Renderer::render(const Camera& camera, bool isEmissive) {
     m_time += 0.016f;  // ~60fps tick
 
+    // Enable depth test so planets occlude each other properly
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+
+    // Enable alpha blending for atmosphere glow
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     m_shader.use();
+
+    // Tell shader if this is an emissive body (star/sun)
+    m_shader.setInt("uIsEmissive", isEmissive ? 1 : 0);
 
     // Resolution and time
     m_shader.setVec2("uResolution", glm::vec2(m_width, m_height));
@@ -117,12 +140,17 @@ void Renderer::render(const Camera& camera) {
     glm::vec3 camPos = camera.getPosition();
     m_shader.setVec3("uCameraPosition", camPos);
     m_shader.setMat4("uInvView", glm::inverse(camera.getViewMatrix()));
+    m_shader.setMat4("uInvProjection", glm::inverse(camera.getProjectionMatrix()));
+    m_shader.setMat4("uViewProjection", camera.getViewProjectionMatrix());
 
     // Planet
-    m_shader.setVec3("uPlanetPosition", glm::vec3(0.0f, 0.0f, -10.0f));
+    m_shader.setVec3("uPlanetPosition", m_planetPosition);
     m_shader.setFloat("uPlanetRadius", m_params.radius);
     m_shader.setFloat("uNoiseStrength", m_params.noiseStrength);
     m_shader.setFloat("uTerrainScale", m_params.terrainScale);
+
+    // Noise type
+    m_shader.setInt("uNoiseType", static_cast<int>(m_params.noiseType));
 
     // FBM terrain shape
     m_shader.setInt("uFbmOctaves", m_params.fbmOctaves);
@@ -133,6 +161,7 @@ void Renderer::render(const Camera& camera) {
     m_shader.setFloat("uRidgedStrength", m_params.ridgedStrength);
     m_shader.setFloat("uCraterStrength", m_params.craterStrength);
     m_shader.setFloat("uContinentScale", m_params.continentScale);
+    m_shader.setFloat("uContinentBlend", m_params.continentBlend);
     m_shader.setFloat("uWaterLevel", m_params.waterLevel);
     m_shader.setFloat("uPolarCapSize", m_params.polarCapSize);
     m_shader.setFloat("uBandingStrength", m_params.bandingStrength);
@@ -183,10 +212,71 @@ void Renderer::render(const Camera& camera) {
     glBindVertexArray(0);
 
     m_shader.unuse();
+
+    // Disable blending after planet rendering
+    glDisable(GL_BLEND);
 }
 
 void Renderer::endFrame() {
     // Nothing
+}
+
+void Renderer::renderStarfield(const Camera& camera) {
+    // Render starfield as background (before other geometry)
+    glDepthMask(GL_FALSE);  // Don't write to depth buffer
+    glDepthFunc(GL_LEQUAL); // Render at far plane
+
+    m_starfieldShader.use();
+    m_starfieldShader.setMat4("uInvViewProj", glm::inverse(camera.getViewProjectionMatrix()));
+    m_starfieldShader.setFloat("uTime", m_time);
+
+    glBindVertexArray(m_quadVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    m_starfieldShader.unuse();
+
+    glDepthMask(GL_TRUE);   // Re-enable depth writing
+    glDepthFunc(GL_LESS);   // Normal depth test
+}
+
+void Renderer::setupRing(uint64_t bodyId, const RingParams& params, float planetRadius, float planetMass) {
+    m_ringParams[bodyId] = params;
+
+    if (params.enabled) {
+        if (m_ringRenderers.find(bodyId) == m_ringRenderers.end()) {
+            m_ringRenderers[bodyId] = std::make_unique<RingRenderer>();
+            m_ringRenderers[bodyId]->init();
+        }
+        m_ringRenderers[bodyId]->generateRing(params, planetRadius, planetMass);
+    }
+}
+
+void Renderer::updateRings(float deltaTime) {
+    for (auto& [id, renderer] : m_ringRenderers) {
+        renderer->update(deltaTime, 1.0f);  // Mass not used currently
+    }
+}
+
+void Renderer::renderRing(uint64_t bodyId, const Camera& camera, const glm::vec3& planetPos) {
+    auto it = m_ringRenderers.find(bodyId);
+    if (it == m_ringRenderers.end()) return;
+
+    auto paramsIt = m_ringParams.find(bodyId);
+    if (paramsIt == m_ringParams.end()) return;
+
+    it->second->render(camera.getViewProjectionMatrix(), planetPos,
+                       camera.getPosition(), paramsIt->second);
+}
+
+RingParams* Renderer::getRingParams(uint64_t bodyId) {
+    auto it = m_ringParams.find(bodyId);
+    return (it != m_ringParams.end()) ? &it->second : nullptr;
+}
+
+bool Renderer::hasRing(uint64_t bodyId) const {
+    auto it = m_ringParams.find(bodyId);
+    return it != m_ringParams.end() && it->second.enabled;
 }
 
 }  // namespace astrocore

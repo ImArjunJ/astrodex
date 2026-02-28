@@ -132,11 +132,6 @@ void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) 
 void Window::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
 
-    // ESC to close window
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
-    }
-
     if (self->m_keyCallback) {
         self->m_keyCallback(key, scancode, action, mods);
     }

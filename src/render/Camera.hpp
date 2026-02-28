@@ -19,6 +19,18 @@ public:
     void zoom(float delta);
     void pan(float deltaX, float deltaY);
 
+    // Free movement controls (WASD-style)
+    void moveForward(float distance);
+    void moveRight(float distance);
+    void moveUp(float distance);
+    void setFreeMode(bool free) { m_freeMode = free; }
+    bool isFreeMode() const { return m_freeMode; }
+
+    // Smooth transitions
+    void transitionTo(const glm::vec3& newTarget, float duration = 1.0f, float targetDistance = -1.0f);
+    bool isTransitioning() const { return m_transitioning; }
+    float getDistance() const { return m_distance; }
+
     // Update camera state
     void update(float deltaTime);
 
@@ -52,15 +64,29 @@ private:
     float m_yaw = 0.0f;       // Horizontal angle
     float m_pitch = 0.0f;     // Vertical angle
     float m_minDistance = 1.0f;
-    float m_maxDistance = 100.0f;
+    float m_maxDistance = 1000.0f;  // Increased for sandbox scale
     float m_minPitch = -89.0f * 0.0174533f;  // -89 degrees in radians
     float m_maxPitch = 89.0f * 0.0174533f;   // 89 degrees in radians
+
+    // Free movement mode
+    bool m_freeMode = false;
+
+    // Smooth transition
+    bool m_transitioning = false;
+    glm::vec3 m_transitionStartPos{0.0f};
+    glm::vec3 m_transitionEndPos{0.0f};
+    glm::vec3 m_transitionStartTarget{0.0f};
+    glm::vec3 m_transitionEndTarget{0.0f};
+    float m_transitionStartDistance = 0.0f;
+    float m_transitionEndDistance = 0.0f;
+    float m_transitionProgress = 0.0f;
+    float m_transitionDuration = 1.0f;
 
     // Projection parameters
     float m_fov = 45.0f * 0.0174533f;  // 45 degrees in radians
     float m_aspectRatio = 16.0f / 9.0f;
-    float m_nearPlane = 0.1f;
-    float m_farPlane = 1000.0f;
+    float m_nearPlane = 0.01f;
+    float m_farPlane = 100000.0f;  // Need large range for solar system scale
 
     // Cached matrices
     mutable glm::mat4 m_viewMatrix{1.0f};

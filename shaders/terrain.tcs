@@ -1,0 +1,65 @@
+#version 450 core
+
+// Optimized TCS - distance-based tessellation, minimal computation
+
+layout(vertices = 4) out;
+
+in VS_OUT {
+    vec2 uv;
+    float face;
+    float level;
+} tcs_in[];
+
+out TCS_OUT {
+    vec2 uv;
+    float face;
+    float level;
+} tcs_out[];
+
+uniform vec3 uCameraPosition;
+uniform vec3 uPlanetCenter;
+uniform float uPlanetRadius;
+uniform float uTessellationFactor;
+
+// Cube-to-sphere projection - must match CPU code exactly
+vec3 cubeToSphere(int face, vec2 uv) {
+    vec3 pos;
+    if (face == 0) pos = vec3( 1.0, uv.y, -uv.x);       // +X
+    else if (face == 1) pos = vec3(-1.0, uv.y,  uv.x);  // -X
+    else if (face == 2) pos = vec3(uv.x,  1.0, -uv.y);  // +Y
+    else if (face == 3) pos = vec3(uv.x, -1.0,  uv.y);  // -Y
+    else if (face == 4) pos = vec3(uv.x, uv.y,  1.0);   // +Z
+    else pos = vec3(-uv.x, uv.y, -1.0);                 // -Z
+    return normalize(pos);
+}
+
+void main() {
+    tcs_out[gl_InvocationID].uv = tcs_in[gl_InvocationID].uv;
+    tcs_out[gl_InvocationID].face = tcs_in[gl_InvocationID].face;
+    tcs_out[gl_InvocationID].level = tcs_in[gl_InvocationID].level;
+
+    if (gl_InvocationID == 0) {
+        int face = int(tcs_in[0].face);
+        float level = tcs_in[0].level;
+
+        // Get patch center world position
+        vec2 centerUV = (tcs_in[0].uv + tcs_in[2].uv) * 0.5;
+        vec3 centerDir = cubeToSphere(face, centerUV);
+        vec3 worldPos = uPlanetCenter + centerDir * uPlanetRadius;
+
+        // Distance-based tessellation
+        float dist = length(worldPos - uCameraPosition);
+        float baseTess = uPlanetRadius * uTessellationFactor / max(dist, 0.1);
+
+        // Clamp tessellation - keep it LOW for performance
+        float maxTess = 16.0;  // Never go above 16
+        float tessLevel = clamp(baseTess * 4.0, 1.0, maxTess);
+
+        gl_TessLevelOuter[0] = tessLevel;
+        gl_TessLevelOuter[1] = tessLevel;
+        gl_TessLevelOuter[2] = tessLevel;
+        gl_TessLevelOuter[3] = tessLevel;
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelInner[1] = tessLevel;
+    }
+}

@@ -6,8 +6,81 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <GLFW/glfw3.h>
+#include <nlohmann/json.hpp>
+#include <sstream>
+
+using json = nlohmann::json;
 
 namespace astrocore {
+
+// ── JSON Export ──────────────────────────────────────────────────────────────
+
+static std::string paramsToJson(const PlanetParams& p) {
+    json j;
+    // Geometry
+    j["radius"] = p.radius;
+    j["rotationSpeed"] = p.rotationSpeed;
+    j["rotationOffset"] = p.rotationOffset;
+    j["quality"] = p.quality;
+
+    // Noise
+    j["noiseType"] = static_cast<int>(p.noiseType);
+    j["noiseStrength"] = p.noiseStrength;
+    j["terrainScale"] = p.terrainScale;
+    j["fbmOctaves"] = p.fbmOctaves;
+    j["fbmPersistence"] = p.fbmPersistence;
+    j["fbmLacunarity"] = p.fbmLacunarity;
+    j["fbmExponentiation"] = p.fbmExponentiation;
+    j["domainWarpStrength"] = p.domainWarpStrength;
+
+    // Terrain features
+    j["ridgedStrength"] = p.ridgedStrength;
+    j["craterStrength"] = p.craterStrength;
+    j["continentScale"] = p.continentScale;
+    j["continentBlend"] = p.continentBlend;
+    j["waterLevel"] = p.waterLevel;
+
+    // Latitude
+    j["polarCapSize"] = p.polarCapSize;
+    j["bandingStrength"] = p.bandingStrength;
+    j["bandingFrequency"] = p.bandingFrequency;
+
+    // Colors
+    j["waterColorDeep"] = {p.waterColorDeep.x, p.waterColorDeep.y, p.waterColorDeep.z};
+    j["waterColorSurface"] = {p.waterColorSurface.x, p.waterColorSurface.y, p.waterColorSurface.z};
+    j["sandColor"] = {p.sandColor.x, p.sandColor.y, p.sandColor.z};
+    j["treeColor"] = {p.treeColor.x, p.treeColor.y, p.treeColor.z};
+    j["rockColor"] = {p.rockColor.x, p.rockColor.y, p.rockColor.z};
+    j["iceColor"] = {p.iceColor.x, p.iceColor.y, p.iceColor.z};
+
+    // Biome levels
+    j["sandLevel"] = p.sandLevel;
+    j["treeLevel"] = p.treeLevel;
+    j["rockLevel"] = p.rockLevel;
+    j["iceLevel"] = p.iceLevel;
+    j["transition"] = p.transition;
+
+    // Clouds
+    j["cloudsDensity"] = p.cloudsDensity;
+    j["cloudsScale"] = p.cloudsScale;
+    j["cloudsSpeed"] = p.cloudsSpeed;
+    j["cloudAltitude"] = p.cloudAltitude;
+    j["cloudThickness"] = p.cloudThickness;
+    j["cloudColor"] = {p.cloudColor.x, p.cloudColor.y, p.cloudColor.z};
+
+    // Atmosphere
+    j["atmosphereColor"] = {p.atmosphereColor.x, p.atmosphereColor.y, p.atmosphereColor.z};
+    j["atmosphereDensity"] = p.atmosphereDensity;
+
+    // Lighting
+    j["sunDirection"] = {p.sunDirection.x, p.sunDirection.y, p.sunDirection.z};
+    j["sunIntensity"] = p.sunIntensity;
+    j["ambientLight"] = p.ambientLight;
+    j["sunColor"] = {p.sunColor.x, p.sunColor.y, p.sunColor.z};
+    j["deepSpaceColor"] = {p.deepSpaceColor.x, p.deepSpaceColor.y, p.deepSpaceColor.z};
+
+    return j.dump(2);
+}
 
 // ── Presets ──────────────────────────────────────────────────────────────────
 
@@ -234,6 +307,29 @@ void UIManager::beginFrame() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+
+    // Create fullscreen dockspace
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+
+    ImGuiWindowFlags dockspaceFlags =
+        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+
+    ImGui::Begin("DockSpace", nullptr, dockspaceFlags);
+    ImGui::PopStyleVar(3);
+
+    ImGuiID dockspaceId = ImGui::GetID("MainDockSpace");
+    ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
+    ImGui::End();
 }
 
 void UIManager::endFrame() {
@@ -242,13 +338,23 @@ void UIManager::endFrame() {
 }
 
 void UIManager::render(PlanetParams& p) {
+    renderPlanetEditor("Planet", p);
+}
+
+void UIManager::renderPlanetEditor(const std::string& bodyName, PlanetParams& p,
+                                    RingParams* ringParams,
+                                    std::function<void()> onRingChanged) {
     ImGui::SetNextWindowSize(ImVec2(340, 720), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
 
-    if (!ImGui::Begin("Planet Editor")) {
+    if (!ImGui::Begin("Properties")) {
         ImGui::End();
         return;
     }
+
+    // Show which body is being edited
+    ImGui::Text("Editing: %s", bodyName.c_str());
+    ImGui::Separator();
 
     // ── Presets ──────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Presets", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -270,6 +376,13 @@ void UIManager::render(PlanetParams& p) {
 
     // ── Terrain ──────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Terrain", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Noise type selector
+        const char* noiseTypes[] = {"Standard", "Ridged", "Billowy", "Warped", "Voronoi", "Swiss", "Hybrid"};
+        int noiseType = static_cast<int>(p.noiseType);
+        if (ImGui::Combo("Noise Type", &noiseType, noiseTypes, 7)) {
+            p.noiseType = static_cast<NoiseType>(noiseType);
+        }
+
         ImGui::SliderFloat("Noise Strength", &p.noiseStrength, 0.0f, 0.5f);
         ImGui::SliderFloat("Terrain Scale", &p.terrainScale, 0.1f, 3.0f);
         ImGui::SliderFloat("Water Level", &p.waterLevel, -0.2f, 0.3f);
@@ -285,6 +398,7 @@ void UIManager::render(PlanetParams& p) {
         ImGui::SliderFloat("Ridged Strength", &p.ridgedStrength, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Crater Strength", &p.craterStrength, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Continent Scale", &p.continentScale, 0.0f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Continent Blend", &p.continentBlend, 0.01f, 0.5f, "%.2f");
     }
 
     // ── Latitude Effects ────────────────────────────────────────────────
@@ -340,11 +454,93 @@ void UIManager::render(PlanetParams& p) {
         ImGui::ColorEdit3("Deep Space", &p.deepSpaceColor.x);
     }
 
-    // ── Reset ───────────────────────────────────────────────────────────
+    // ── Rings ───────────────────────────────────────────────────────────
+    if (ringParams && ImGui::CollapsingHeader("Rings")) {
+        bool changed = false;
+
+        if (ImGui::Checkbox("Enable Rings", &ringParams->enabled)) {
+            changed = true;
+        }
+
+        if (ringParams->enabled) {
+            // Global ring settings
+            if (ImGui::SliderInt("Total Particles", &ringParams->totalParticles, 1000, 100000)) changed = true;
+            if (ImGui::SliderFloat("Thickness", &ringParams->thickness, 0.001f, 0.1f, "%.3f")) changed = true;
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Ring Bands");
+
+            // Add new band button
+            if (ImGui::Button("+ Add Band")) {
+                // Default new band just outside existing rings
+                float newInner = 1.5f;
+                if (!ringParams->bands.empty()) {
+                    newInner = ringParams->bands.back().outerRadius + 0.05f;
+                }
+                ringParams->addBand(newInner, newInner + 0.3f,
+                                    {0.8f, 0.75f, 0.65f}, {0.6f, 0.55f, 0.5f}, 0.8f);
+                changed = true;
+            }
+
+            // Edit each band
+            int bandToRemove = -1;
+            for (size_t i = 0; i < ringParams->bands.size(); i++) {
+                auto& band = ringParams->bands[i];
+                ImGui::PushID(static_cast<int>(i));
+
+                // Band header with remove button
+                char bandLabel[32];
+                snprintf(bandLabel, sizeof(bandLabel), "Band %zu", i + 1);
+                bool bandOpen = ImGui::TreeNodeEx(bandLabel, ImGuiTreeNodeFlags_DefaultOpen);
+
+                ImGui::SameLine(ImGui::GetWindowWidth() - 60);
+                if (ImGui::SmallButton("Remove")) {
+                    bandToRemove = static_cast<int>(i);
+                }
+
+                if (bandOpen) {
+                    if (ImGui::SliderFloat("Inner R", &band.innerRadius, 1.0f, 5.0f, "%.2f")) changed = true;
+                    if (ImGui::SliderFloat("Outer R", &band.outerRadius, 1.0f, 5.0f, "%.2f")) changed = true;
+
+                    // Ensure outer > inner
+                    if (band.outerRadius <= band.innerRadius) {
+                        band.outerRadius = band.innerRadius + 0.01f;
+                    }
+
+                    if (ImGui::SliderFloat("Opacity##band", &band.opacity, 0.0f, 1.0f)) changed = true;
+                    if (ImGui::SliderFloat("Density##band", &band.density, 0.1f, 3.0f, "%.1f")) changed = true;
+                    if (ImGui::ColorEdit3("Inner Color##band", &band.innerColor.x)) changed = true;
+                    if (ImGui::ColorEdit3("Outer Color##band", &band.outerColor.x)) changed = true;
+
+                    ImGui::TreePop();
+                }
+
+                ImGui::PopID();
+            }
+
+            // Remove band if requested
+            if (bandToRemove >= 0 && bandToRemove < static_cast<int>(ringParams->bands.size())) {
+                ringParams->bands.erase(ringParams->bands.begin() + bandToRemove);
+                changed = true;
+            }
+
+            if (changed && onRingChanged) {
+                onRingChanged();
+            }
+        }
+    }
+
+    // ── Actions ─────────────────────────────────────────────────────────
     ImGui::Separator();
     if (ImGui::Button("Reset to Defaults")) {
         p = PlanetParams{};
         m_presetIndex = 0;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Copy JSON")) {
+        std::string jsonStr = paramsToJson(p);
+        ImGui::SetClipboardText(jsonStr.c_str());
+        LOG_INFO("Planet parameters copied to clipboard");
     }
 
     ImGui::End();
