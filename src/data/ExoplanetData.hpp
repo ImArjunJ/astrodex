@@ -7,6 +7,7 @@
 
 namespace astrocore {
 
+// Physical constants for unit conversions and calculations
 namespace constants {
     constexpr double JUPITER_TO_EARTH_MASS = 317.8;
     constexpr double JUPITER_TO_EARTH_RADIUS = 11.2;

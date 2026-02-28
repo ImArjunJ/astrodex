@@ -14,11 +14,10 @@ namespace astrocore {
 struct NasaApiClient::Impl {
     NasaApiConfig config;
     CURL* curl = nullptr;
-    std::string responseBuffer;
 
     static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-        auto* self = static_cast<Impl*>(userp);
-        self->responseBuffer.append(static_cast<char*>(contents), size * nmemb);
+        auto* buffer = static_cast<std::string*>(userp);
+        buffer->append(static_cast<const char*>(contents), size * nmemb);
         return size * nmemb;
     }
 };
@@ -175,13 +174,13 @@ std::vector<ExoplanetData> NasaApiClient::executeQuery(const std::string& adql) 
     std::string cachePath = getCachePath(adql);
     auto cachedData = readCache(cachePath);
 
+    std::string responseBuffer;
+
     if (cachedData) {
         LOG_DEBUG("NASA cache hit: {}", cachePath);
-        m_impl->responseBuffer = *cachedData;
+        responseBuffer = *cachedData;
     } else {
         LOG_DEBUG("NASA cache miss: {}", cachePath);
-
-        m_impl->responseBuffer.clear();
 
         // Build URL with TAP query parameter
         std::string url = m_impl->config.tap_endpoint +
@@ -192,7 +191,7 @@ std::vector<ExoplanetData> NasaApiClient::executeQuery(const std::string& adql) 
 
         curl_easy_setopt(m_impl->curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(m_impl->curl, CURLOPT_WRITEFUNCTION, Impl::writeCallback);
-        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, m_impl.get());
+        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, &responseBuffer);
         curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, static_cast<long>(m_impl->config.timeout_seconds));
         curl_easy_setopt(m_impl->curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(m_impl->curl, CURLOPT_USERAGENT, "AstroCore/0.1.0");
@@ -213,21 +212,21 @@ std::vector<ExoplanetData> NasaApiClient::executeQuery(const std::string& adql) 
         }
 
         // Cache the response
-        writeCache(cachePath, m_impl->responseBuffer);
+        writeCache(cachePath, responseBuffer);
     }
 
     // Parse JSON response
     try {
-        LOG_DEBUG("NASA API response size: {} bytes", m_impl->responseBuffer.size());
+        LOG_DEBUG("NASA API response size: {} bytes", responseBuffer.size());
 
         // Check for error responses
-        if (m_impl->responseBuffer.find("ERROR") != std::string::npos ||
-            m_impl->responseBuffer.find("error") != std::string::npos) {
-            LOG_ERROR("NASA API error: {}", m_impl->responseBuffer.substr(0, 500));
+        if (responseBuffer.find("ERROR") != std::string::npos ||
+            responseBuffer.find("error") != std::string::npos) {
+            LOG_ERROR("NASA API error: {}", responseBuffer.substr(0, 500));
             return {};
         }
 
-        auto json = nlohmann::json::parse(m_impl->responseBuffer);
+        auto json = nlohmann::json::parse(responseBuffer);
         std::vector<ExoplanetData> results;
 
         // NASA TAP can return data as array directly or nested
@@ -260,7 +259,7 @@ std::vector<ExoplanetData> NasaApiClient::executeQuery(const std::string& adql) 
 
     } catch (const nlohmann::json::exception& e) {
         LOG_ERROR("Failed to parse NASA API response: {} - Response: {}",
-                  e.what(), m_impl->responseBuffer.substr(0, 200));
+                  e.what(), responseBuffer.substr(0, 200));
         return {};
     }
 }

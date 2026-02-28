@@ -7,8 +7,13 @@
 #include <sstream>
 #include <cstdlib>
 #include <cmath>
+#include <mutex>
 
 namespace astrocore {
+
+namespace {
+    std::once_flag g_gaia_curl_init;
+}
 
 // PIMPL implementation
 struct GaiaClient::Impl {
@@ -16,7 +21,7 @@ struct GaiaClient::Impl {
     CURL* curl = nullptr;
 
     Impl(const GaiaConfig& cfg) : config(cfg) {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
+        std::call_once(g_gaia_curl_init, []() { curl_global_init(CURL_GLOBAL_DEFAULT); });
         curl = curl_easy_init();
 
         // Check for authentication from environment variables
@@ -37,7 +42,6 @@ struct GaiaClient::Impl {
         if (curl) {
             curl_easy_cleanup(curl);
         }
-        curl_global_cleanup();
     }
 
     std::string getCachePath(const std::string& queryKey) const {
@@ -81,12 +85,12 @@ struct GaiaClient::Impl {
 
     static size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* output) {
         size_t totalSize = size * nmemb;
-        output->append((char*)contents, totalSize);
+        output->append(static_cast<const char*>(contents), totalSize);
         return totalSize;
     }
 
-    static std::string urlEncode(const std::string& str) {
-        char* encoded = curl_easy_escape(nullptr, str.c_str(), str.length());
+    std::string urlEncode(const std::string& str) {
+        char* encoded = curl_easy_escape(curl, str.c_str(), static_cast<int>(str.length()));
         std::string result(encoded);
         curl_free(encoded);
         return result;
@@ -150,7 +154,7 @@ nlohmann::json GaiaClient::executeQuery(const std::string& adql) {
     std::string requestParam = "REQUEST=doQuery";
     std::string langParam = "LANG=ADQL";
     std::string formatParam = "FORMAT=json";
-    std::string queryParam = "QUERY=" + Impl::urlEncode(adql);
+    std::string queryParam = "QUERY=" + m_impl->urlEncode(adql);
 
     url += "?" + requestParam + "&" + langParam + "&" + formatParam + "&" + queryParam;
 

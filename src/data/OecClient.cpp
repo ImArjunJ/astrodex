@@ -251,8 +251,13 @@ std::vector<ExoplanetData> OecClient::parseSystemXml(const std::string& xmlConte
     }
 
     // Recursive function to find all planet nodes
-    std::function<void(pugi::xml_node, pugi::xml_node)> findPlanets;
-    findPlanets = [&](pugi::xml_node node, pugi::xml_node parentStar) {
+    constexpr int MAX_DEPTH = 20;
+    std::function<void(pugi::xml_node, pugi::xml_node, int)> findPlanets;
+    findPlanets = [&](pugi::xml_node node, pugi::xml_node parentStar, int depth) {
+        if (depth > MAX_DEPTH) {
+            LOG_WARN("OEC XML recursion depth limit ({}) reached, skipping subtree", MAX_DEPTH);
+            return;
+        }
         for (pugi::xml_node child : node.children()) {
             if (std::string(child.name()) == "planet") {
                 // Found a planet - parse it
@@ -272,25 +277,25 @@ std::vector<ExoplanetData> OecClient::parseSystemXml(const std::string& xmlConte
                 // Mass - OEC uses Jupiter masses, convert to Earth masses
                 if (child.child("mass")) {
                     double mass_jupiter = child.child("mass").text().as_double();
-                    planet.mass_earth.value = mass_jupiter * 317.8;
+                    planet.mass_earth.value = mass_jupiter * constants::JUPITER_TO_EARTH_MASS;
                     planet.mass_earth.source = DataSource::OEC;
 
                     // Check for uncertainty
                     if (child.child("mass").attribute("errorminus")) {
                         double error = child.child("mass").attribute("errorminus").as_double();
-                        planet.mass_earth.uncertainty = error * 317.8;
+                        planet.mass_earth.uncertainty = error * constants::JUPITER_TO_EARTH_MASS;
                     }
                 }
 
                 // Radius - OEC uses Jupiter radii, convert to Earth radii
                 if (child.child("radius")) {
                     double radius_jupiter = child.child("radius").text().as_double();
-                    planet.radius_earth.value = radius_jupiter * 11.2;
+                    planet.radius_earth.value = radius_jupiter * constants::JUPITER_TO_EARTH_RADIUS;
                     planet.radius_earth.source = DataSource::OEC;
 
                     if (child.child("radius").attribute("errorminus")) {
                         double error = child.child("radius").attribute("errorminus").as_double();
-                        planet.radius_earth.uncertainty = error * 11.2;
+                        planet.radius_earth.uncertainty = error * constants::JUPITER_TO_EARTH_RADIUS;
                     }
                 }
 
@@ -371,21 +376,21 @@ std::vector<ExoplanetData> OecClient::parseSystemXml(const std::string& xmlConte
             }
             else if (std::string(child.name()) == "star") {
                 // Found a star - recursively search for planets within it
-                findPlanets(child, child);
+                findPlanets(child, child, depth + 1);
             }
             else if (std::string(child.name()) == "binary") {
                 // Found a binary system - recursively search within it
-                findPlanets(child, parentStar);
+                findPlanets(child, parentStar, depth + 1);
             }
             else {
                 // Other node types - continue recursing
-                findPlanets(child, parentStar);
+                findPlanets(child, parentStar, depth + 1);
             }
         }
     };
 
     // Start recursive search from system root
-    findPlanets(systemNode, pugi::xml_node());
+    findPlanets(systemNode, pugi::xml_node(), 0);
 
     LOG_INFO("OEC parsed {} planets from system {}", planets.size(), systemName);
     return planets;

@@ -61,6 +61,21 @@ struct PlanetParams {
     glm::vec3 sunColor     = {1.0f, 1.0f, 0.9f};
     glm::vec3 deepSpaceColor = {0.0f, 0.0f, 0.001f};
 
+    // Black hole
+    bool  isBlackHole = false;
+    float bhMass = 1.0f;
+    float bhAccretionInner = 3.0f;
+    float bhAccretionOuter = 10.0f;
+    float bhDiskSpeed = 1.0f;
+    float bhDiskTurbulence = 0.3f;
+    float bhDiskBrightness = 2.0f;
+    float bhDiskTemperatureInner = 10000.0f;
+    float bhDiskTemperatureOuter = 3000.0f;
+    glm::vec3 bhDiskTint = {1.0f, 0.95f, 0.9f};
+    int   bhRaySteps = 128;
+    float bhDopplerStrength = 1.0f;
+
+    // Rendering
     float rotationOffset = 0.6f;
     float quality = 1.0f;
 };

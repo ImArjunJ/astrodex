@@ -5,15 +5,20 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <mutex>
 
 namespace astrocore {
+
+namespace {
+    std::once_flag g_cds_curl_init;
+}
 
 struct CdsClient::Impl {
     CdsConfig config;
     CURL* curl = nullptr;
 
     Impl(const CdsConfig& cfg) : config(cfg) {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
+        std::call_once(g_cds_curl_init, []() { curl_global_init(CURL_GLOBAL_DEFAULT); });
         curl = curl_easy_init();
 
         if (config.use_cache) {
@@ -25,7 +30,6 @@ struct CdsClient::Impl {
         if (curl) {
             curl_easy_cleanup(curl);
         }
-        curl_global_cleanup();
     }
 
     std::string getCachePath(const std::string& queryKey) const {
@@ -68,12 +72,12 @@ struct CdsClient::Impl {
 
     static size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* output) {
         size_t totalSize = size * nmemb;
-        output->append((char*)contents, totalSize);
+        output->append(static_cast<const char*>(contents), totalSize);
         return totalSize;
     }
 
-    static std::string urlEncode(const std::string& str) {
-        char* encoded = curl_easy_escape(nullptr, str.c_str(), static_cast<int>(str.length()));
+    std::string urlEncode(const std::string& str) {
+        char* encoded = curl_easy_escape(curl, str.c_str(), static_cast<int>(str.length()));
         std::string result(encoded);
         curl_free(encoded);
         return result;
@@ -87,10 +91,18 @@ CdsClient::CdsClient(const CdsConfig& config)
 CdsClient::~CdsClient() = default;
 
 std::string CdsClient::buildSimbadNameQuery(const std::string& starName) {
+    // Escape single quotes to prevent ADQL injection
+    std::string escaped = starName;
+    std::string::size_type pos = 0;
+    while ((pos = escaped.find('\'', pos)) != std::string::npos) {
+        escaped.replace(pos, 1, "''");
+        pos += 2;
+    }
+
     std::ostringstream query;
     query << "SELECT TOP 1 main_id, ra, dec, sp_type "
           << "FROM basic JOIN ident ON oidref = oid "
-          << "WHERE id = '" << starName << "'";
+          << "WHERE id = '" << escaped << "'";
     return query.str();
 }
 
@@ -124,7 +136,7 @@ nlohmann::json CdsClient::executeQuery(const std::string& endpoint, const std::s
     }
 
     std::string url = endpoint;
-    std::string params = "REQUEST=doQuery&LANG=ADQL&FORMAT=json&QUERY=" + Impl::urlEncode(adql);
+    std::string params = "REQUEST=doQuery&LANG=ADQL&FORMAT=json&QUERY=" + m_impl->urlEncode(adql);
     url += "?" + params;
 
     LOG_DEBUG("CDS query: {}", url);
