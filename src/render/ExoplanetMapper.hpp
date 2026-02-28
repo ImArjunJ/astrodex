@@ -6,8 +6,17 @@
 #include <nlohmann/json.hpp>
 #include <set>
 #include <string>
+#include <vector>
+#include <utility>
 
 namespace astrocore {
+
+// Per-field accuracy scores from known-planet validation.
+struct ValidationReport {
+    float overall_score = 0.0f;  // 0–1; higher is more accurate
+    std::string summary;
+    std::vector<std::pair<std::string, float>> field_scores;  // (field, 0–1)
+};
 
 enum class PlanetCategory {
     LavaWorld,
@@ -66,6 +75,12 @@ public:
                                        AnalogMatch*          analogMatch  = nullptr);
 
     static std::string categoryName(PlanetCategory cat);
+
+    // Compare AI-predicted params against a known-good reference (e.g. a
+    // hand-tuned solar-system entry).  Used to measure prompt accuracy and
+    // guide iterative prompt improvements.
+    static ValidationReport validate(const PlanetParams& predicted,
+                                     const PlanetParams& known);
 };
 
 }  // namespace astrocore

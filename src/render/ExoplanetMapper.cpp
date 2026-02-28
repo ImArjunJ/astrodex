@@ -1,6 +1,8 @@
 #include "render/ExoplanetMapper.hpp"
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <numeric>
 #include <optional>
 
 namespace astrocore {
@@ -269,7 +271,7 @@ PlanetParams ExoplanetMapper::toPlanetParams(const ExoplanetData&  data,
     return p;
 }
 
-// ─── AI override pass (fill-empty-slots only) ────────────────────────────────
+// ─── AI override pass (fill-empty-slots only, confidence-weighted) ───────────
 
 void ExoplanetMapper::applyAIRenderOverrides(PlanetParams&                params,
                                               const nlohmann::json&        aiJson,
@@ -294,49 +296,68 @@ void ExoplanetMapper::applyAIRenderOverrides(PlanetParams&                params
         return std::nullopt;
     };
 
-    // Terrain — only fill if physics pass didn't set from real data
-    if (!skip("noiseStrength"))     { if (auto v = getF("noiseStrength"))      params.noiseStrength     = *v; }
-    if (!skip("ridgedStrength"))    { if (auto v = getF("ridgedStrength"))      params.ridgedStrength    = *v; }
-    if (!skip("craterStrength"))    { if (auto v = getF("craterStrength"))      params.craterStrength    = *v; }
-    if (!skip("continentScale"))    { if (auto v = getF("continentScale"))      params.continentScale    = *v; }
-    if (!skip("terrainScale"))      { if (auto v = getF("terrainScale"))        params.terrainScale      = *v; }
-    if (!skip("domainWarpStrength")){ if (auto v = getF("domainWarpStrength"))  params.domainWarpStrength= *v; }
+    // Per-field blend weight from optional "_confidence" object (0–1).
+    // 1.0 = full AI override; 0.5 = halfway blend; 0.0 = keep current.
+    auto getConf = [&](const std::string& key) -> float {
+        if (aiJson.contains("_confidence")) {
+            const auto& c = aiJson["_confidence"];
+            if (c.contains(key) && c[key].is_number())
+                return std::clamp(c[key].get<float>(), 0.0f, 1.0f);
+        }
+        return 1.0f;  // default: fully apply
+    };
+
+    // Blend helpers: lerp between current value and AI suggestion
+    auto blendF = [](float current, float ai, float w) {
+        return current + w * (ai - current);
+    };
+    auto blendV3 = [](glm::vec3 current, glm::vec3 ai, float w) {
+        return current + w * (ai - current);
+    };
+
+    // Terrain
+    if (!skip("noiseStrength"))      { if (auto v = getF("noiseStrength"))      params.noiseStrength      = blendF(params.noiseStrength,      *v, getConf("noiseStrength")); }
+    if (!skip("ridgedStrength"))     { if (auto v = getF("ridgedStrength"))      params.ridgedStrength     = blendF(params.ridgedStrength,     *v, getConf("ridgedStrength")); }
+    if (!skip("craterStrength"))     { if (auto v = getF("craterStrength"))      params.craterStrength     = blendF(params.craterStrength,     *v, getConf("craterStrength")); }
+    if (!skip("continentScale"))     { if (auto v = getF("continentScale"))      params.continentScale     = blendF(params.continentScale,     *v, getConf("continentScale")); }
+    if (!skip("terrainScale"))       { if (auto v = getF("terrainScale"))        params.terrainScale       = blendF(params.terrainScale,       *v, getConf("terrainScale")); }
+    if (!skip("domainWarpStrength")) { if (auto v = getF("domainWarpStrength"))  params.domainWarpStrength = blendF(params.domainWarpStrength, *v, getConf("domainWarpStrength")); }
 
     // Surface levels
-    if (!skip("waterLevel"))        { if (auto v = getF("waterLevel"))          params.waterLevel        = *v; }
-    if (!skip("polarCapSize"))      { if (auto v = getF("polarCapSize"))        params.polarCapSize      = *v; }
-    if (!skip("sandLevel"))         { if (auto v = getF("sandLevel"))           params.sandLevel         = *v; }
-    if (!skip("treeLevel"))         { if (auto v = getF("treeLevel"))           params.treeLevel         = *v; }
-    if (!skip("rockLevel"))         { if (auto v = getF("rockLevel"))           params.rockLevel         = *v; }
-    if (!skip("iceLevel"))          { if (auto v = getF("iceLevel"))            params.iceLevel          = *v; }
+    if (!skip("waterLevel"))         { if (auto v = getF("waterLevel"))          params.waterLevel         = blendF(params.waterLevel,         *v, getConf("waterLevel")); }
+    if (!skip("polarCapSize"))       { if (auto v = getF("polarCapSize"))        params.polarCapSize       = blendF(params.polarCapSize,       *v, getConf("polarCapSize")); }
+    if (!skip("sandLevel"))          { if (auto v = getF("sandLevel"))           params.sandLevel          = blendF(params.sandLevel,          *v, getConf("sandLevel")); }
+    if (!skip("treeLevel"))          { if (auto v = getF("treeLevel"))           params.treeLevel          = blendF(params.treeLevel,          *v, getConf("treeLevel")); }
+    if (!skip("rockLevel"))          { if (auto v = getF("rockLevel"))           params.rockLevel          = blendF(params.rockLevel,          *v, getConf("rockLevel")); }
+    if (!skip("iceLevel"))           { if (auto v = getF("iceLevel"))            params.iceLevel           = blendF(params.iceLevel,           *v, getConf("iceLevel")); }
 
     // Banding (gas giants)
-    if (!skip("bandingStrength"))   { if (auto v = getF("bandingStrength"))     params.bandingStrength   = *v; }
-    if (!skip("bandingFrequency"))  { if (auto v = getF("bandingFrequency"))    params.bandingFrequency  = *v; }
+    if (!skip("bandingStrength"))    { if (auto v = getF("bandingStrength"))     params.bandingStrength    = blendF(params.bandingStrength,    *v, getConf("bandingStrength")); }
+    if (!skip("bandingFrequency"))   { if (auto v = getF("bandingFrequency"))    params.bandingFrequency   = blendF(params.bandingFrequency,   *v, getConf("bandingFrequency")); }
 
     // Clouds
-    if (!skip("cloudsDensity"))     { if (auto v = getF("cloudsDensity"))       params.cloudsDensity     = *v; }
-    if (!skip("cloudsScale"))       { if (auto v = getF("cloudsScale"))         params.cloudsScale       = *v; }
-    if (!skip("cloudAltitude"))     { if (auto v = getF("cloudAltitude"))       params.cloudAltitude     = *v; }
-    if (!skip("cloudThickness"))    { if (auto v = getF("cloudThickness"))      params.cloudThickness    = *v; }
+    if (!skip("cloudsDensity"))      { if (auto v = getF("cloudsDensity"))       params.cloudsDensity      = blendF(params.cloudsDensity,      *v, getConf("cloudsDensity")); }
+    if (!skip("cloudsScale"))        { if (auto v = getF("cloudsScale"))         params.cloudsScale        = blendF(params.cloudsScale,        *v, getConf("cloudsScale")); }
+    if (!skip("cloudAltitude"))      { if (auto v = getF("cloudAltitude"))       params.cloudAltitude      = blendF(params.cloudAltitude,      *v, getConf("cloudAltitude")); }
+    if (!skip("cloudThickness"))     { if (auto v = getF("cloudThickness"))      params.cloudThickness     = blendF(params.cloudThickness,     *v, getConf("cloudThickness")); }
 
     // Atmosphere
-    if (!skip("atmosphereDensity")) { if (auto v = getF("atmosphereDensity"))   params.atmosphereDensity = *v; }
+    if (!skip("atmosphereDensity"))  { if (auto v = getF("atmosphereDensity"))   params.atmosphereDensity  = blendF(params.atmosphereDensity,  *v, getConf("atmosphereDensity")); }
 
     // Lighting
-    if (!skip("sunIntensity"))      { if (auto v = getF("sunIntensity"))        params.sunIntensity      = *v; }
-    if (!skip("ambientLight"))      { if (auto v = getF("ambientLight"))        params.ambientLight      = *v; }
+    if (!skip("sunIntensity"))       { if (auto v = getF("sunIntensity"))        params.sunIntensity       = blendF(params.sunIntensity,       *v, getConf("sunIntensity")); }
+    if (!skip("ambientLight"))       { if (auto v = getF("ambientLight"))        params.ambientLight       = blendF(params.ambientLight,       *v, getConf("ambientLight")); }
 
     // Colours
-    if (!skip("atmosphereColor"))   { if (auto v = getV3("atmosphereColor"))    params.atmosphereColor   = *v; }
-    if (!skip("waterColorDeep"))    { if (auto v = getV3("waterColorDeep"))     params.waterColorDeep    = *v; }
-    if (!skip("waterColorSurface")) { if (auto v = getV3("waterColorSurface"))  params.waterColorSurface = *v; }
-    if (!skip("sandColor"))         { if (auto v = getV3("sandColor"))          params.sandColor         = *v; }
-    if (!skip("treeColor"))         { if (auto v = getV3("treeColor"))          params.treeColor         = *v; }
-    if (!skip("rockColor"))         { if (auto v = getV3("rockColor"))          params.rockColor         = *v; }
-    if (!skip("iceColor"))          { if (auto v = getV3("iceColor"))           params.iceColor          = *v; }
-    if (!skip("cloudColor"))        { if (auto v = getV3("cloudColor"))         params.cloudColor        = *v; }
-    if (!skip("sunColor"))          { if (auto v = getV3("sunColor"))           params.sunColor          = *v; }
+    if (!skip("atmosphereColor"))    { if (auto v = getV3("atmosphereColor"))    params.atmosphereColor    = blendV3(params.atmosphereColor,    *v, getConf("atmosphereColor")); }
+    if (!skip("waterColorDeep"))     { if (auto v = getV3("waterColorDeep"))     params.waterColorDeep     = blendV3(params.waterColorDeep,     *v, getConf("waterColorDeep")); }
+    if (!skip("waterColorSurface"))  { if (auto v = getV3("waterColorSurface"))  params.waterColorSurface  = blendV3(params.waterColorSurface,  *v, getConf("waterColorSurface")); }
+    if (!skip("sandColor"))          { if (auto v = getV3("sandColor"))          params.sandColor          = blendV3(params.sandColor,          *v, getConf("sandColor")); }
+    if (!skip("treeColor"))          { if (auto v = getV3("treeColor"))          params.treeColor          = blendV3(params.treeColor,          *v, getConf("treeColor")); }
+    if (!skip("rockColor"))          { if (auto v = getV3("rockColor"))          params.rockColor          = blendV3(params.rockColor,          *v, getConf("rockColor")); }
+    if (!skip("iceColor"))           { if (auto v = getV3("iceColor"))           params.iceColor           = blendV3(params.iceColor,           *v, getConf("iceColor")); }
+    if (!skip("cloudColor"))         { if (auto v = getV3("cloudColor"))         params.cloudColor         = blendV3(params.cloudColor,         *v, getConf("cloudColor")); }
+    if (!skip("sunColor"))           { if (auto v = getV3("sunColor"))           params.sunColor           = blendV3(params.sunColor,           *v, getConf("sunColor")); }
 }
 
 // ─── Full pipeline ────────────────────────────────────────────────────────────
@@ -372,6 +393,59 @@ PlanetParams ExoplanetMapper::toRenderParams(const ExoplanetData&  data,
     applyAIRenderOverrides(params, aiJson, physicsFields);
 
     return params;
+}
+
+// ─── Known-planet validation ─────────────────────────────────────────────────
+
+ValidationReport ExoplanetMapper::validate(const PlanetParams& pred,
+                                            const PlanetParams& known) {
+    ValidationReport report;
+    std::vector<float> scores;
+
+    // Float field: score = 1 - clamp(|pred-known|/range, 0, 1)
+    auto addF = [&](const std::string& name, float p, float k, float range) {
+        float score = 1.0f - std::min(std::abs(p - k) / range, 1.0f);
+        report.field_scores.emplace_back(name, score);
+        scores.push_back(score);
+    };
+
+    // vec3 colour field: max distance in RGB cube = sqrt(3)
+    auto addC = [&](const std::string& name, glm::vec3 p, glm::vec3 k) {
+        glm::vec3 d   = p - k;
+        float     err = std::sqrt(d.x*d.x + d.y*d.y + d.z*d.z) / std::sqrt(3.0f);
+        float     score = 1.0f - std::min(err, 1.0f);
+        report.field_scores.emplace_back(name, score);
+        scores.push_back(score);
+    };
+
+    // Key float fields (range = realistic maximum delta)
+    addF("noiseStrength",      pred.noiseStrength,      known.noiseStrength,      0.5f);
+    addF("ridgedStrength",     pred.ridgedStrength,      known.ridgedStrength,     1.0f);
+    addF("craterStrength",     pred.craterStrength,      known.craterStrength,     1.0f);
+    addF("cloudsDensity",      pred.cloudsDensity,       known.cloudsDensity,      1.0f);
+    addF("atmosphereDensity",  pred.atmosphereDensity,   known.atmosphereDensity,  1.0f);
+    addF("waterLevel",         pred.waterLevel,          known.waterLevel,         0.75f);
+    addF("polarCapSize",       pred.polarCapSize,        known.polarCapSize,       1.0f);
+    addF("sunIntensity",       pred.sunIntensity,        known.sunIntensity,       8.0f);
+    addF("bandingStrength",    pred.bandingStrength,     known.bandingStrength,    1.0f);
+    addF("continentScale",     pred.continentScale,      known.continentScale,     3.0f);
+
+    // Key colour fields
+    addC("atmosphereColor",    pred.atmosphereColor,     known.atmosphereColor);
+    addC("waterColorDeep",     pred.waterColorDeep,      known.waterColorDeep);
+    addC("waterColorSurface",  pred.waterColorSurface,   known.waterColorSurface);
+    addC("sandColor",          pred.sandColor,           known.sandColor);
+    addC("rockColor",          pred.rockColor,           known.rockColor);
+    addC("cloudColor",         pred.cloudColor,          known.cloudColor);
+
+    if (!scores.empty()) {
+        float sum = 0.0f;
+        for (float s : scores) sum += s;
+        report.overall_score = sum / static_cast<float>(scores.size());
+    }
+
+    report.summary = std::format("AI accuracy: {:.1f}%", report.overall_score * 100.0f);
+    return report;
 }
 
 // ─── String helpers ───────────────────────────────────────────────────────────

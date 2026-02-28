@@ -29,12 +29,15 @@ class SolarSystemDatabase {
 public:
     static const SolarSystemDatabase& instance();
 
-    // Returns the entry whose (mass, radius, temp) is closest to the query.
-    // Returns nullopt when no entry has a score above minScore.
-    std::optional<AnalogMatch> findClosestAnalog(double mass_earth,
-                                                  double radius_earth,
-                                                  double temp_k,
-                                                  float  minScore = 0.25f) const;
+        // Returns the entry whose (mass, radius, temp) is closest to the query.
+        // Returns nullopt when no entry has a score above minScore.
+        // excludeName: skip any entry whose name matches this (use when validating
+        //   a planet against itself so it cannot be its own analog).
+        std::optional<AnalogMatch> findClosestAnalog(double mass_earth,
+                                                      double radius_earth,
+                                                      double temp_k,
+                                                      float  minScore = 0.25f,
+                                                      const std::string& excludeName = "") const;
 
     // Case-insensitive substring lookup.  Returns nullptr if not found.
     const SolarSystemEntry* findByName(const std::string& query) const;

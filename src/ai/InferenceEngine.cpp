@@ -122,16 +122,13 @@ ExoplanetData InferenceEngine::fillMissingParametersSync(ExoplanetData data) {
         return data;
     }
 
-    // Infer atmosphere if missing key parameters
+    // Infer atmosphere if missing key parameters.
+    // Visual render parameters are handled separately by inferRenderParamsSync,
+    // which uses the structured render-params prompt.
     if (!data.surface_pressure_atm.hasValue() ||
         !data.albedo.hasValue() ||
         !data.atmosphere_composition.hasValue()) {
         inferAtmosphere(data);
-    }
-
-    // Infer render hints if missing
-    if (!data.biome_classification.hasValue()) {
-        inferRenderHints(data);
     }
 
     return data;

@@ -331,12 +331,14 @@ float SolarSystemDatabase::similarity(double mass_e, double radius_e, double tem
 }
 
 std::optional<AnalogMatch> SolarSystemDatabase::findClosestAnalog(
-    double mass_earth, double radius_earth, double temp_k, float minScore) const {
+    double mass_earth, double radius_earth, double temp_k,
+    float minScore, const std::string& excludeName) const {
 
     const SolarSystemEntry* best  = nullptr;
     float                   bestS = minScore;
 
     for (const auto& entry : m_entries) {
+        if (!excludeName.empty() && entry.name == excludeName) continue;
         float s = similarity(mass_earth, radius_earth, temp_k, entry);
         if (s > bestS) {
             bestS = s;

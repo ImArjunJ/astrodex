@@ -90,23 +90,75 @@ void Application::run() {
 
 void Application::loadPlanet(const std::string& name) {
     if (m_planetLoading) return;
-    m_planetLoading = true;
-
     LOG_INFO("Loading planet: {}", name);
+
+    // ── Step 1: Solar system direct lookup ────────────────────────────────────
+    // Resolve synchronously (instant) so the renderer updates this frame.
+    // Then optionally fire a background AI validation run.
+    const auto* solarEntry = SolarSystemDatabase::instance().findByName(name);
+    if (solarEntry) {
+        LOG_INFO("Solar system match: {}", solarEntry->name);
+        std::string cat = ExoplanetMapper::categoryName(
+            ExoplanetMapper::classify(solarEntry->physicalData));
+        m_currentStatus = solarEntry->name + "  |  " + cat + "  |  Solar System";
+        m_ui->setExoplanetStatus(m_currentStatus);
+        m_renderer->params() = solarEntry->visualParams;
+
+        // ── Background validation: run AI pipeline on known physical data ──
+        // Compares AI output to our hand-tuned visual params → accuracy score.
+        if (m_inference->isAvailable() && !m_validationRunning) {
+            m_validationRunning = true;
+            auto entry = solarEntry;  // pointer to static storage, safe to capture
+            m_validationFuture = std::async(std::launch::async,
+                [this, entry]() -> std::string {
+                    auto data = entry->physicalData;
+                    data = m_inference->fillMissingParametersSync(std::move(data));
+
+                    std::set<std::string> physicsFields;
+                    ExoplanetMapper::toPlanetParams(data, &physicsFields, nullptr);
+
+                    // Exclude the planet itself from analog matching
+                    std::string analogContext;
+                    if (data.mass_earth.hasValue() && data.radius_earth.hasValue() &&
+                        data.equilibrium_temp_k.hasValue()) {
+                        auto analog = SolarSystemDatabase::instance().findClosestAnalog(
+                            data.mass_earth.value, data.radius_earth.value,
+                            data.equilibrium_temp_k.value, 0.35f,
+                            entry->name);  // exclude self
+                        if (analog) {
+                            analogContext = std::format(
+                                "{} (similarity {:.0f}%) — {}",
+                                analog->entry->name, analog->score * 100.0f,
+                                analog->entry->description);
+                        }
+                    }
+
+                    auto aiJson = m_inference->inferRenderParamsSync(
+                        data, analogContext, physicsFields);
+
+                    // Build predicted params from physics base + AI (no analog visual base)
+                    PlanetParams predicted = ExoplanetMapper::toPlanetParams(data, nullptr, nullptr);
+                    ExoplanetMapper::applyAIRenderOverrides(predicted, aiJson, physicsFields);
+
+                    auto report = ExoplanetMapper::validate(predicted, entry->visualParams);
+
+                    LOG_INFO("[Validation] {} → overall {:.1f}%",
+                             entry->name, report.overall_score * 100.0f);
+                    for (auto& [field, score] : report.field_scores)
+                        LOG_DEBUG("  {:<20s} {:.0f}%", field, score * 100.0f);
+
+                    return std::format("AI acc: {:.0f}%", report.overall_score * 100.0f);
+                });
+        }
+        return;
+    }
+
+    // ── Steps 2-6: Unknown exoplanet — async pipeline ─────────────────────────
+    m_planetLoading = true;
     m_ui->setExoplanetStatus("Searching...");
 
     m_planetFuture = std::async(std::launch::async,
         [this, name]() -> LoadResult {
-
-            // ── Step 1: Solar system direct lookup (no AI needed) ──────────
-            const auto* solarEntry = SolarSystemDatabase::instance().findByName(name);
-            if (solarEntry) {
-                LOG_INFO("Solar system match: {}", solarEntry->name);
-                std::string cat = ExoplanetMapper::categoryName(
-                    ExoplanetMapper::classify(solarEntry->physicalData));
-                return {solarEntry->visualParams,
-                        solarEntry->name + "  |  " + cat + "  |  Solar System"};
-            }
 
             // ── Step 2: NASA Exoplanet Archive query ───────────────────────
             auto results = m_nasa->queryByNameSync(name);
@@ -125,24 +177,17 @@ void Application::loadPlanet(const std::string& name) {
             // ── Step 4: Find closest solar-system analog for context ────────
             std::string           analogContext;
             std::set<std::string> physicsFields;
-
-            // Compute physicsFields from a dry-run of the physics pass
             ExoplanetMapper::toPlanetParams(data, &physicsFields, nullptr);
 
             if (data.mass_earth.hasValue() && data.radius_earth.hasValue() &&
                 data.equilibrium_temp_k.hasValue()) {
-
                 auto analog = SolarSystemDatabase::instance().findClosestAnalog(
-                    data.mass_earth.value,
-                    data.radius_earth.value,
-                    data.equilibrium_temp_k.value,
-                    0.35f);
-
+                    data.mass_earth.value, data.radius_earth.value,
+                    data.equilibrium_temp_k.value, 0.35f);
                 if (analog) {
                     analogContext = std::format(
                         "{} (similarity {:.0f}%) — {}",
-                        analog->entry->name,
-                        analog->score * 100.0f,
+                        analog->entry->name, analog->score * 100.0f,
                         analog->entry->description);
                 }
             }
@@ -200,9 +245,21 @@ void Application::update(float deltaTime) {
             if (params.has_value()) {
                 m_renderer->params() = *params;
             }
-            m_ui->setExoplanetStatus(status);
+            m_currentStatus = status;
+            m_ui->setExoplanetStatus(m_currentStatus);
             m_planetLoading = false;
-            LOG_INFO("Planet loaded: {}", status);
+            LOG_INFO("Planet loaded: {}", m_currentStatus);
+        }
+    }
+
+    // Append validation accuracy score once background validation completes
+    if (m_validationRunning && m_validationFuture.valid()) {
+        if (m_validationFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            auto scoreStr = m_validationFuture.get();
+            m_currentStatus += "  |  " + scoreStr;
+            m_ui->setExoplanetStatus(m_currentStatus);
+            m_validationRunning = false;
+            LOG_INFO("Validation complete: {}", m_currentStatus);
         }
     }
 }

@@ -47,6 +47,11 @@ private:
     std::future<LoadResult> m_planetFuture;
     bool m_planetLoading = false;
 
+    // Background validation for known solar-system planets
+    std::future<std::string> m_validationFuture;
+    bool m_validationRunning = false;
+    std::string m_currentStatus;  // tracks displayed status for later appending
+
     bool   m_running       = true;
     double m_lastFrameTime = 0.0;
 };

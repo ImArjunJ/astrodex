@@ -131,6 +131,11 @@ RULES:
   arrays with each component in [0, 1].
 - "sunIntensity" is in [0, 8] (solar-luminosity-scaled).
 - "bandingFrequency" is in [5, 40] (relevant only for gas giants).
+- You may include an optional "_confidence" object that maps field names to weights
+  in [0.0, 1.0]: 1.0 = fully certain (full override), 0.5 = uncertain (50% blend
+  with the physics base), 0.0 = no change. Only include "_confidence" when your
+  certainty genuinely varies across fields — omit it entirely if all fields are
+  high-confidence.
 
 Available keys (subset of PlanetParams):
   Terrain:    noiseStrength, ridgedStrength, craterStrength, continentScale,
