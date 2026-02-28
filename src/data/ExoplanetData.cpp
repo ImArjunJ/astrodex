@@ -3,6 +3,18 @@
 
 namespace astrocore {
 
+// Helper to parse DataSource from string
+static DataSource parseDataSource(const std::string& str) {
+    if (str == "NASA") return DataSource::NASA_TAP;
+    if (str == "ExoAtmos") return DataSource::EXOATMOS;
+    if (str == "AI") return DataSource::AI_INFERRED;
+    if (str == "Calculated") return DataSource::CALCULATED;
+    if (str == "Gaia DR3") return DataSource::GAIA;
+    if (str == "CDS/VizieR") return DataSource::CDS_VIZIER;
+    if (str == "OEC") return DataSource::OEC;
+    return DataSource::UNKNOWN;
+}
+
 void ExoplanetData::calculateDerivedValues() {
     // Calculate mass in Jupiter if we have Earth mass
     if (mass_earth.hasValue() && !mass_jupiter.hasValue()) {
@@ -112,21 +124,37 @@ nlohmann::json ExoplanetData::toJson() const {
 
     // Host star
     j["host_star"]["name"] = host_star.name;
-    if (host_star.effective_temp_k.hasValue())
+    if (host_star.effective_temp_k.hasValue()) {
         j["host_star"]["effective_temp_k"] = host_star.effective_temp_k.value;
-    if (host_star.radius_solar.hasValue())
+        j["host_star"]["effective_temp_k_source"] = dataSourceToString(host_star.effective_temp_k.source);
+    }
+    if (host_star.radius_solar.hasValue()) {
         j["host_star"]["radius_solar"] = host_star.radius_solar.value;
-    if (host_star.mass_solar.hasValue())
+        j["host_star"]["radius_solar_source"] = dataSourceToString(host_star.radius_solar.source);
+    }
+    if (host_star.mass_solar.hasValue()) {
         j["host_star"]["mass_solar"] = host_star.mass_solar.value;
+        j["host_star"]["mass_solar_source"] = dataSourceToString(host_star.mass_solar.source);
+    }
+    if (host_star.luminosity_solar.hasValue()) {
+        j["host_star"]["luminosity_solar"] = host_star.luminosity_solar.value;
+        j["host_star"]["luminosity_solar_source"] = dataSourceToString(host_star.luminosity_solar.source);
+    }
     j["host_star"]["spectral_type"] = host_star.spectral_type;
 
     // Orbital parameters
-    if (orbital_period_days.hasValue())
+    if (orbital_period_days.hasValue()) {
         j["orbital"]["period_days"] = orbital_period_days.value;
-    if (semi_major_axis_au.hasValue())
+        j["orbital"]["period_days_source"] = dataSourceToString(orbital_period_days.source);
+    }
+    if (semi_major_axis_au.hasValue()) {
         j["orbital"]["semi_major_axis_au"] = semi_major_axis_au.value;
-    if (eccentricity.hasValue())
+        j["orbital"]["semi_major_axis_au_source"] = dataSourceToString(semi_major_axis_au.source);
+    }
+    if (eccentricity.hasValue()) {
         j["orbital"]["eccentricity"] = eccentricity.value;
+        j["orbital"]["eccentricity_source"] = dataSourceToString(eccentricity.source);
+    }
 
     // Physical parameters
     if (mass_earth.hasValue()) {
@@ -137,16 +165,24 @@ nlohmann::json ExoplanetData::toJson() const {
         j["physical"]["radius_earth"] = radius_earth.value;
         j["physical"]["radius_earth_source"] = dataSourceToString(radius_earth.source);
     }
-    if (density_gcc.hasValue())
+    if (density_gcc.hasValue()) {
         j["physical"]["density_gcc"] = density_gcc.value;
-    if (equilibrium_temp_k.hasValue())
+        j["physical"]["density_gcc_source"] = dataSourceToString(density_gcc.source);
+    }
+    if (equilibrium_temp_k.hasValue()) {
         j["physical"]["equilibrium_temp_k"] = equilibrium_temp_k.value;
+        j["physical"]["equilibrium_temp_k_source"] = dataSourceToString(equilibrium_temp_k.source);
+    }
 
     // Planet type
-    if (planet_type.hasValue())
+    if (planet_type.hasValue()) {
         j["classification"]["planet_type"] = planet_type.value;
-    if (habitable_zone_distance.hasValue())
+        j["classification"]["planet_type_source"] = dataSourceToString(planet_type.source);
+    }
+    if (habitable_zone_distance.hasValue()) {
         j["classification"]["hz_distance"] = habitable_zone_distance.value;
+        j["classification"]["hz_distance_source"] = dataSourceToString(habitable_zone_distance.source);
+    }
 
     return j;
 }
@@ -164,15 +200,35 @@ ExoplanetData ExoplanetData::fromJson(const nlohmann::json& j) {
         data.host_star.name = star.value("name", "");
         if (star.contains("effective_temp_k")) {
             data.host_star.effective_temp_k.value = star["effective_temp_k"].get<double>();
-            data.host_star.effective_temp_k.source = DataSource::NASA_TAP;
+            if (star.contains("effective_temp_k_source")) {
+                data.host_star.effective_temp_k.source = parseDataSource(star["effective_temp_k_source"].get<std::string>());
+            } else {
+                data.host_star.effective_temp_k.source = DataSource::NASA_TAP;
+            }
         }
         if (star.contains("radius_solar")) {
             data.host_star.radius_solar.value = star["radius_solar"].get<double>();
-            data.host_star.radius_solar.source = DataSource::NASA_TAP;
+            if (star.contains("radius_solar_source")) {
+                data.host_star.radius_solar.source = parseDataSource(star["radius_solar_source"].get<std::string>());
+            } else {
+                data.host_star.radius_solar.source = DataSource::NASA_TAP;
+            }
         }
         if (star.contains("mass_solar")) {
             data.host_star.mass_solar.value = star["mass_solar"].get<double>();
-            data.host_star.mass_solar.source = DataSource::NASA_TAP;
+            if (star.contains("mass_solar_source")) {
+                data.host_star.mass_solar.source = parseDataSource(star["mass_solar_source"].get<std::string>());
+            } else {
+                data.host_star.mass_solar.source = DataSource::NASA_TAP;
+            }
+        }
+        if (star.contains("luminosity_solar")) {
+            data.host_star.luminosity_solar.value = star["luminosity_solar"].get<double>();
+            if (star.contains("luminosity_solar_source")) {
+                data.host_star.luminosity_solar.source = parseDataSource(star["luminosity_solar_source"].get<std::string>());
+            } else {
+                data.host_star.luminosity_solar.source = DataSource::NASA_TAP;
+            }
         }
         data.host_star.spectral_type = star.value("spectral_type", "");
     }
@@ -182,15 +238,27 @@ ExoplanetData ExoplanetData::fromJson(const nlohmann::json& j) {
         const auto& orb = j["orbital"];
         if (orb.contains("period_days")) {
             data.orbital_period_days.value = orb["period_days"].get<double>();
-            data.orbital_period_days.source = DataSource::NASA_TAP;
+            if (orb.contains("period_days_source")) {
+                data.orbital_period_days.source = parseDataSource(orb["period_days_source"].get<std::string>());
+            } else {
+                data.orbital_period_days.source = DataSource::NASA_TAP;
+            }
         }
         if (orb.contains("semi_major_axis_au")) {
             data.semi_major_axis_au.value = orb["semi_major_axis_au"].get<double>();
-            data.semi_major_axis_au.source = DataSource::NASA_TAP;
+            if (orb.contains("semi_major_axis_au_source")) {
+                data.semi_major_axis_au.source = parseDataSource(orb["semi_major_axis_au_source"].get<std::string>());
+            } else {
+                data.semi_major_axis_au.source = DataSource::NASA_TAP;
+            }
         }
         if (orb.contains("eccentricity")) {
             data.eccentricity.value = orb["eccentricity"].get<double>();
-            data.eccentricity.source = DataSource::NASA_TAP;
+            if (orb.contains("eccentricity_source")) {
+                data.eccentricity.source = parseDataSource(orb["eccentricity_source"].get<std::string>());
+            } else {
+                data.eccentricity.source = DataSource::NASA_TAP;
+            }
         }
     }
 
@@ -199,19 +267,56 @@ ExoplanetData ExoplanetData::fromJson(const nlohmann::json& j) {
         const auto& phys = j["physical"];
         if (phys.contains("mass_earth")) {
             data.mass_earth.value = phys["mass_earth"].get<double>();
-            data.mass_earth.source = DataSource::NASA_TAP;
+            if (phys.contains("mass_earth_source")) {
+                data.mass_earth.source = parseDataSource(phys["mass_earth_source"].get<std::string>());
+            } else {
+                data.mass_earth.source = DataSource::NASA_TAP;
+            }
         }
         if (phys.contains("radius_earth")) {
             data.radius_earth.value = phys["radius_earth"].get<double>();
-            data.radius_earth.source = DataSource::NASA_TAP;
+            if (phys.contains("radius_earth_source")) {
+                data.radius_earth.source = parseDataSource(phys["radius_earth_source"].get<std::string>());
+            } else {
+                data.radius_earth.source = DataSource::NASA_TAP;
+            }
         }
         if (phys.contains("density_gcc")) {
             data.density_gcc.value = phys["density_gcc"].get<double>();
-            data.density_gcc.source = DataSource::NASA_TAP;
+            if (phys.contains("density_gcc_source")) {
+                data.density_gcc.source = parseDataSource(phys["density_gcc_source"].get<std::string>());
+            } else {
+                data.density_gcc.source = DataSource::NASA_TAP;
+            }
         }
         if (phys.contains("equilibrium_temp_k")) {
             data.equilibrium_temp_k.value = phys["equilibrium_temp_k"].get<double>();
-            data.equilibrium_temp_k.source = DataSource::NASA_TAP;
+            if (phys.contains("equilibrium_temp_k_source")) {
+                data.equilibrium_temp_k.source = parseDataSource(phys["equilibrium_temp_k_source"].get<std::string>());
+            } else {
+                data.equilibrium_temp_k.source = DataSource::NASA_TAP;
+            }
+        }
+    }
+
+    // Classification parameters
+    if (j.contains("classification")) {
+        const auto& cls = j["classification"];
+        if (cls.contains("planet_type")) {
+            data.planet_type.value = cls["planet_type"].get<std::string>();
+            if (cls.contains("planet_type_source")) {
+                data.planet_type.source = parseDataSource(cls["planet_type_source"].get<std::string>());
+            } else {
+                data.planet_type.source = DataSource::CALCULATED;
+            }
+        }
+        if (cls.contains("hz_distance")) {
+            data.habitable_zone_distance.value = cls["hz_distance"].get<double>();
+            if (cls.contains("hz_distance_source")) {
+                data.habitable_zone_distance.source = parseDataSource(cls["hz_distance_source"].get<std::string>());
+            } else {
+                data.habitable_zone_distance.source = DataSource::CALCULATED;
+            }
         }
     }
 

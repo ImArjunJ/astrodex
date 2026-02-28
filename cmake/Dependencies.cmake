@@ -39,6 +39,8 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_X11 OFF CACHE BOOL "" FORCE)
 
 # Make dependencies available (without glad for now)
 FetchContent_MakeAvailable(glm nlohmann_json spdlog glfw)
@@ -92,9 +94,19 @@ target_link_libraries(imgui_impl PUBLIC glfw)
 #     GIT_TAG        v2.12.0
 # )
 
-# Catch2 (will be added in Phase 8)
-# FetchContent_Declare(
-#     Catch2
-#     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-#     GIT_TAG        v3.5.2
-# )
+# pugixml - XML parsing for OEC
+FetchContent_Declare(
+    pugixml
+    GIT_REPOSITORY https://github.com/zeux/pugixml.git
+    GIT_TAG        v1.14
+    GIT_SHALLOW    TRUE
+)
+
+# Catch2 - Unit testing framework
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        v3.5.2
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(pugixml Catch2)

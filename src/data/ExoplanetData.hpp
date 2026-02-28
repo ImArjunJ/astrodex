@@ -13,6 +13,9 @@ enum class DataSource {
     EXOATMOS,       // ExoAtmospheres database (ground truth - white)
     AI_INFERRED,    // Claude Bedrock inference (cyan)
     CALCULATED,     // Derived from other values
+    GAIA,           // Gaia DR3 astrometry catalog
+    CDS_VIZIER,     // CDS/VizieR catalog service
+    OEC,            // Open Exoplanet Catalogue
     UNKNOWN
 };
 
@@ -124,6 +127,9 @@ inline std::string dataSourceToString(DataSource source) {
         case DataSource::EXOATMOS: return "ExoAtmos";
         case DataSource::AI_INFERRED: return "AI";
         case DataSource::CALCULATED: return "Calculated";
+        case DataSource::GAIA: return "Gaia DR3";
+        case DataSource::CDS_VIZIER: return "CDS/VizieR";
+        case DataSource::OEC: return "OEC";
         default: return "Unknown";
     }
 }
