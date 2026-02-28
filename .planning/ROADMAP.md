@@ -10,7 +10,7 @@
 **Plans:** 4 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Infrastructure setup (CMake/pugixml/Catch2), DataSource extension, NASA TAP cache + tests
+- [x] 01-01-PLAN.md — Infrastructure setup (CMake/pugixml/Catch2), DataSource extension, NASA TAP cache + tests (15.6 min)
 - [ ] 01-02-PLAN.md — OEC XML client with pugixml parsing and unit tests
 - [ ] 01-03-PLAN.md — Gaia DR3 + CDS/VizieR TAP clients with host star enrichment
 - [ ] 01-04-PLAN.md — CoordinateMatcher, DataFusionEngine, CacheManager (cross-matching + fusion + offline cache)

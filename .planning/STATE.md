@@ -1,10 +1,24 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-02-28T18:08:29.564Z"
+progress:
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 1
+---
+
 # Astrodex — Project State
 
 ## Current Status
 - **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline)
-- **Phase:** 1 — context gathered, plan-phase initialized but not yet spawned agents
-- **Next Action:** `/gsd:plan-phase 1` (researching then planning)
-- **Last Session:** 2026-02-28 — context exhausted during plan-phase init, resuming
+- **Phase:** 1 — in progress (1/4 plans complete)
+- **Current Plan:** 01-02-PLAN.md
+- **Next Action:** `/gsd:execute-phase 1` (continue)
+- **Last Session:** 2026-02-28T18:08:29.563Z — Completed 01-01-PLAN.md
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
@@ -12,6 +26,7 @@
 - [x] Requirements defined (.planning/REQUIREMENTS.md)
 - [x] Roadmap created (.planning/ROADMAP.md)
 - [x] Research: NASA TAP API, OEC, CDS/VizieR, Gaia DR3, BERT/BART/TabTransformer
+- [x] Phase 01 Plan 01: Build infrastructure + NASA client foundation (15.6 min, 3 tasks, 3 commits)
 
 ## Key Decisions
 1. **Platform:** Desktop (C++/Vulkan) first, WebGPU later — active branches (feat-render, Tej) have migrated from OpenGL to Vulkan/Metal with IRenderer.hpp abstraction
@@ -20,6 +35,9 @@
 4. **Experimental models:** BERT, BART, TabTransformer, ReMasker (Python harness)
 5. **UX priority:** Search+render first → catalogue browser → side-by-side (future)
 6. **Focus:** Data aggregation + AI inference pipeline (over UI polish)
+7. **NASA cache TTL:** 30 days (NASA updates quarterly) — Phase 01 Plan 01
+8. **CURL build:** From source for headless environments — Phase 01 Plan 01
+9. **OpenGL optional:** Support headless builds — Phase 01 Plan 01
 
 ## Research Artifacts
 - `.firecrawl/nasa-tap.md` — NASA TAP API docs
