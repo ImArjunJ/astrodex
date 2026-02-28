@@ -1,7 +1,9 @@
 #include "core/Application.hpp"
 #include "core/Logger.hpp"
 #include "render/Camera.hpp"
+#include "intro/IntroAnimation.hpp"
 #include <imgui.h>
+#include <GLFW/glfw3.h>
 #include <chrono>
 #include <spdlog/fmt/fmt.h>
 #include <set>
@@ -75,7 +77,109 @@ void Application::init() {
     LOG_INFO("Ready");
 }
 
+void Application::runIntro() {
+    // Hide the raymarched planet body while keeping the procedural starfield live
+    auto savedParams               = m_renderer->params();
+    m_renderer->params().radius            = 0.001f;
+    m_renderer->params().atmosphereDensity = 0.0f;
+    m_renderer->params().cloudsDensity     = 0.0f;
+
+    IntroAnimation intro;
+    bool borderSynced = false;
+    m_lastFrameTime = m_window->getTime();
+
+    while (!m_window->shouldClose() && !intro.isDone()) {
+        double currentTime = m_window->getTime();
+        float  dt          = static_cast<float>(currentTime - m_lastFrameTime);
+        m_lastFrameTime    = currentTime;
+        dt = std::min(dt, 0.05f);   // clamp to avoid spiral-of-death on stall
+
+        m_window->pollEvents();
+
+        // Skip on Escape
+        GLFWwindow* w = m_window->getHandle();
+        if (glfwGetKey(w, GLFW_KEY_ESCAPE) == GLFW_PRESS ||
+            glfwGetKey(w, GLFW_KEY_SPACE)  == GLFW_PRESS)
+            break;
+
+        intro.update(dt);
+
+        m_renderer->beginFrame();
+        m_renderer->render(*m_camera);
+
+#ifdef ASTRO_METAL
+        MetalFrameContext ctx = m_renderer->getMetalContext();
+        // If the CAMetalLayer hasn't produced a drawable yet (common on first
+        // few frames), skip the ImGui frame entirely to avoid feeding a nil
+        // renderPassDescriptor into ImGui_ImplMetal_NewFrame which causes it
+        // to cache a zero-format pipeline state and spam error logs.
+        if (!ctx.renderPassDescriptor) {
+            m_renderer->endFrame();
+            m_window->swapBuffers();
+            continue;
+        }
+        m_ui->beginFrame(ctx.renderPassDescriptor);
+#else
+        m_ui->beginFrame();
+#endif
+        ImGuiIO& io = ImGui::GetIO();
+
+        // ── Fade in the real UI panel once the border is assembled ────────────
+        float uiAlpha = intro.getUIAlpha();
+        {
+            // Lerp planet params hidden→visible so the planet fades in with the UI
+            auto& rp = m_renderer->params();
+            rp.radius            = savedParams.radius            * uiAlpha;
+            rp.atmosphereDensity = savedParams.atmosphereDensity * uiAlpha;
+            rp.cloudsDensity     = savedParams.cloudsDensity     * uiAlpha;
+        }
+        if (uiAlpha > 0.f) {
+            ImVec2 winPos, winSize;
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, uiAlpha);
+            m_ui->render(m_renderer->params(), &winPos, &winSize);
+            ImGui::PopStyleVar();
+
+            // Snap the constellation border to wherever ImGui actually placed the panel
+            if (!borderSynced) {
+                intro.syncBorderToWindow(winPos.x, winPos.y, winSize.x, winSize.y);
+                borderSynced = true;
+            }
+        }
+
+        // ── Full-screen transparent overlay (particles drawn on top of UI) ───
+        ImGui::SetNextWindowPos({ 0.f, 0.f });
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::SetNextWindowBgAlpha(0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 0.f, 0.f });
+        if (ImGui::Begin("##intro_overlay", nullptr,
+                ImGuiWindowFlags_NoDecoration        |
+                ImGuiWindowFlags_NoMove              |
+                ImGuiWindowFlags_NoScrollbar         |
+                ImGuiWindowFlags_NoSavedSettings     |
+                ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+            ImGui::PopStyleVar();
+            intro.render(ImGui::GetWindowDrawList(),
+                         io.DisplaySize.x, io.DisplaySize.y);
+        } else {
+            ImGui::PopStyleVar();
+        }
+        ImGui::End();
+
+#ifdef ASTRO_METAL
+        m_ui->endFrame(ctx.commandBuffer, ctx.commandEncoder);
+#else
+        m_ui->endFrame();
+#endif
+        m_renderer->endFrame();
+        m_window->swapBuffers();
+    }
+
+    m_renderer->params() = savedParams;
+    m_lastFrameTime = m_window->getTime();
+}
+
 void Application::run() {
+    runIntro();
     while (!m_window->shouldClose() && m_running) {
         double currentTime = m_window->getTime();
         float  deltaTime   = static_cast<float>(currentTime - m_lastFrameTime);

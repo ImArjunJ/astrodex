@@ -1,0 +1,56 @@
+[  2%] Built target glad_gl45_core
+[  3%] Built target glm
+[  4%] Built target pugixml-static
+[ 13%] Built target glfw
+[ 17%] Built target spdlog
+[ 18%] Building CXX object CMakeFiles/imgui_impl.dir/_deps/imgui-src/imgui.cpp.o
+[ 20%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_quantifiers.cpp.o
+[ 20%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_string.cpp.o
+[ 20%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_predicate.cpp.o
+[ 20%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_floating_point.cpp.o
+[ 21%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/internal/catch_matchers_impl.cpp.o
+[ 21%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_templated.cpp.o
+[ 22%] Linking CXX static library libCatch2.a
+[ 76%] Built target Catch2
+[ 77%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2WithMain.dir/catch2/internal/catch_main.cpp.o
+[ 77%] Linking CXX static library libCatch2Main.a
+[ 77%] Built target Catch2WithMain
+[ 77%] Linking CXX static library libimgui_impl.a
+[ 80%] Built target imgui_impl
+[ 80%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/NasaApiClient.cpp.o
+[ 81%] Building CXX object CMakeFiles/astrocore_lib.dir/src/core/Logger.cpp.o
+[ 82%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/OecClient.cpp.o
+[ 82%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/GaiaClient.cpp.o
+[ 83%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/CdsClient.cpp.o
+[ 83%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/CacheManager.cpp.o
+[ 83%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/CoordinateMatcher.cpp.o
+[ 84%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/DataFusionEngine.cpp.o
+[ 84%] Building CXX object CMakeFiles/astrocore_lib.dir/src/ai/InferenceEngine.cpp.o
+[ 85%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/ExoplanetData.cpp.o
+[ 86%] Building CXX object CMakeFiles/astrocore_lib.dir/src/data/SolarSystemDatabase.cpp.o
+[ 87%] Building CXX object CMakeFiles/astrocore_lib.dir/src/ai/BedrockClient.cpp.o
+[ 88%] Building CXX object CMakeFiles/astrocore_lib.dir/src/render/ExoplanetMapper.cpp.o
+[ 88%] Building CXX object CMakeFiles/astrocore_lib.dir/src/render/PlanetParams.cpp.o
+[ 88%] Building CXX object CMakeFiles/astrocore_lib.dir/src/core/Window.cpp.o
+[ 89%] Building CXX object CMakeFiles/astrocore_lib.dir/src/core/Application.cpp.o
+[ 89%] Building CXX object CMakeFiles/astrocore_lib.dir/src/render/Camera.cpp.o
+[ 90%] Building CXX object CMakeFiles/astrocore_lib.dir/src/ui/UIManager.cpp.o
+[ 90%] Building CXX object CMakeFiles/astrocore_lib.dir/src/render/ShaderProgram.cpp.o
+[ 91%] Building CXX object CMakeFiles/astrocore_lib.dir/src/render/Renderer.cpp.o
+[ 92%] Linking CXX static library libastrocore_lib.a
+[ 92%] Built target astrocore_lib
+[ 92%] Building CXX object CMakeFiles/astrosplat.dir/src/main.cpp.o
+[ 93%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_nasa_client.cpp.o
+[ 93%] Building CXX object tests/CMakeFiles/render_tests.dir/render/test_planet_params.cpp.o
+[ 95%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_inference_integration.cpp.o
+[ 95%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_cds_client.cpp.o
+[ 95%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_coordinate_matcher.cpp.o
+[ 96%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_data_fusion.cpp.o
+[ 94%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_gaia_client.cpp.o
+[ 96%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_oec_parser.cpp.o
+[ 97%] Linking CXX executable astrosplat
+[ 97%] Built target astrosplat
+[ 98%] Linking CXX executable data_aggregation_tests
+[ 98%] Built target data_aggregation_tests
+[100%] Linking CXX executable render_tests
+[100%] Built target render_tests

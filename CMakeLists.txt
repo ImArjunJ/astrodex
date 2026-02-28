@@ -99,6 +99,7 @@ if(USE_METAL OR OpenGL_FOUND)
         src/core/Application.cpp
         src/render/Camera.cpp
         src/ui/UIManager.cpp
+        src/intro/IntroAnimation.cpp
     )
 endif()
 

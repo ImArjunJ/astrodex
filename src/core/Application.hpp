@@ -27,6 +27,7 @@ public:
 
 private:
     void init();
+    void runIntro();
     void update(float deltaTime);
     void render();
     void shutdown();

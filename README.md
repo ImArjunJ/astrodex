@@ -1,0 +1,1 @@
+wispr flow + superwhisper +  ghostty + context7/nia mcp + superpowers + agent-browser / dogfood + testsprite + pencil mcp is the most viable pipeline from what i foundx

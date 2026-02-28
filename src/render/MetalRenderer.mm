@@ -285,6 +285,7 @@ void MetalRenderer::beginFrame() {
 
 void MetalRenderer::render(const Camera& camera) {
     if (!m_impl->currentEncoder) return;
+    if (!m_impl->planetPipeline)  return;  // shader failed to compile — skip draw
 
     m_impl->time += 0.016f;
 
