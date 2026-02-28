@@ -1,0 +1,216 @@
+{
+  "solar_system": [
+    {
+      "scenario": "Earth \u2014 transit-like (radius + orbital, no mass)",
+      "planet_type_correct": true,
+      "predicted_type": "EarthLike",
+      "expected_type": "EarthLike",
+      "fields": {
+        "pl_bmassj": {
+          "predicted": 0.004393518971842366,
+          "actual": 0.003146,
+          "err_pct": 39.7
+        },
+        "pl_dens": {
+          "predicted": 6.4429677651541395,
+          "actual": 5.51,
+          "err_pct": 16.9
+        },
+        "pl_eqt": {
+          "predicted": 250.38752499372734,
+          "actual": 288.0,
+          "err_pct": 13.1
+        },
+        "pl_insol": {
+          "predicted": 0.972040866636216,
+          "actual": 1.0,
+          "err_pct": 2.8
+        }
+      }
+    },
+    {
+      "scenario": "Earth \u2014 RV-like (mass + orbital, no radius)",
+      "planet_type_correct": true,
+      "predicted_type": "EarthLike",
+      "expected_type": "EarthLike",
+      "fields": {
+        "pl_radj": {
+          "predicted": 0.09397552188204956,
+          "actual": 0.0892,
+          "err_pct": 5.4
+        },
+        "pl_dens": {
+          "predicted": 8.029736129372413,
+          "actual": 5.51,
+          "err_pct": 45.7
+        },
+        "pl_eqt": {
+          "predicted": 250.38752499372734,
+          "actual": 288.0,
+          "err_pct": 13.1
+        }
+      }
+    },
+    {
+      "scenario": "Mars \u2014 transit-like (radius + orbital, no mass)",
+      "planet_type_correct": true,
+      "predicted_type": "IceWorld",
+      "expected_type": "IceWorld",
+      "fields": {
+        "pl_bmassj": {
+          "predicted": 0.0005778263112191806,
+          "actual": 0.000338,
+          "err_pct": 71.0
+        },
+        "pl_dens": {
+          "predicted": 3.969467630536235,
+          "actual": 3.93,
+          "err_pct": 1.0
+        },
+        "pl_eqt": {
+          "predicted": 250.38752499372734,
+          "actual": 210.0,
+          "err_pct": 19.2
+        }
+      }
+    },
+    {
+      "scenario": "Jupiter \u2014 mass only (no radius)",
+      "planet_type_correct": true,
+      "predicted_type": "GasGiant",
+      "expected_type": "GasGiant",
+      "fields": {
+        "pl_radj": {
+          "predicted": 0.9915350005756299,
+          "actual": 1.0,
+          "err_pct": 0.8
+        },
+        "pl_dens": {
+          "predicted": 1.8777604719754093,
+          "actual": 1.33,
+          "err_pct": 41.2
+        },
+        "pl_eqt": {
+          "predicted": 100.76311797766442,
+          "actual": 165.0,
+          "err_pct": 38.9
+        }
+      }
+    },
+    {
+      "scenario": "Jupiter \u2014 radius only (no mass)",
+      "planet_type_correct": true,
+      "predicted_type": "GasGiant",
+      "expected_type": "GasGiant",
+      "fields": {
+        "pl_bmassj": {
+          "predicted": 1.6384169024309407,
+          "actual": 1.0,
+          "err_pct": 63.8
+        },
+        "pl_dens": {
+          "predicted": 1.8777604719754093,
+          "actual": 1.33,
+          "err_pct": 41.2
+        },
+        "pl_eqt": {
+          "predicted": 165.54872045581956,
+          "actual": 165.0,
+          "err_pct": 0.3
+        }
+      }
+    },
+    {
+      "scenario": "Saturn \u2014 both mass + radius (verify derived)",
+      "planet_type_correct": true,
+      "predicted_type": "GasGiant",
+      "expected_type": "GasGiant",
+      "fields": {
+        "pl_dens": {
+          "predicted": 2.14293689344388,
+          "actual": 0.69,
+          "err_pct": 210.6
+        },
+        "pl_eqt": {
+          "predicted": 100.76311797766442,
+          "actual": 134.0,
+          "err_pct": 24.8
+        },
+        "pl_insol": {
+          "predicted": 0.02106126331255607,
+          "actual": 0.0108,
+          "err_pct": 95.0
+        }
+      }
+    },
+    {
+      "scenario": "Neptune \u2014 minimal input (period + stellar only)",
+      "planet_type_correct": true,
+      "predicted_type": "MiniNeptune",
+      "expected_type": "MiniNeptune",
+      "fields": {
+        "pl_bmassj": {
+          "predicted": 0.05471780803802547,
+          "actual": 0.05395,
+          "err_pct": 1.4
+        },
+        "pl_eqt": {
+          "predicted": 100.76311797766442,
+          "actual": 72.0,
+          "err_pct": 39.9
+        }
+      }
+    },
+    {
+      "scenario": "Pluto \u2014 radius + orbit (extreme cold small body)",
+      "planet_type_correct": true,
+      "predicted_type": "IceWorld",
+      "expected_type": "IceWorld",
+      "fields": {
+        "pl_bmassj": {
+          "predicted": 0.0005778263112191806,
+          "actual": 6.56e-06,
+          "err_pct": 8708.3
+        },
+        "pl_dens": {
+          "predicted": 1.8777604719754093,
+          "actual": 1.88,
+          "err_pct": 0.1
+        },
+        "pl_eqt": {
+          "predicted": 100.76311797766442,
+          "actual": 44.0,
+          "err_pct": 129.0
+        }
+      }
+    }
+  ],
+  "exoplanets": [
+    {
+      "name": "Kepler-452 b (Earth-size, habitable zone)",
+      "planet_type_correct": true,
+      "predicted_type": "EarthLike",
+      "expected_type": "EarthLike"
+    },
+    {
+      "name": "TRAPPIST-1 e (rocky, habitable zone)",
+      "planet_type_correct": true,
+      "predicted_type": "EarthLike",
+      "expected_type": "EarthLike"
+    },
+    {
+      "name": "Hot Jupiter \u2014 WASP-12 b",
+      "planet_type_correct": true,
+      "predicted_type": "HotJupiter",
+      "expected_type": "HotJupiter"
+    }
+  ],
+  "field_median_error_pct": {
+    "pl_bmassj": 63.8,
+    "pl_dens": 41.2,
+    "pl_eqt": 22.0,
+    "pl_insol": 48.9,
+    "pl_radj": 3.1
+  },
+  "type_accuracy": "8/8"
+}

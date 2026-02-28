@@ -28,5 +28,17 @@ imgui.ini
 # Logs
 *.log
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Large raw data files (regenerate with src_ml/explore.py)
+data/nasa_archive.csv
+data/*.png
+
+# Training noise
+checkpoints/train_run*.log
+
 # Compiled shaders
 *.spv
