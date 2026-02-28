@@ -49,12 +49,12 @@ Wire real exoplanet data from 4 astronomical databases through an AI inference p
 ## R2: AI Inference Pipeline
 **Priority: Critical**
 
-### R2.1: Bedrock/Claude Gap-Filling (wire existing engine)
-- Wire `InferenceEngine` into data pipeline
-- Flow: fetch data → identify missing fields → build prompt → infer → merge
-- Use existing `PromptTemplates` for atmosphere and render hints
-- Mark all inferred values with `DataSource::AI_INFERRED`
-- Store AI reasoning text for transparency
+### R2.1: Bedrock/Claude Gap-Filling (wire existing engine) [COMPLETE]
+- [x] Wire `InferenceEngine` into data pipeline
+- [x] Flow: fetch data → identify missing fields → build prompt → infer → merge
+- [x] Use existing `PromptTemplates` for atmosphere and render hints
+- [x] Mark all inferred values with `DataSource::AI_INFERRED`
+- [x] Store AI reasoning text for transparency
 
 ### R2.2: ExoplanetData → CelestialBodyParams Conversion
 - Implement mapping from observational data to rendering parameters

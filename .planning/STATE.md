@@ -2,28 +2,29 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: "02-03 complete, next: 02-01 or 02-02"
-status: unknown
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-02-28T19:59:04.972Z"
+current_plan: "02-01 complete, next: 02-02"
+status: in-progress
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-02-28T19:59:30Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Astrodex — Project State
 
 ## Current Status
 - **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline)
-- **Phase:** 2 — IN PROGRESS (1/3 plans complete)
-- **Current Plan:** 02-03 complete, next: 02-01 or 02-02
-- **Next Action:** Execute remaining Phase 02 plans (02-01, 02-02)
-- **Last Session:** 2026-02-28T19:59:04.970Z
-- **Stopped At:** Completed 02-03-PLAN.md
+- **Phase:** 2 — IN PROGRESS (2/3 plans complete)
+- **Current Plan:** 02-01 complete, next: 02-02
+- **Next Action:** Execute Phase 02 Plan 02 (CelestialBodyParams mapping)
+- **Last Session:** 2026-02-28T19:59:30Z
+- **Stopped At:** Completed 02-01-PLAN.md
 - **Phase 01 Summary:** Multi-source data fusion with NASA, OEC, Gaia, CDS clients. Uncertainty-based selection, JSON cache, haversine coordinate matching.
 - **Phase 02 Plan 03 Summary:** Python ML benchmark harness with BERT, BART, TabTransformer, MaskedAutoencoder model wrappers and comparison document generator.
+- **Phase 02 Plan 01 Summary:** InferenceEngine wired into DataFusionEngine with complete JSON serialization, deterministic fallback, and 17 integration tests (409 assertions).
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
@@ -36,6 +37,7 @@ progress:
 - [x] Phase 01 Plan 03: Gaia DR3 + CDS/VizieR TAP clients (8 test cases, 75 assertions passing)
 - [x] Phase 01 Plan 04: DataFusionEngine + CacheManager (3 min, 3 tasks, 4 commits, 242 assertions passing)
 - [x] Phase 02 Plan 03: ML benchmarking harness (7 min, 2 tasks, 2 commits)
+- [x] Phase 02 Plan 01: InferenceEngine integration + JSON serialization + deterministic fallback (8 min, 2 tasks, 3 commits, 409 assertions passing)
 
 ## Key Decisions
 1. **Platform:** Desktop (C++/Vulkan) first, WebGPU later — active branches (feat-render, Tej) have migrated from OpenGL to Vulkan/Metal with IRenderer.hpp abstraction
@@ -54,6 +56,10 @@ progress:
 14. **ML model implementations:** Lightweight PyTorch transformers (not full pretrained downloads) for portability — Phase 02 Plan 03
 15. **ReMasker approach:** Simplified masked autoencoder in PyTorch (avoids timm/hyperimpute deps) — Phase 02 Plan 03
 16. **Synthetic data fallback:** Auto-generate physically plausible exoplanet data when cache empty — Phase 02 Plan 03
+17. **applyDeterministicDefaults public static:** For testability, same as mergeExoplanetData — Phase 02 Plan 01
+18. **fmt::format over std::format:** GCC 12.2 lacks <format> header; use spdlog bundled fmt — Phase 02 Plan 01
+19. **JSON sections:** Organized ExoplanetData into atmosphere/rendering/classification sections — Phase 02 Plan 01
+20. **AI retry strategy:** One retry with 2-second delay per inference call, then fallback to deterministic defaults — Phase 02 Plan 01
 
 ## Research Artifacts
 - `.firecrawl/nasa-tap.md` — NASA TAP API docs
