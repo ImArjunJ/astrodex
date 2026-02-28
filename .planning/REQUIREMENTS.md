@@ -56,12 +56,12 @@ Wire real exoplanet data from 4 astronomical databases through an AI inference p
 - [x] Mark all inferred values with `DataSource::AI_INFERRED`
 - [x] Store AI reasoning text for transparency
 
-### R2.2: ExoplanetData → CelestialBodyParams Conversion
-- Implement mapping from observational data to rendering parameters
-- Use `CelestialBodyParams::fromObservations()` as foundation
-- Map: equilibrium temp → surface colors, biome params
-- Map: mass/radius → body type → terrain/atmosphere/gas giant params
-- Map: AI-inferred atmosphere → Rayleigh scattering coefficients, cloud layers
+### R2.2: ExoplanetData → CelestialBodyParams Conversion [COMPLETE]
+- [x] Implement mapping from observational data to rendering parameters
+- [x] Use `CelestialBodyParams::fromObservations()` as foundation
+- [x] Map: equilibrium temp → surface colors, biome params
+- [x] Map: mass/radius → body type → terrain/atmosphere/gas giant params
+- [x] Map: AI-inferred atmosphere → Rayleigh scattering coefficients, cloud layers
 
 ### R2.3: Experimental Model Benchmarking Framework
 - Python-based experimental harness alongside main C++ app

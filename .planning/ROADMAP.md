@@ -36,17 +36,17 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — InferenceEngine integration into DataFusionEngine + deterministic fallback + JSON serialization (R2.1)
-- [ ] 02-02-PLAN.md — Physics-based CelestialBodyParams::fromObservations(ExoplanetData) mapping (R2.2)
-- [ ] 02-03-PLAN.md — Python ML benchmarking harness: BERT, BART, TabTransformer, ReMasker (R2.3)
+- [x] 02-01-PLAN.md — InferenceEngine integration into DataFusionEngine + deterministic fallback + JSON serialization (R2.1) (8 min)
+- [x] 02-02-PLAN.md — Physics-based CelestialBodyParams::fromObservations(ExoplanetData) mapping (R2.2) (5 min)
+- [x] 02-03-PLAN.md — Python ML benchmarking harness: BERT, BART, TabTransformer, ReMasker (R2.3) (7 min)
 
 **Success Criteria:**
-- [ ] InferenceEngine wired into data pipeline: fetch → identify gaps → infer → merge
-- [ ] AI-inferred values correctly marked with DataSource::AI_INFERRED and reasoning
-- [ ] ExoplanetData → CelestialBodyParams mapping implemented
-- [ ] Given "Kepler-442b" data, produces a complete CelestialBodyParams ready for rendering
-- [ ] Python experimental harness running BERT, BART, TabTransformer benchmarks
-- [ ] Comparison document: Claude vs BERT vs BART vs TabTransformer for this domain
+- [x] InferenceEngine wired into data pipeline: fetch → identify gaps → infer → merge
+- [x] AI-inferred values correctly marked with DataSource::AI_INFERRED and reasoning
+- [x] ExoplanetData → CelestialBodyParams mapping implemented
+- [x] Given "Kepler-442b" data, produces a complete CelestialBodyParams ready for rendering
+- [x] Python experimental harness running BERT, BART, TabTransformer benchmarks
+- [x] Comparison document: Claude vs BERT vs BART vs TabTransformer for this domain
 
 **Estimated Complexity:** High — inference integration, parameter mapping with physics, ML experimentation
 

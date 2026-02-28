@@ -2,29 +2,30 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: "02-01 complete, next: 02-02"
-status: unknown
-stopped_at: "Phase 2: Wave 1 complete (02-01, 02-03). Wave 2 (02-02) + verification remaining."
-last_updated: "2026-02-28T20:01:34.272Z"
+current_plan: "02-02 complete, Phase 2 all 3 plans done"
+status: phase-complete
+stopped_at: "Phase 2 complete: all 3 plans (02-01, 02-02, 02-03) finished."
+last_updated: "2026-02-28T20:08:19Z"
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Astrodex — Project State
 
 ## Current Status
 - **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline)
-- **Phase:** 2 — IN PROGRESS (2/3 plans complete)
-- **Current Plan:** 02-01 complete, next: 02-02
-- **Next Action:** Execute Phase 02 Plan 02 (CelestialBodyParams mapping)
-- **Last Session:** 2026-02-28T20:01:34.267Z
-- **Stopped At:** Phase 2: Wave 1 complete (02-01, 02-03). Wave 2 (02-02) + verification remaining.
+- **Phase:** 2 — COMPLETE (3/3 plans done)
+- **Current Plan:** 02-02 complete, Phase 2 all 3 plans done
+- **Next Action:** Phase 2 UAT verification, then Phase 3 planning
+- **Last Session:** 2026-02-28T20:08:19Z
+- **Stopped At:** Phase 2 complete: all 3 plans (02-01, 02-02, 02-03) finished.
 - **Phase 01 Summary:** Multi-source data fusion with NASA, OEC, Gaia, CDS clients. Uncertainty-based selection, JSON cache, haversine coordinate matching.
 - **Phase 02 Plan 03 Summary:** Python ML benchmark harness with BERT, BART, TabTransformer, MaskedAutoencoder model wrappers and comparison document generator.
 - **Phase 02 Plan 01 Summary:** InferenceEngine wired into DataFusionEngine with complete JSON serialization, deterministic fallback, and 17 integration tests (409 assertions).
+- **Phase 02 Plan 02 Summary:** Physics-based CelestialBodyParams mapping with Rayleigh scattering from atmosphere composition, multi-factor terrestrial surface model, gas/ice giant heuristics, 15 test cases (114 assertions).
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
@@ -38,6 +39,7 @@ progress:
 - [x] Phase 01 Plan 04: DataFusionEngine + CacheManager (3 min, 3 tasks, 4 commits, 242 assertions passing)
 - [x] Phase 02 Plan 03: ML benchmarking harness (7 min, 2 tasks, 2 commits)
 - [x] Phase 02 Plan 01: InferenceEngine integration + JSON serialization + deterministic fallback (8 min, 2 tasks, 3 commits, 409 assertions passing)
+- [x] Phase 02 Plan 02: Physics-based CelestialBodyParams mapping with Rayleigh scattering, terrestrial/gas giant/ice giant models (5 min, 2 tasks, 2 commits, 114 assertions passing)
 
 ## Key Decisions
 1. **Platform:** Desktop (C++/Vulkan) first, WebGPU later — active branches (feat-render, Tej) have migrated from OpenGL to Vulkan/Metal with IRenderer.hpp abstraction
@@ -60,6 +62,10 @@ progress:
 18. **fmt::format over std::format:** GCC 12.2 lacks <format> header; use spdlog bundled fmt — Phase 02 Plan 01
 19. **JSON sections:** Organized ExoplanetData into atmosphere/rendering/classification sections — Phase 02 Plan 01
 20. **AI retry strategy:** One retry with 2-second delay per inference call, then fallback to deterministic defaults — Phase 02 Plan 01
+21. **ExoplanetData forward declaration:** Forward declare in PlanetParams.hpp, full include in .cpp to avoid circular dependency — Phase 02 Plan 02
+22. **Body type boundaries:** radius==2.0 is IceGiant (>=2), radius==6.0 is IceGiant (<=6), consistent with user's "2-6=IceGiant" spec — Phase 02 Plan 02
+23. **Ice giant band count:** Clamped 4-10 (vs gas giant 4-20) for visually distinct fewer bands — Phase 02 Plan 02
+24. **Greenhouse model:** CO2>90% + P>50atm multiplies T by 1.8; moderate CO2>10% uses T*(1+co2/500) — Phase 02 Plan 02
 
 ## Research Artifacts
 - `.firecrawl/nasa-tap.md` — NASA TAP API docs
