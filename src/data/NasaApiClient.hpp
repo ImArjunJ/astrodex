@@ -41,6 +41,9 @@ public:
     // Check if API is reachable
     bool testConnection();
 
+    // Parse a single NASA TAP row (exposed for testing)
+    static ExoplanetData parseNasaTapRow(const nlohmann::json& row);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

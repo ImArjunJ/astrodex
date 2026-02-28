@@ -248,7 +248,7 @@ std::vector<ExoplanetData> NasaApiClient::executeQuery(const std::string& adql) 
         if (dataArray.is_array()) {
             for (const auto& row : dataArray) {
                 try {
-                    results.push_back(parseRow(row));
+                    results.push_back(parseNasaTapRow(row));
                 } catch (const std::exception& e) {
                     LOG_WARN("Failed to parse exoplanet row: {}", e.what());
                 }
@@ -265,7 +265,7 @@ std::vector<ExoplanetData> NasaApiClient::executeQuery(const std::string& adql) 
     }
 }
 
-ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
+ExoplanetData NasaApiClient::parseNasaTapRow(const nlohmann::json& row) {
     ExoplanetData data;
 
     // Helper to safely get nullable values
