@@ -1,0 +1,54 @@
+# AstroSplat — top-level build wrapper around CMake
+#
+# Usage:
+#   make              build Release (default)
+#   make debug        build Debug
+#   make clean        nuke build/
+#   make rebuild      clean + build
+#   make run          build + launch astrosplat
+#   make explorer     build + launch starexplorer
+#   make test         build + run CTest
+#   make shaders      recompile SPIR-V shaders only
+#   make asan         build Debug with AddressSanitizer
+
+BUILD_DIR   := build
+BUILD_TYPE  := Release
+JOBS        := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+CMAKE_FLAGS :=
+
+.PHONY: all debug release clean rebuild run explorer test shaders asan configure
+
+all: release
+
+release: BUILD_TYPE := Release
+release: configure
+	cmake --build $(BUILD_DIR) -j$(JOBS)
+
+debug: BUILD_TYPE := Debug
+debug: configure
+	cmake --build $(BUILD_DIR) -j$(JOBS)
+
+asan: BUILD_TYPE := Debug
+asan: CMAKE_FLAGS += -DASTROCORE_ENABLE_ASAN=ON
+asan: configure
+	cmake --build $(BUILD_DIR) -j$(JOBS)
+
+configure:
+	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(CMAKE_FLAGS)
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+rebuild: clean all
+
+run: release
+	@cd $(BUILD_DIR) && ./astrosplat
+
+explorer: release
+	@cd $(BUILD_DIR) && ./starexplorer
+
+test: debug
+	cd $(BUILD_DIR) && ctest --output-on-failure -j$(JOBS)
+
+shaders: configure
+	cmake --build $(BUILD_DIR) --target astrosplat_shaders -j$(JOBS)
