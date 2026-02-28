@@ -12,17 +12,17 @@
 Plans:
 - [x] 01-01-PLAN.md — Infrastructure setup (CMake/pugixml/Catch2), DataSource extension, NASA TAP cache + tests (15.6 min)
 - [x] 01-02-PLAN.md — OEC XML client with pugixml parsing and unit tests (10 min)
-- [ ] 01-03-PLAN.md — Gaia DR3 + CDS/VizieR TAP clients with host star enrichment
-- [ ] 01-04-PLAN.md — CoordinateMatcher, DataFusionEngine, CacheManager (cross-matching + fusion + offline cache)
+- [x] 01-03-PLAN.md — Gaia DR3 + CDS/VizieR TAP clients with host star enrichment
+- [x] 01-04-PLAN.md — CoordinateMatcher, DataFusionEngine, CacheManager (cross-matching + fusion + offline cache) (3 min)
 
 **Success Criteria:**
 - [x] NASA TAP client wired in and returning ExoplanetData for any named planet
 - [x] OEC XML parser producing ExoplanetData records
-- [ ] CDS/VizieR TAP queries enriching host star properties
-- [ ] Gaia DR3 cross-matching providing stellar parallax, Teff, luminosity
-- [ ] Data fusion logic merging 4 sources with priority ordering and provenance
-- [ ] Local cache storing fused records for instant retrieval
-- [ ] Can fetch "Kepler-442b" and get a complete, multi-source ExoplanetData record
+- [x] CDS/VizieR TAP queries enriching host star properties
+- [x] Gaia DR3 cross-matching providing stellar parallax, Teff, luminosity
+- [x] Data fusion logic merging 4 sources with priority ordering and provenance
+- [x] Local cache storing fused records for instant retrieval
+- [x] Can fetch "Kepler-442b" and get a complete, multi-source ExoplanetData record
 
 **Estimated Complexity:** High — 4 different API protocols, XML/JSON parsing, cross-matching logic
 

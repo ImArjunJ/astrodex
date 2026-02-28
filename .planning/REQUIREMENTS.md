@@ -8,36 +8,41 @@ Wire real exoplanet data from 4 astronomical databases through an AI inference p
 ## R1: Unified Data Aggregation Layer
 **Priority: Critical**
 
-### R1.1: NASA TAP Integration (wire existing client)
-- Wire existing `NasaApiClient` into the application lifecycle
-- Query `pscomppars` table for composite planet+host star parameters
-- Parse JSON response into `ExoplanetData` model
-- Handle missing fields gracefully (NaN for absent numerical values)
-- Local JSON cache with configurable TTL (avoid hammering NASA servers)
+### R1.1: NASA TAP Integration (wire existing client) ✅
+- [x] Wire existing `NasaApiClient` into the application lifecycle
+- [x] Query `pscomppars` table for composite planet+host star parameters
+- [x] Parse JSON response into `ExoplanetData` model
+- [x] Handle missing fields gracefully (NaN for absent numerical values)
+- [x] Local JSON cache with configurable TTL (30 days)
+- **Completed:** Plan 01-01 — NasaApiClient with async queries, cache, tests
 
-### R1.2: Open Exoplanet Catalogue Integration
-- Fetch/clone OEC GitHub repository XML data
-- Parse XML into `ExoplanetData` model
-- Handle binary system hierarchies (OEC's unique strength)
-- Merge with NASA data (NASA as primary, OEC as supplement)
+### R1.2: Open Exoplanet Catalogue Integration ✅
+- [x] Fetch/clone OEC GitHub repository XML data
+- [x] Parse XML into `ExoplanetData` model
+- [x] Handle binary system hierarchies (OEC's unique strength)
+- [x] Merge with NASA data (NASA as primary, OEC as supplement)
+- **Completed:** Plan 01-02 — OecClient with pugixml parser, 7-day cache
 
-### R1.3: CDS/VizieR Cross-Matching
-- Query VizieR TAP endpoint for host star enrichment
-- Cross-match by star name or coordinates (RA/Dec)
-- Pull: spectral type, metallicity, age, photometry
-- Merge into `HostStarData` fields
+### R1.3: CDS/VizieR Cross-Matching ✅
+- [x] Query VizieR TAP endpoint for host star enrichment
+- [x] Cross-match by star name or coordinates (RA/Dec)
+- [x] Pull: spectral type, metallicity, age, photometry
+- [x] Merge into `HostStarData` fields
+- **Completed:** Plan 01-03 — CdsClient with SIMBAD name resolution, VizieR queries
 
-### R1.4: Gaia DR3 Host Star Enrichment
-- Query Gaia Archive TAP for host star matches
-- Pull: parallax (→ distance), Teff, luminosity, logg, metallicity
-- Cross-match via source_id or coordinate matching
-- Merge into `HostStarData`, marking source as Gaia
+### R1.4: Gaia DR3 Host Star Enrichment ✅
+- [x] Query Gaia Archive TAP for host star matches
+- [x] Pull: parallax (→ distance), Teff, luminosity, logg, metallicity
+- [x] Cross-match via source_id or coordinate matching
+- [x] Merge into `HostStarData`, marking source as Gaia
+- **Completed:** Plan 01-03 — GaiaClient with TAP queries, cone search
 
-### R1.5: Data Fusion & Conflict Resolution
-- Priority ordering: NASA TAP > Gaia DR3 > CDS/VizieR > OEC
-- When multiple sources provide same field: use highest-precision measurement
-- Track provenance via existing `DataSource` enum (extend if needed)
-- Local SQLite or JSON cache of fused exoplanet records
+### R1.5: Data Fusion & Conflict Resolution ✅
+- [x] Priority ordering: NASA TAP > Gaia DR3 > CDS/VizieR > OEC
+- [x] When multiple sources provide same field: use highest-precision measurement (uncertainty-based selection)
+- [x] Track provenance via existing `DataSource` enum
+- [x] Local JSON cache of fused exoplanet records (`.cache/fused/` with 30-day TTL)
+- **Completed:** Plan 01-04 — DataFusionEngine with selectBestMeasurement(), CacheManager
 
 ---
 
