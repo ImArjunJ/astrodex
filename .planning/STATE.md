@@ -17,8 +17,9 @@ progress:
 - **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline)
 - **Phase:** 1 — in progress (3/4 plans complete)
 - **Current Plan:** 01-04-PLAN.md — Task 1 (CoordinateMatcher) DONE, Tasks 2-3 (DataFusionEngine, CacheManager) remaining
-- **Next Action:** `/gsd:execute-phase 1` (continue — Plan 01-04 Tasks 2-3 remain)
-- **Last Session:** 2026-02-28 — CoordinateMatcher committed (22 assertions passing), DataFusionEngine + CacheManager next
+- **Next Action:** `/gsd:execute-phase 1` (implement Tasks 2-3 DIRECTLY — agents hit context limits on large plan)
+- **Last Session:** 2026-02-28 — CoordinateMatcher committed. Plan file read for Tasks 2-3 specs. Implement directly next session.
+- **Implementation Note:** Executor agents keep hitting context limits on 01-04-PLAN.md (20KB). Orchestrator should implement Tasks 2-3 directly instead of spawning agents.
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
