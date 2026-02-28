@@ -11,13 +11,13 @@
 
 Plans:
 - [x] 01-01-PLAN.md — Infrastructure setup (CMake/pugixml/Catch2), DataSource extension, NASA TAP cache + tests (15.6 min)
-- [ ] 01-02-PLAN.md — OEC XML client with pugixml parsing and unit tests
+- [x] 01-02-PLAN.md — OEC XML client with pugixml parsing and unit tests (10 min)
 - [ ] 01-03-PLAN.md — Gaia DR3 + CDS/VizieR TAP clients with host star enrichment
 - [ ] 01-04-PLAN.md — CoordinateMatcher, DataFusionEngine, CacheManager (cross-matching + fusion + offline cache)
 
 **Success Criteria:**
-- [ ] NASA TAP client wired in and returning ExoplanetData for any named planet
-- [ ] OEC XML parser producing ExoplanetData records
+- [x] NASA TAP client wired in and returning ExoplanetData for any named planet
+- [x] OEC XML parser producing ExoplanetData records
 - [ ] CDS/VizieR TAP queries enriching host star properties
 - [ ] Gaia DR3 cross-matching providing stellar parallax, Teff, luminosity
 - [ ] Data fusion logic merging 4 sources with priority ordering and provenance
