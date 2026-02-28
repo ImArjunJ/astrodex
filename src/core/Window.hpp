@@ -1,11 +1,5 @@
 #pragma once
 
-// When using the Metal backend, we do not create an OpenGL context.
-// GLFW_NO_API mode is set; glad/gl.h is not needed here.
-#ifndef ASTRO_METAL
-#include <glad/gl.h>
-#endif
-
 #include <GLFW/glfw3.h>
 #include <string>
 #include <functional>

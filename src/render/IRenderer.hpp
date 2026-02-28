@@ -7,7 +7,6 @@ namespace astrocore {
 class Camera;
 
 // All the knobs for procedural planet generation.
-// Shared between OpenGL Renderer and MetalRenderer.
 struct PlanetParams {
     float radius = 2.0f;
     float rotationSpeed = 0.1f;
@@ -63,36 +62,26 @@ struct PlanetParams {
 
     // Black hole
     bool  isBlackHole = false;
-    float bhMass = 1.0f;                    // Rs = bhMass * radius * 0.5
-    float bhAccretionInner = 3.0f;          // Inner edge in multiples of Rs (ISCO)
-    float bhAccretionOuter = 10.0f;         // Outer edge in multiples of Rs
-    float bhDiskSpeed = 1.0f;               // Orbital speed multiplier
-    float bhDiskTurbulence = 0.3f;          // Noise applied to disk density
-    float bhDiskBrightness = 2.0f;          // Peak luminance
-    float bhDiskTemperatureInner = 10000.0f;// Kelvin
-    float bhDiskTemperatureOuter = 3000.0f; // Kelvin
+    float bhMass = 1.0f;
+    float bhAccretionInner = 3.0f;
+    float bhAccretionOuter = 10.0f;
+    float bhDiskSpeed = 1.0f;
+    float bhDiskTurbulence = 0.3f;
+    float bhDiskBrightness = 2.0f;
+    float bhDiskTemperatureInner = 10000.0f;
+    float bhDiskTemperatureOuter = 3000.0f;
     glm::vec3 bhDiskTint = {1.0f, 0.95f, 0.9f};
-    int   bhRaySteps = 128;                 // Geodesic integration steps
-    float bhDopplerStrength = 1.0f;         // 0=off, 1=physical
+    int   bhRaySteps = 128;
+    float bhDopplerStrength = 1.0f;
 
     float rotationOffset = 0.6f;
     float quality = 1.0f;
-};
-
-// Optional Metal frame context — populated by MetalRenderer each frame.
-// OpenGL renderer leaves this zeroed.
-struct MetalFrameContext {
-    void* commandBuffer      = nullptr;
-    void* commandEncoder     = nullptr;
-    void* renderPassDescriptor = nullptr;
 };
 
 class IRenderer {
 public:
     virtual ~IRenderer() = default;
 
-    // nativeWindow: GLFWwindow* — used by MetalRenderer to attach CAMetalLayer.
-    // Ignored by the OpenGL renderer.
     virtual void init(int width, int height, void* nativeWindow = nullptr) = 0;
     virtual void resize(int width, int height) = 0;
 
@@ -101,10 +90,6 @@ public:
     virtual void endFrame() = 0;
 
     virtual PlanetParams& params() = 0;
-
-    // Metal-only: returns current frame's command buffer + encoder.
-    virtual MetalFrameContext getMetalContext() { return {}; }
-    virtual void* getMetalDevice() { return nullptr; }
 };
 
 }  // namespace astrocore

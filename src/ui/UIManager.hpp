@@ -7,27 +7,16 @@ struct GLFWwindow;
 namespace astrocore {
 
 struct PlanetParams;
+class VulkanRenderer;
 
 class UIManager {
 public:
     UIManager();
     ~UIManager();
 
-#ifdef ASTRO_METAL
-    // Metal path — also needs the MTLDevice to init ImGui Metal backend.
-    void init(GLFWwindow* window, void* metalDevice);
-
-    // beginFrame needs the MTLRenderPassDescriptor for ImGui_ImplMetal_NewFrame.
-    void beginFrame(void* renderPassDescriptor);
-
-    // endFrame renders ImGui draw data into the active Metal encoder.
-    void endFrame(void* commandBuffer, void* commandEncoder);
-#else
-    // OpenGL path
-    void init(GLFWwindow* window);
+    void init(GLFWwindow* window, VulkanRenderer* renderer);
     void beginFrame();
-    void endFrame();
-#endif
+    void endFrame(VulkanRenderer* renderer);
 
     void shutdown();
     void render(PlanetParams& params);

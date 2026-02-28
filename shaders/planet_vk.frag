@@ -1,90 +1,115 @@
-#version 450 core
+#version 450
 
-// Procedural Planet Renderer — based on Julien Sulpis "Procedural Blue Planet"
-// Extended with ridged noise, craters, continents, and volumetric clouds
+// Procedural Planet Renderer — Vulkan GLSL
+// Based on Julien Sulpis "Procedural Blue Planet"
+// Extended with ridged noise, craters, continents, volumetric clouds, and black holes
 
-in vec2 uv;
-out vec4 fragColor;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 fragColor;
 
-// Global uniforms
-uniform float uTime;
-uniform float uRotationOffset;
-uniform float uRotationSpeed;
-uniform vec2 uResolution;
-uniform sampler3D uNoiseTexture;
+// ── Uniform buffer (set=0, binding=0) ───────────────────────────────────────
+// Layout matches PlanetUniformsVk in VulkanTypes.hpp (std140 rules).
 
-// Controllable uniforms
-uniform float uQuality;
-uniform vec3 uPlanetPosition;
-uniform float uPlanetRadius;
-uniform float uNoiseStrength;
-uniform float uCloudsDensity;
-uniform float uCloudsScale;
-uniform float uCloudsSpeed;
-uniform float uCloudAltitude;
-uniform float uCloudThickness;
-uniform float uTerrainScale;
-uniform vec3 uAtmosphereColor;
-uniform float uAtmosphereDensity;
-uniform float uSunIntensity;
-uniform float uAmbientLight;
-uniform vec3 uSunDirection;
+layout(set = 0, binding = 0) uniform PlanetUniforms {
+    mat4  invView;              // 64 bytes
+    mat3  planetRotation;       // 48 bytes (3 x vec4, std140)
 
-// Color/level uniforms
-uniform vec3 uWaterColorDeep;
-uniform vec3 uWaterColorSurface;
-uniform vec3 uSandColor;
-uniform vec3 uTreeColor;
-uniform vec3 uRockColor;
-uniform vec3 uIceColor;
-uniform float uSandLevel;
-uniform float uTreeLevel;
-uniform float uRockLevel;
-uniform float uIceLevel;
-uniform float uTransition;
+    vec4  cameraPos_time;       // xyz = camera pos, w = time
+    vec4  planetPos_radius;     // xyz = planet pos, w = radius
+    vec4  resolution_rot;       // xy = resolution, z = rotOffset, w = rotSpeed
+    vec4  noiseParams;          // x = noiseStr, y = quality, z = terrainScale, w = domainWarp
+    vec4  fbmParams;            // x = persistence, y = lacunarity, z = exponentiation, w = octaves
+    vec4  terrainFeatures;      // x = ridged, y = crater, z = continent, w = waterLevel
+    vec4  bandingPolar;         // x = bandStr, y = bandFreq, z = polarCap, w = pad
+    vec4  cloudParams1;         // x = density, y = scale, z = speed, w = altitude
+    vec4  cloudParams2;         // x = thickness, y = sunIntensity, z = ambientLight, w = atmoDensity
+    vec4  atmosphereColorPad;   // xyz = color
+    vec4  sunDirectionPad;      // xyz = direction
+    vec4  sunColorPad;          // xyz = color
+    vec4  deepSpaceColorPad;    // xyz = color
+    vec4  waterColorDeepPad;    // xyz
+    vec4  waterColorSurfPad;    // xyz
+    vec4  sandColorPad;         // xyz
+    vec4  treeColorPad;         // xyz
+    vec4  rockColorPad;         // xyz
+    vec4  iceColorPad;          // xyz
+    vec4  cloudColorPad;        // xyz
+    vec4  biomeLevels;          // x = sand, y = tree, z = rock, w = ice
+    vec4  transitionPad;        // x = transition
 
-// Camera
-uniform vec3 uCameraPosition;
-uniform mat4 uInvView;
+    vec4  bhParams1;            // x = isBlackHole, y = mass, z = accretionInner, w = accretionOuter
+    vec4  bhParams2;            // x = diskSpeed, y = turbulence, z = brightness, w = tempInner
+    vec4  bhParams3;            // x = tempOuter, y = dopplerStr, z = raySteps, w = pad
+    vec4  bhDiskTintPad;        // xyz = tint
+} u;
 
-// Extra color uniforms
-uniform vec3 uCloudColor;
-uniform vec3 uSunColor;
-uniform vec3 uDeepSpaceColor;
+// ── Texture (set=0, binding=1) ──────────────────────────────────────────────
+layout(set = 0, binding = 1) uniform sampler3D uNoiseTexture;
 
-// Terrain diversity
-uniform int uFbmOctaves;
-uniform float uFbmPersistence;
-uniform float uFbmLacunarity;
-uniform float uFbmExponentiation;
-uniform float uDomainWarpStrength;
-uniform float uRidgedStrength;
-uniform float uCraterStrength;
-uniform float uContinentScale;
-uniform float uWaterLevel;
-uniform float uPolarCapSize;
-uniform float uBandingStrength;
-uniform float uBandingFrequency;
+// ── Accessor macros — map old uniform names to UBO fields ───────────────────
+#define uTime              u.cameraPos_time.w
+#define uCameraPosition    u.cameraPos_time.xyz
+#define uPlanetPosition    u.planetPos_radius.xyz
+#define uPlanetRadius      u.planetPos_radius.w
+#define uResolution        u.resolution_rot.xy
+#define uRotationOffset    u.resolution_rot.z
+#define uRotationSpeed     u.resolution_rot.w
+#define uNoiseStrength     u.noiseParams.x
+#define uQuality           u.noiseParams.y
+#define uTerrainScale      u.noiseParams.z
+#define uDomainWarpStrength u.noiseParams.w
+#define uFbmPersistence    u.fbmParams.x
+#define uFbmLacunarity     u.fbmParams.y
+#define uFbmExponentiation u.fbmParams.z
+#define uFbmOctaves        int(u.fbmParams.w)
+#define uRidgedStrength    u.terrainFeatures.x
+#define uCraterStrength    u.terrainFeatures.y
+#define uContinentScale    u.terrainFeatures.z
+#define uWaterLevel        u.terrainFeatures.w
+#define uBandingStrength   u.bandingPolar.x
+#define uBandingFrequency  u.bandingPolar.y
+#define uPolarCapSize      u.bandingPolar.z
+#define uCloudsDensity     u.cloudParams1.x
+#define uCloudsScale       u.cloudParams1.y
+#define uCloudsSpeed       u.cloudParams1.z
+#define uCloudAltitude     u.cloudParams1.w
+#define uCloudThickness    u.cloudParams2.x
+#define uSunIntensity      u.cloudParams2.y
+#define uAmbientLight      u.cloudParams2.z
+#define uAtmosphereDensity u.cloudParams2.w
+#define uAtmosphereColor   u.atmosphereColorPad.xyz
+#define uSunDirection      u.sunDirectionPad.xyz
+#define uSunColor          u.sunColorPad.xyz
+#define uDeepSpaceColor    u.deepSpaceColorPad.xyz
+#define uWaterColorDeep    u.waterColorDeepPad.xyz
+#define uWaterColorSurface u.waterColorSurfPad.xyz
+#define uSandColor         u.sandColorPad.xyz
+#define uTreeColor         u.treeColorPad.xyz
+#define uRockColor         u.rockColorPad.xyz
+#define uIceColor          u.iceColorPad.xyz
+#define uCloudColor        u.cloudColorPad.xyz
+#define uSandLevel         u.biomeLevels.x
+#define uTreeLevel         u.biomeLevels.y
+#define uRockLevel         u.biomeLevels.z
+#define uIceLevel          u.biomeLevels.w
+#define uTransition        u.transitionPad.x
+#define uInvView           u.invView
+#define PLANET_ROTATION    u.planetRotation
 
-// Precomputed rotation matrix (set by CPU)
-uniform mat3 uPlanetRotation;
-
-// Black hole
-uniform bool  uIsBlackHole;
-uniform float uBhMass;
-uniform float uBhAccretionInner;
-uniform float uBhAccretionOuter;
-uniform float uBhDiskSpeed;
-uniform float uBhDiskTurbulence;
-uniform float uBhDiskBrightness;
-uniform float uBhTempInner;
-uniform float uBhTempOuter;
-uniform vec3  uBhDiskTint;
-uniform int   uBhRaySteps;
-uniform float uBhDopplerStrength;
+#define uIsBlackHole       (u.bhParams1.x > 0.5)
+#define uBhMass            u.bhParams1.y
+#define uBhAccretionInner  u.bhParams1.z
+#define uBhAccretionOuter  u.bhParams1.w
+#define uBhDiskSpeed       u.bhParams2.x
+#define uBhDiskTurbulence  u.bhParams2.y
+#define uBhDiskBrightness  u.bhParams2.z
+#define uBhTempInner       u.bhParams2.w
+#define uBhTempOuter       u.bhParams3.x
+#define uBhDopplerStrength u.bhParams3.y
+#define uBhRaySteps        int(u.bhParams3.z)
+#define uBhDiskTint        u.bhDiskTintPad.xyz
 
 // Constants
-#define PLANET_ROTATION uPlanetRotation
 #define EPSILON 1e-3
 #define INFINITY 1e10
 #define PI 3.14159265
@@ -356,10 +381,8 @@ vec3 spaceColor(vec3 direction) {
 
 // ── Black Hole ───────────────────────────────────────────────────────────────
 
-// Attempt 5: Attempt to fix black hole rendering. Based on
 // Tanner Helland's fitted curves for CIE 1931 → sRGB.
 // Input: temperature in Kelvin (1000–40000 K).
-// Output: linear RGB color (not clamped to [0,1] — caller should clamp).
 vec3 blackbodyColor(float tempK) {
     float t = tempK / 100.0;
     vec3 c;
@@ -388,9 +411,6 @@ vec3 blackbodyColor(float tempK) {
 }
 
 // Core black hole ray tracer using Schwarzschild geodesic integration.
-// Traces a photon path through curved spacetime, accumulating accretion
-// disk color at equatorial plane crossings, then composites over the
-// gravitationally lensed star background.
 vec3 traceBlackHole(vec3 ro, vec3 rd) {
     // Schwarzschild radius
     float Rs = uBhMass * uPlanetRadius * 0.5;
@@ -427,7 +447,6 @@ vec3 traceBlackHole(vec3 ro, vec3 rd) {
         }
 
         // Geodesic acceleration: Schwarzschild effective potential
-        // d²r/dλ² = -1.5 * h² * Rs / r^5 * pos (in Cartesian form)
         float r2 = r * r;
         float r5 = r2 * r2 * r;
         vec3 accel = -1.5 * h * h * Rs / r5 * pos;
@@ -473,8 +492,7 @@ vec3 traceBlackHole(vec3 ro, vec3 rd) {
                 float edgeFade = smoothstep(0.0, 0.15, radialT)
                                * smoothstep(1.0, 0.85, radialT);
 
-                // Doppler beaming: approaching side brighter, receding dimmer
-                // Orbital velocity direction is tangent to circular orbit
+                // Doppler beaming
                 vec3 orbitDir = normalize(cross(vec3(0.0, 1.0, 0.0), normalize(crossPos)));
                 float orbitalV = uBhDiskSpeed * sqrt(Rs / (2.0 * max(crossR, Rs)));
                 float doppler = 1.0 + uBhDopplerStrength * orbitalV * dot(normalize(vel), orbitDir) * 4.0;

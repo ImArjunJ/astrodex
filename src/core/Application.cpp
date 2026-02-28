@@ -1,13 +1,8 @@
 #include "core/Application.hpp"
 #include "core/Logger.hpp"
 #include "render/Camera.hpp"
+#include "render/VulkanRenderer.hpp"
 #include <imgui.h>
-
-#ifdef ASTRO_METAL
-#  include "render/MetalRenderer.hpp"
-#else
-#  include "render/Renderer.hpp"
-#endif
 
 namespace astrocore {
 
@@ -39,26 +34,14 @@ void Application::init() {
         m_camera->setAspectRatio(static_cast<float>(width) / static_cast<float>(height));
     });
 
-#ifdef ASTRO_METAL
-    m_renderer = std::make_unique<MetalRenderer>();
-    LOG_INFO("Using Metal rendering backend");
-#else
-    m_renderer = std::make_unique<Renderer>();
-    LOG_INFO("Using OpenGL rendering backend");
-#endif
-
-    // Pass the GLFW window handle — Metal needs it to attach CAMetalLayer;
-    // the OpenGL renderer ignores it.
+    m_renderer = std::make_unique<VulkanRenderer>();
+    LOG_INFO("Using Vulkan rendering backend");
     m_renderer->init(m_window->getWidth(), m_window->getHeight(),
                      m_window->getHandle());
 
     m_ui = std::make_unique<UIManager>();
-
-#ifdef ASTRO_METAL
-    m_ui->init(m_window->getHandle(), m_renderer->getMetalDevice());
-#else
-    m_ui->init(m_window->getHandle());
-#endif
+    m_ui->init(m_window->getHandle(),
+               static_cast<VulkanRenderer*>(m_renderer.get()));
 
     m_lastFrameTime = m_window->getTime();
     LOG_INFO("Ready");
@@ -106,18 +89,9 @@ void Application::render() {
     m_renderer->beginFrame();
     m_renderer->render(*m_camera);
 
-#ifdef ASTRO_METAL
-    // For Metal, ImGui renders into the active command encoder.
-    // We hand UIManager the current Metal frame context.
-    MetalFrameContext ctx = m_renderer->getMetalContext();
-    m_ui->beginFrame(ctx.renderPassDescriptor);
-    m_ui->render(m_renderer->params());
-    m_ui->endFrame(ctx.commandBuffer, ctx.commandEncoder);
-#else
     m_ui->beginFrame();
     m_ui->render(m_renderer->params());
-    m_ui->endFrame();
-#endif
+    m_ui->endFrame(static_cast<VulkanRenderer*>(m_renderer.get()));
 
     m_renderer->endFrame();
 }
