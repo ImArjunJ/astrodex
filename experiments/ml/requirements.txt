@@ -1,0 +1,7 @@
+torch>=2.0
+transformers>=4.40
+tab-transformer-pytorch>=0.6.0
+scikit-learn>=1.4
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.8

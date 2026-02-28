@@ -30,3 +30,13 @@ imgui.ini
 
 # Compiled shaders
 *.spv
+.firecrawl/
+
+# Python ML experiments
+experiments/ml/.venv/
+experiments/ml/__pycache__/
+experiments/ml/models/__pycache__/
+experiments/ml/results/
+*.pyc
+*.pth
+*.pt
