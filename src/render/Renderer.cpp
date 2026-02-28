@@ -111,6 +111,16 @@ void Renderer::render(const Camera& camera) {
     m_shader.setFloat("uTime", m_time);
     m_shader.setFloat("uRotationSpeed", m_params.rotationSpeed);
     m_shader.setFloat("uRotationOffset", m_params.rotationOffset);
+
+    // Precompute planet rotation matrix on CPU
+    float angle = m_time * m_params.rotationSpeed + m_params.rotationOffset;
+    float c = glm::cos(angle), s = glm::sin(angle);
+    glm::mat3 planetRotation(
+        glm::vec3( c, 0, s),
+        glm::vec3( 0, 1, 0),
+        glm::vec3(-s, 0, c)
+    );
+    m_shader.setMat3("uPlanetRotation", planetRotation);
     m_shader.setFloat("uQuality", m_params.quality);
 
     // Camera
@@ -171,6 +181,20 @@ void Renderer::render(const Camera& camera) {
     m_shader.setFloat("uAmbientLight", m_params.ambientLight);
     m_shader.setVec3("uSunColor", m_params.sunColor);
     m_shader.setVec3("uDeepSpaceColor", m_params.deepSpaceColor);
+
+    // Black hole
+    m_shader.setBool("uIsBlackHole", m_params.isBlackHole);
+    m_shader.setFloat("uBhMass", m_params.bhMass);
+    m_shader.setFloat("uBhAccretionInner", m_params.bhAccretionInner);
+    m_shader.setFloat("uBhAccretionOuter", m_params.bhAccretionOuter);
+    m_shader.setFloat("uBhDiskSpeed", m_params.bhDiskSpeed);
+    m_shader.setFloat("uBhDiskTurbulence", m_params.bhDiskTurbulence);
+    m_shader.setFloat("uBhDiskBrightness", m_params.bhDiskBrightness);
+    m_shader.setFloat("uBhTempInner", m_params.bhDiskTemperatureInner);
+    m_shader.setFloat("uBhTempOuter", m_params.bhDiskTemperatureOuter);
+    m_shader.setVec3("uBhDiskTint", m_params.bhDiskTint);
+    m_shader.setInt("uBhRaySteps", m_params.bhRaySteps);
+    m_shader.setFloat("uBhDopplerStrength", m_params.bhDopplerStrength);
 
     // Bind noise texture
     glActiveTexture(GL_TEXTURE0);
