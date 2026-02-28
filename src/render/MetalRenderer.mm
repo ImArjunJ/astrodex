@@ -27,6 +27,9 @@ struct alignas(16) PlanetUniformsMetal {
     // 64 bytes: float4x4
     float invView[16];
 
+    // 48 bytes: float3x3 (stored as 3×float4)
+    float planetRot[12];
+
     // Groups of float4 (16 bytes each)
     float camPosX, camPosY, camPosZ, time;
     float planetX, planetY, planetZ, radius;
@@ -50,6 +53,12 @@ struct alignas(16) PlanetUniformsMetal {
     float cloudColR,  cloudColG,  cloudColB,  _pad11;
     float sandLev,    treeLev,    rockLev,    iceLev;
     float transition, _pad12, _pad13, _pad14;
+
+    // Black hole parameters
+    float isBlackHole, bhMass, bhAccretionInner, bhAccretionOuter;
+    float bhDiskSpeed, bhDiskTurbulence, bhDiskBrightness, bhTempInner;
+    float bhTempOuter, bhDopplerStrength, bhRaySteps, _pad15;
+    float bhDiskTintR, bhDiskTintG, bhDiskTintB, _pad16;
 };
 
 // ── Pimpl ─────────────────────────────────────────────────────────────────────
@@ -294,6 +303,28 @@ void MetalRenderer::render(const Camera& camera) {
     glm::mat4 inv = glm::inverse(camera.getViewMatrix());
     std::memcpy(u.invView, &inv[0][0], sizeof(u.invView));
 
+    // Precompute planet rotation matrix
+    float angle = m_impl->time * m_impl->params.rotationSpeed + m_impl->params.rotationOffset;
+    float c = glm::cos(angle), s = glm::sin(angle);
+    glm::mat3 planetRotation(
+        glm::vec3( c, 0, s),
+        glm::vec3( 0, 1, 0),
+        glm::vec3(-s, 0, c)
+    );
+    // Pack mat3 into float4 array for Metal (each column stored in float4)
+    u.planetRot[0] = planetRotation[0][0];
+    u.planetRot[1] = planetRotation[0][1];
+    u.planetRot[2] = planetRotation[0][2];
+    u.planetRot[3] = 0.f;
+    u.planetRot[4] = planetRotation[1][0];
+    u.planetRot[5] = planetRotation[1][1];
+    u.planetRot[6] = planetRotation[1][2];
+    u.planetRot[7] = 0.f;
+    u.planetRot[8] = planetRotation[2][0];
+    u.planetRot[9] = planetRotation[2][1];
+    u.planetRot[10] = planetRotation[2][2];
+    u.planetRot[11] = 0.f;
+
     glm::vec3 cam = camera.getPosition();
     u.camPosX = cam.x;  u.camPosY = cam.y;  u.camPosZ = cam.z;
     u.time    = m_impl->time;
@@ -351,6 +382,20 @@ void MetalRenderer::render(const Camera& camera) {
     u.rockLev   = m_impl->params.rockLevel;
     u.iceLev    = m_impl->params.iceLevel;
     u.transition= m_impl->params.transition;
+
+    // Black hole
+    u.isBlackHole           = m_impl->params.isBlackHole ? 1.0f : 0.0f;
+    u.bhMass                = m_impl->params.bhMass;
+    u.bhAccretionInner      = m_impl->params.bhAccretionInner;
+    u.bhAccretionOuter      = m_impl->params.bhAccretionOuter;
+    u.bhDiskSpeed           = m_impl->params.bhDiskSpeed;
+    u.bhDiskTurbulence      = m_impl->params.bhDiskTurbulence;
+    u.bhDiskBrightness      = m_impl->params.bhDiskBrightness;
+    u.bhTempInner           = m_impl->params.bhDiskTemperatureInner;
+    u.bhTempOuter           = m_impl->params.bhDiskTemperatureOuter;
+    u.bhDopplerStrength     = m_impl->params.bhDopplerStrength;
+    u.bhRaySteps            = float(m_impl->params.bhRaySteps);
+    v3(&u.bhDiskTintR, m_impl->params.bhDiskTint);
 
     std::memcpy(m_impl->uniformBuffer.contents, &u, sizeof(u));
 
