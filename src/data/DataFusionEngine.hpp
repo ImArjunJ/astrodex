@@ -5,6 +5,7 @@
 #include "data/GaiaClient.hpp"
 #include "data/CdsClient.hpp"
 #include "data/CacheManager.hpp"
+#include "ai/InferenceEngine.hpp"
 #include <memory>
 #include <future>
 
@@ -41,6 +42,10 @@ public:
 
     // Merge complete ExoplanetData from multiple sources
     static ExoplanetData mergeExoplanetData(const std::vector<ExoplanetData>& sources);
+
+    // Apply deterministic rule-based defaults for missing fields
+    // Public static for testability; fills only NaN fields with physics-based values
+    static void applyDeterministicDefaults(ExoplanetData& data);
 
 private:
     struct Impl;

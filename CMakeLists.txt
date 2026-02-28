@@ -48,6 +48,9 @@ set(ASTROCORE_SOURCES
     src/data/DataFusionEngine.cpp
     src/data/CacheManager.cpp
     src/data/ExoplanetData.cpp
+    src/ai/InferenceEngine.cpp
+    src/ai/BedrockClient.cpp
+    src/render/PlanetParams.cpp
 )
 
 # Add OpenGL-dependent sources only if OpenGL is available

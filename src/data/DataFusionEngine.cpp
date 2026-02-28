@@ -1,6 +1,9 @@
 #include "data/DataFusionEngine.hpp"
+#include "core/Logger.hpp"
 #include <algorithm>
 #include <limits>
+#include <thread>
+#include <chrono>
 
 namespace astrocore {
 
@@ -10,6 +13,7 @@ struct DataFusionEngine::Impl {
     GaiaClient gaia;
     CdsClient cds;
     CacheManager cache{"fused"};
+    InferenceEngine inference;
 };
 
 DataFusionEngine::DataFusionEngine()
@@ -215,8 +219,156 @@ ExoplanetData DataFusionEngine::mergeExoplanetData(const std::vector<ExoplanetDa
     return merged;
 }
 
+void DataFusionEngine::applyDeterministicDefaults(ExoplanetData& data) {
+    double T = data.equilibrium_temp_k.hasValue() ? data.equilibrium_temp_k.value : 288.0;
+    double M = data.mass_earth.hasValue() ? data.mass_earth.value : 1.0;
+    double R = data.radius_earth.hasValue() ? data.radius_earth.value : 1.0;
+
+    // Albedo: temperature-based default
+    if (!data.albedo.hasValue()) {
+        if (T > 700.0) {
+            data.albedo = MeasuredValue<double>(0.75, DataSource::CALCULATED);  // Venus-like reflective clouds
+        } else if (T > 250.0) {
+            data.albedo = MeasuredValue<double>(0.3, DataSource::CALCULATED);   // Earth-like
+        } else {
+            data.albedo = MeasuredValue<double>(0.5, DataSource::CALCULATED);   // Ice world
+        }
+    }
+
+    // Surface pressure: mass/radius-based (larger rocky planets retain more atmosphere)
+    if (!data.surface_pressure_atm.hasValue()) {
+        if (R > 6.0) {
+            // Gas giant - no defined surface pressure
+            data.surface_pressure_atm = MeasuredValue<double>(0.0, DataSource::CALCULATED);
+        } else if (M > 5.0) {
+            // Super-Earth with thick atmosphere
+            data.surface_pressure_atm = MeasuredValue<double>(5.0 * (M / 10.0), DataSource::CALCULATED);
+        } else if (M > 0.5) {
+            // Earth-like
+            data.surface_pressure_atm = MeasuredValue<double>(1.0 * (M / 1.0), DataSource::CALCULATED);
+        } else {
+            // Small body - thin atmosphere (Mars-like)
+            data.surface_pressure_atm = MeasuredValue<double>(0.006 * (M / 0.1), DataSource::CALCULATED);
+        }
+    }
+
+    // Atmosphere composition: based on temperature and mass
+    if (!data.atmosphere_composition.hasValue() || data.atmosphere_composition.value.empty()) {
+        if (R > 6.0) {
+            // Gas giant: H2/He dominated
+            data.atmosphere_composition = MeasuredValue<std::string>(
+                R"({"H2":85,"He":14,"CH4":0.5,"NH3":0.5})", DataSource::CALCULATED);
+        } else if (T > 700.0) {
+            // Hot rocky: CO2/N2 Venus-like
+            data.atmosphere_composition = MeasuredValue<std::string>(
+                R"({"CO2":96,"N2":3.5,"SO2":0.5})", DataSource::CALCULATED);
+        } else if (T > 250.0 && T < 350.0 && M > 0.5 && M < 10.0) {
+            // Habitable zone rocky: N2/O2 Earth-like
+            data.atmosphere_composition = MeasuredValue<std::string>(
+                R"({"N2":78,"O2":21,"Ar":0.9,"CO2":0.04})", DataSource::CALCULATED);
+        } else if (T < 250.0) {
+            // Cold world: thin N2/CO2
+            data.atmosphere_composition = MeasuredValue<std::string>(
+                R"({"N2":60,"CO2":30,"Ar":10})", DataSource::CALCULATED);
+        } else {
+            // Hot super-Earth: CO2/N2
+            data.atmosphere_composition = MeasuredValue<std::string>(
+                R"({"CO2":70,"N2":25,"H2O":5})", DataSource::CALCULATED);
+        }
+    }
+
+    // Biome classification: temperature-based
+    if (!data.biome_classification.hasValue() || data.biome_classification.value.empty()) {
+        if (R > 6.0) {
+            data.biome_classification = MeasuredValue<std::string>("Gas Giant", DataSource::CALCULATED);
+        } else if (T > 700.0) {
+            data.biome_classification = MeasuredValue<std::string>("Lava World", DataSource::CALCULATED);
+        } else if (T > 350.0) {
+            data.biome_classification = MeasuredValue<std::string>("Desert", DataSource::CALCULATED);
+        } else if (T > 250.0) {
+            data.biome_classification = MeasuredValue<std::string>("Temperate", DataSource::CALCULATED);
+        } else if (T > 150.0) {
+            data.biome_classification = MeasuredValue<std::string>("Tundra", DataSource::CALCULATED);
+        } else {
+            data.biome_classification = MeasuredValue<std::string>("Ice World", DataSource::CALCULATED);
+        }
+    }
+
+    // Ocean coverage: temperature-driven
+    if (!data.ocean_coverage_fraction.hasValue()) {
+        if (R > 6.0 || T > 700.0 || T < 150.0) {
+            data.ocean_coverage_fraction = MeasuredValue<double>(0.0, DataSource::CALCULATED);
+        } else if (T >= 250.0 && T <= 350.0) {
+            data.ocean_coverage_fraction = MeasuredValue<double>(0.5, DataSource::CALCULATED);
+        } else if (T > 350.0 && T <= 700.0) {
+            data.ocean_coverage_fraction = MeasuredValue<double>(0.05, DataSource::CALCULATED);
+        } else {
+            // 150-250K: some ice coverage, minimal liquid
+            data.ocean_coverage_fraction = MeasuredValue<double>(0.1, DataSource::CALCULATED);
+        }
+    }
+
+    // Cloud coverage: atmosphere-density-driven
+    if (!data.cloud_coverage_fraction.hasValue()) {
+        double pressure = data.surface_pressure_atm.hasValue() ? data.surface_pressure_atm.value : 1.0;
+        if (R > 6.0) {
+            data.cloud_coverage_fraction = MeasuredValue<double>(0.8, DataSource::CALCULATED);
+        } else if (pressure > 10.0) {
+            data.cloud_coverage_fraction = MeasuredValue<double>(0.9, DataSource::CALCULATED);
+        } else if (pressure > 0.5) {
+            data.cloud_coverage_fraction = MeasuredValue<double>(0.4, DataSource::CALCULATED);
+        } else {
+            data.cloud_coverage_fraction = MeasuredValue<double>(0.05, DataSource::CALCULATED);
+        }
+    }
+
+    // Ice coverage: temperature-driven
+    if (!data.ice_coverage_fraction.hasValue()) {
+        if (T < 150.0) {
+            data.ice_coverage_fraction = MeasuredValue<double>(0.9, DataSource::CALCULATED);
+        } else if (T < 250.0) {
+            data.ice_coverage_fraction = MeasuredValue<double>(0.4, DataSource::CALCULATED);
+        } else if (T < 300.0) {
+            data.ice_coverage_fraction = MeasuredValue<double>(0.1, DataSource::CALCULATED);
+        } else {
+            data.ice_coverage_fraction = MeasuredValue<double>(0.0, DataSource::CALCULATED);
+        }
+    }
+
+    // Surface color hint: biome-based
+    if (!data.surface_color_hint.hasValue() || data.surface_color_hint.value.empty()) {
+        if (data.biome_classification.hasValue()) {
+            const std::string& biome = data.biome_classification.value;
+            if (biome == "Lava World") {
+                data.surface_color_hint = MeasuredValue<std::string>("dark-red-orange", DataSource::CALCULATED);
+            } else if (biome == "Desert") {
+                data.surface_color_hint = MeasuredValue<std::string>("rust-orange", DataSource::CALCULATED);
+            } else if (biome == "Temperate") {
+                data.surface_color_hint = MeasuredValue<std::string>("blue-green", DataSource::CALCULATED);
+            } else if (biome == "Tundra") {
+                data.surface_color_hint = MeasuredValue<std::string>("grey-white", DataSource::CALCULATED);
+            } else if (biome == "Ice World") {
+                data.surface_color_hint = MeasuredValue<std::string>("white-ice", DataSource::CALCULATED);
+            } else if (biome == "Gas Giant") {
+                data.surface_color_hint = MeasuredValue<std::string>("banded-amber", DataSource::CALCULATED);
+            }
+        }
+    }
+
+    // Greenhouse effect: rough estimate from atmosphere
+    if (!data.greenhouse_effect.hasValue()) {
+        if (T > 700.0) {
+            data.greenhouse_effect = MeasuredValue<double>(0.9, DataSource::CALCULATED);
+        } else if (T > 300.0) {
+            data.greenhouse_effect = MeasuredValue<double>(0.3, DataSource::CALCULATED);
+        } else {
+            data.greenhouse_effect = MeasuredValue<double>(0.15, DataSource::CALCULATED);
+        }
+    }
+}
+
 ExoplanetData DataFusionEngine::fetchAndFuseSync(const std::string& planetName) {
-    // Check fused cache first
+    // Check fused cache first (includes AI-enriched data)
     auto cached = m_impl->cache.retrieve(planetName);
     if (cached.has_value()) {
         return *cached;
@@ -231,7 +383,7 @@ ExoplanetData DataFusionEngine::fetchAndFuseSync(const std::string& planetName) 
             sources.push_back(nasa_results[0]);
         }
     } catch (...) {
-        // NASA query failed, continue with other sources
+        LOG_WARN("NASA query failed for '{}'", planetName);
     }
 
     // Query OEC (supplemental)
@@ -241,7 +393,7 @@ ExoplanetData DataFusionEngine::fetchAndFuseSync(const std::string& planetName) 
             sources.push_back(oec_results[0]);
         }
     } catch (...) {
-        // OEC query failed
+        LOG_WARN("OEC query failed for '{}'", planetName);
     }
 
     // Resolve host star name via CDS (for coordinates)
@@ -253,47 +405,61 @@ ExoplanetData DataFusionEngine::fetchAndFuseSync(const std::string& planetName) 
     }
 
     double ra = 0.0, dec = 0.0;
+    bool coordsResolved = false;
     try {
         auto resolved = m_impl->cds.resolveStarNameSync(starName);
         if (resolved.found) {
             ra = resolved.ra_deg;
             dec = resolved.dec_deg;
+            coordsResolved = true;
         }
     } catch (...) {
-        // CDS resolution failed
+        LOG_WARN("CDS name resolution failed for '{}'", starName);
     }
 
     // Query Gaia for stellar enrichment (if we have coordinates)
-    if (ra > 0.0 || dec > 0.0) {
+    if (coordsResolved) {
         try {
             auto gaia_star = m_impl->gaia.queryHostStarByCoordsSync(ra, dec);
-            // Add to first source's host_star
-            if (!sources.empty() && gaia_star.effective_temp_k.hasValue()) {
-                sources[0].host_star = gaia_star;
+            if (gaia_star.effective_temp_k.hasValue()) {
+                ExoplanetData gaiaEntry;
+                gaiaEntry.host_star = gaia_star;
+                sources.push_back(gaiaEntry);
             }
         } catch (...) {
-            // Gaia query failed
+            LOG_WARN("Gaia query failed for coords ({}, {})", ra, dec);
         }
 
         // Query CDS for VizieR enrichment
         try {
             auto cds_star = m_impl->cds.queryHostStarByCoordsSync(ra, dec);
-            // Merge with existing host star data
-            if (!sources.empty() && cds_star.metallicity.hasValue()) {
-                // Add CDS data as a separate host star source for merging
-                if (sources.size() > 1) {
-                    sources[1].host_star = cds_star;
-                }
+            if (cds_star.metallicity.hasValue()) {
+                ExoplanetData cdsEntry;
+                cdsEntry.host_star = cds_star;
+                sources.push_back(cdsEntry);
             }
         } catch (...) {
-            // CDS query failed
+            LOG_WARN("CDS VizieR query failed for coords ({}, {})", ra, dec);
         }
     }
 
     // Merge all sources
     ExoplanetData fused = mergeExoplanetData(sources);
 
-    // Store in cache
+    // AI inference gap-filling (per user decision: always run after fusion)
+    if (m_impl->inference.isAvailable()) {
+        try {
+            fused = m_impl->inference.fillMissingParametersSync(fused);
+        } catch (const std::exception& e) {
+            LOG_WARN("AI inference failed for '{}': {}, applying rule-based defaults", planetName, e.what());
+            applyDeterministicDefaults(fused);
+        }
+    } else {
+        LOG_INFO("AI unavailable for {}, using rule-based defaults", planetName);
+        applyDeterministicDefaults(fused);
+    }
+
+    // Store enriched record in cache
     m_impl->cache.store(planetName, fused);
 
     return fused;

@@ -2,6 +2,8 @@
 #include "ai/BedrockClient.hpp"
 #include "ai/PromptTemplates.hpp"
 #include "core/Logger.hpp"
+#include <thread>
+#include <chrono>
 
 namespace astrocore {
 
@@ -26,6 +28,7 @@ void InferenceEngine::applyInferredValues(ExoplanetData& data,
                                           const std::string& reasoning) {
     auto applyDouble = [&values, &reasoning](MeasuredValue<double>& target,
                                              const std::string& key) {
+        if (target.hasValue()) return;  // CRITICAL: never overwrite measured data
         if (values.contains(key)) {
             const auto& v = values[key];
             if (v.contains("value")) {
@@ -46,6 +49,7 @@ void InferenceEngine::applyInferredValues(ExoplanetData& data,
 
     auto applyString = [&values, &reasoning](MeasuredValue<std::string>& target,
                                              const std::string& key) {
+        if (!target.value.empty()) return;  // CRITICAL: never overwrite existing data
         if (values.contains(key)) {
             const auto& v = values[key];
             if (v.contains("value")) {
@@ -86,6 +90,13 @@ void InferenceEngine::inferAtmosphere(ExoplanetData& data) {
 
     auto response = m_bedrock->inferSync(request);
 
+    // One retry on transient failure before giving up
+    if (!response.success) {
+        LOG_INFO("Retrying atmosphere inference for {} after transient failure", data.name);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        response = m_bedrock->inferSync(request);
+    }
+
     if (response.success) {
         applyInferredValues(data, response.inferred_values, response.reasoning);
         LOG_INFO("Atmosphere inference complete for {} ({:.0f}ms)",
@@ -108,6 +119,13 @@ void InferenceEngine::inferRenderHints(ExoplanetData& data) {
     request.user_prompt = prompts::buildRenderHintsPrompt(data);
 
     auto response = m_bedrock->inferSync(request);
+
+    // One retry on transient failure before giving up
+    if (!response.success) {
+        LOG_INFO("Retrying render hints inference for {} after transient failure", data.name);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        response = m_bedrock->inferSync(request);
+    }
 
     if (response.success) {
         applyInferredValues(data, response.inferred_values, response.reasoning);

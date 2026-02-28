@@ -18,39 +18,38 @@ static DataSource parseDataSource(const std::string& str) {
 void ExoplanetData::calculateDerivedValues() {
     // Calculate mass in Jupiter if we have Earth mass
     if (mass_earth.hasValue() && !mass_jupiter.hasValue()) {
-        mass_jupiter.value = mass_earth.value / 317.8;
+        mass_jupiter.value = mass_earth.value / constants::JUPITER_TO_EARTH_MASS;
         mass_jupiter.source = DataSource::CALCULATED;
     }
 
     // Calculate mass in Earth if we have Jupiter mass
     if (mass_jupiter.hasValue() && !mass_earth.hasValue()) {
-        mass_earth.value = mass_jupiter.value * 317.8;
+        mass_earth.value = mass_jupiter.value * constants::JUPITER_TO_EARTH_MASS;
         mass_earth.source = DataSource::CALCULATED;
     }
 
     // Calculate radius in Jupiter if we have Earth radius
     if (radius_earth.hasValue() && !radius_jupiter.hasValue()) {
-        radius_jupiter.value = radius_earth.value / 11.2;
+        radius_jupiter.value = radius_earth.value / constants::JUPITER_TO_EARTH_RADIUS;
         radius_jupiter.source = DataSource::CALCULATED;
     }
 
     // Calculate radius in Earth if we have Jupiter radius
     if (radius_jupiter.hasValue() && !radius_earth.hasValue()) {
-        radius_earth.value = radius_jupiter.value * 11.2;
+        radius_earth.value = radius_jupiter.value * constants::JUPITER_TO_EARTH_RADIUS;
         radius_earth.source = DataSource::CALCULATED;
     }
 
     // Calculate density from mass and radius
     if (mass_earth.hasValue() && radius_earth.hasValue() && !density_gcc.hasValue()) {
-        // Earth density = 5.51 g/cm³
-        // density = mass / volume, volume scales as r³
-        density_gcc.value = 5.51 * mass_earth.value / std::pow(radius_earth.value, 3.0);
+        // density = mass / volume, volume scales as r^3
+        density_gcc.value = constants::EARTH_DENSITY_GCC * mass_earth.value / std::pow(radius_earth.value, 3.0);
         density_gcc.source = DataSource::CALCULATED;
     }
 
     // Calculate surface gravity
     if (mass_earth.hasValue() && radius_earth.hasValue() && !surface_gravity_g.hasValue()) {
-        // g = GM/r² -> g_planet/g_earth = (M/M_earth) / (R/R_earth)²
+        // g = GM/r^2 -> g_planet/g_earth = (M/M_earth) / (R/R_earth)^2
         surface_gravity_g.value = mass_earth.value / std::pow(radius_earth.value, 2.0);
         surface_gravity_g.source = DataSource::CALCULATED;
     }
@@ -61,9 +60,8 @@ void ExoplanetData::calculateDerivedValues() {
         host_star.radius_solar.hasValue() &&
         semi_major_axis_au.hasValue()) {
         // T_eq = T_star * sqrt(R_star / (2 * a)) * (1 - A)^0.25
-        // Assume albedo of 0.3 if not known
-        double A = albedo.hasValue() ? albedo.value : 0.3;
-        double R_star_au = host_star.radius_solar.value * 0.00465047;  // Solar radii to AU
+        double A = albedo.hasValue() ? albedo.value : constants::DEFAULT_ALBEDO;
+        double R_star_au = host_star.radius_solar.value * constants::SOLAR_RADIUS_AU;
         equilibrium_temp_k.value = host_star.effective_temp_k.value *
             std::sqrt(R_star_au / (2.0 * semi_major_axis_au.value)) *
             std::pow(1.0 - A, 0.25);
@@ -72,11 +70,9 @@ void ExoplanetData::calculateDerivedValues() {
 
     // Calculate habitable zone distance
     if (host_star.luminosity_solar.hasValue() && semi_major_axis_au.hasValue()) {
-        // Conservative HZ inner edge: sqrt(L) * 0.95 AU
-        // Conservative HZ outer edge: sqrt(L) * 1.67 AU
         double L = host_star.luminosity_solar.value;
-        double hz_inner = std::sqrt(L) * 0.95;
-        double hz_outer = std::sqrt(L) * 1.67;
+        double hz_inner = std::sqrt(L) * constants::HZ_INNER_FACTOR;
+        double hz_outer = std::sqrt(L) * constants::HZ_OUTER_FACTOR;
         double hz_center = (hz_inner + hz_outer) / 2.0;
 
         habitable_zone_distance.value = semi_major_axis_au.value / hz_center;
@@ -115,6 +111,36 @@ bool ExoplanetData::hasMinimumRenderData() const {
     return hasSize && hasTemp;
 }
 
+// ---- Helper lambdas for serializing MeasuredValue with ai_reasoning/confidence ----
+
+// Serialize a double MeasuredValue into a JSON section
+static void serializeDouble(nlohmann::json& section, const std::string& key,
+                            const MeasuredValue<double>& field) {
+    if (!field.hasValue()) return;
+    section[key] = field.value;
+    section[key + "_source"] = dataSourceToString(field.source);
+    if (field.ai_reasoning.has_value()) {
+        section[key + "_reasoning"] = *field.ai_reasoning;
+    }
+    if (field.confidence != 1.0f) {
+        section[key + "_confidence"] = field.confidence;
+    }
+}
+
+// Serialize a string MeasuredValue into a JSON section
+static void serializeString(nlohmann::json& section, const std::string& key,
+                            const MeasuredValue<std::string>& field) {
+    if (field.value.empty()) return;
+    section[key] = field.value;
+    section[key + "_source"] = dataSourceToString(field.source);
+    if (field.ai_reasoning.has_value()) {
+        section[key + "_reasoning"] = *field.ai_reasoning;
+    }
+    if (field.confidence != 1.0f) {
+        section[key + "_confidence"] = field.confidence;
+    }
+}
+
 nlohmann::json ExoplanetData::toJson() const {
     nlohmann::json j;
 
@@ -124,71 +150,102 @@ nlohmann::json ExoplanetData::toJson() const {
 
     // Host star
     j["host_star"]["name"] = host_star.name;
-    if (host_star.effective_temp_k.hasValue()) {
-        j["host_star"]["effective_temp_k"] = host_star.effective_temp_k.value;
-        j["host_star"]["effective_temp_k_source"] = dataSourceToString(host_star.effective_temp_k.source);
-    }
-    if (host_star.radius_solar.hasValue()) {
-        j["host_star"]["radius_solar"] = host_star.radius_solar.value;
-        j["host_star"]["radius_solar_source"] = dataSourceToString(host_star.radius_solar.source);
-    }
-    if (host_star.mass_solar.hasValue()) {
-        j["host_star"]["mass_solar"] = host_star.mass_solar.value;
-        j["host_star"]["mass_solar_source"] = dataSourceToString(host_star.mass_solar.source);
-    }
-    if (host_star.luminosity_solar.hasValue()) {
-        j["host_star"]["luminosity_solar"] = host_star.luminosity_solar.value;
-        j["host_star"]["luminosity_solar_source"] = dataSourceToString(host_star.luminosity_solar.source);
-    }
     j["host_star"]["spectral_type"] = host_star.spectral_type;
+    serializeDouble(j["host_star"], "effective_temp_k", host_star.effective_temp_k);
+    serializeDouble(j["host_star"], "radius_solar", host_star.radius_solar);
+    serializeDouble(j["host_star"], "mass_solar", host_star.mass_solar);
+    serializeDouble(j["host_star"], "luminosity_solar", host_star.luminosity_solar);
+    serializeDouble(j["host_star"], "metallicity", host_star.metallicity);
+    serializeDouble(j["host_star"], "distance_pc", host_star.distance_pc);
+    serializeDouble(j["host_star"], "age_gyr", host_star.age_gyr);
+    serializeDouble(j["host_star"], "ra_deg", host_star.ra_deg);
+    serializeDouble(j["host_star"], "dec_deg", host_star.dec_deg);
 
     // Orbital parameters
-    if (orbital_period_days.hasValue()) {
-        j["orbital"]["period_days"] = orbital_period_days.value;
-        j["orbital"]["period_days_source"] = dataSourceToString(orbital_period_days.source);
-    }
-    if (semi_major_axis_au.hasValue()) {
-        j["orbital"]["semi_major_axis_au"] = semi_major_axis_au.value;
-        j["orbital"]["semi_major_axis_au_source"] = dataSourceToString(semi_major_axis_au.source);
-    }
-    if (eccentricity.hasValue()) {
-        j["orbital"]["eccentricity"] = eccentricity.value;
-        j["orbital"]["eccentricity_source"] = dataSourceToString(eccentricity.source);
-    }
+    serializeDouble(j["orbital"], "period_days", orbital_period_days);
+    serializeDouble(j["orbital"], "semi_major_axis_au", semi_major_axis_au);
+    serializeDouble(j["orbital"], "eccentricity", eccentricity);
+    serializeDouble(j["orbital"], "inclination_deg", inclination_deg);
+    serializeDouble(j["orbital"], "omega_deg", omega_deg);
 
     // Physical parameters
-    if (mass_earth.hasValue()) {
-        j["physical"]["mass_earth"] = mass_earth.value;
-        j["physical"]["mass_earth_source"] = dataSourceToString(mass_earth.source);
-    }
-    if (radius_earth.hasValue()) {
-        j["physical"]["radius_earth"] = radius_earth.value;
-        j["physical"]["radius_earth_source"] = dataSourceToString(radius_earth.source);
-    }
-    if (density_gcc.hasValue()) {
-        j["physical"]["density_gcc"] = density_gcc.value;
-        j["physical"]["density_gcc_source"] = dataSourceToString(density_gcc.source);
-    }
-    if (equilibrium_temp_k.hasValue()) {
-        j["physical"]["equilibrium_temp_k"] = equilibrium_temp_k.value;
-        j["physical"]["equilibrium_temp_k_source"] = dataSourceToString(equilibrium_temp_k.source);
-    }
+    serializeDouble(j["physical"], "mass_earth", mass_earth);
+    serializeDouble(j["physical"], "mass_jupiter", mass_jupiter);
+    serializeDouble(j["physical"], "radius_earth", radius_earth);
+    serializeDouble(j["physical"], "radius_jupiter", radius_jupiter);
+    serializeDouble(j["physical"], "density_gcc", density_gcc);
+    serializeDouble(j["physical"], "equilibrium_temp_k", equilibrium_temp_k);
+    serializeDouble(j["physical"], "surface_gravity_g", surface_gravity_g);
 
-    // Planet type
-    if (planet_type.hasValue()) {
-        j["classification"]["planet_type"] = planet_type.value;
-        j["classification"]["planet_type_source"] = dataSourceToString(planet_type.source);
-    }
-    if (habitable_zone_distance.hasValue()) {
-        j["classification"]["hz_distance"] = habitable_zone_distance.value;
-        j["classification"]["hz_distance_source"] = dataSourceToString(habitable_zone_distance.source);
-    }
+    // Atmosphere
+    serializeDouble(j["atmosphere"], "surface_pressure_atm", surface_pressure_atm);
+    serializeDouble(j["atmosphere"], "albedo", albedo);
+    serializeDouble(j["atmosphere"], "greenhouse_effect", greenhouse_effect);
+    serializeString(j["atmosphere"], "atmosphere_composition", atmosphere_composition);
+    serializeDouble(j["atmosphere"], "ocean_coverage_fraction", ocean_coverage_fraction);
+    serializeDouble(j["atmosphere"], "cloud_coverage_fraction", cloud_coverage_fraction);
+    serializeDouble(j["atmosphere"], "ice_coverage_fraction", ice_coverage_fraction);
+
+    // Rendering
+    serializeString(j["rendering"], "biome_classification", biome_classification);
+    serializeString(j["rendering"], "surface_color_hint", surface_color_hint);
+
+    // Classification
+    serializeString(j["classification"], "planet_type", planet_type);
+    serializeDouble(j["classification"], "hz_distance", habitable_zone_distance);
+    serializeDouble(j["classification"], "earth_similarity_index", earth_similarity_index);
 
     return j;
 }
 
 ExoplanetData ExoplanetData::fromJson(const nlohmann::json& j) {
     ExoplanetData data;
+
+    // Helper to parse a MeasuredValue<double> field from a JSON section,
+    // including ai_reasoning and confidence
+    auto parseMeasuredField = [](const nlohmann::json& section,
+                                 const std::string& key,
+                                 MeasuredValue<double>& field,
+                                 DataSource defaultSource) {
+        if (section.contains(key)) {
+            field.value = section[key].get<double>();
+            std::string sourceKey = key + "_source";
+            field.source = section.contains(sourceKey)
+                ? parseDataSource(section[sourceKey].get<std::string>())
+                : defaultSource;
+
+            std::string reasonKey = key + "_reasoning";
+            if (section.contains(reasonKey)) {
+                field.ai_reasoning = section[reasonKey].get<std::string>();
+            }
+            std::string confKey = key + "_confidence";
+            if (section.contains(confKey)) {
+                field.confidence = section[confKey].get<float>();
+            }
+        }
+    };
+
+    auto parseMeasuredString = [](const nlohmann::json& section,
+                                  const std::string& key,
+                                  MeasuredValue<std::string>& field,
+                                  DataSource defaultSource) {
+        if (section.contains(key)) {
+            field.value = section[key].get<std::string>();
+            std::string sourceKey = key + "_source";
+            field.source = section.contains(sourceKey)
+                ? parseDataSource(section[sourceKey].get<std::string>())
+                : defaultSource;
+
+            std::string reasonKey = key + "_reasoning";
+            if (section.contains(reasonKey)) {
+                field.ai_reasoning = section[reasonKey].get<std::string>();
+            }
+            std::string confKey = key + "_confidence";
+            if (section.contains(confKey)) {
+                field.confidence = section[confKey].get<float>();
+            }
+        }
+    };
 
     data.name = j.value("name", "Unknown");
     data.discovery_method = j.value("discovery_method", "");
@@ -198,126 +255,65 @@ ExoplanetData ExoplanetData::fromJson(const nlohmann::json& j) {
     if (j.contains("host_star")) {
         const auto& star = j["host_star"];
         data.host_star.name = star.value("name", "");
-        if (star.contains("effective_temp_k")) {
-            data.host_star.effective_temp_k.value = star["effective_temp_k"].get<double>();
-            if (star.contains("effective_temp_k_source")) {
-                data.host_star.effective_temp_k.source = parseDataSource(star["effective_temp_k_source"].get<std::string>());
-            } else {
-                data.host_star.effective_temp_k.source = DataSource::NASA_TAP;
-            }
-        }
-        if (star.contains("radius_solar")) {
-            data.host_star.radius_solar.value = star["radius_solar"].get<double>();
-            if (star.contains("radius_solar_source")) {
-                data.host_star.radius_solar.source = parseDataSource(star["radius_solar_source"].get<std::string>());
-            } else {
-                data.host_star.radius_solar.source = DataSource::NASA_TAP;
-            }
-        }
-        if (star.contains("mass_solar")) {
-            data.host_star.mass_solar.value = star["mass_solar"].get<double>();
-            if (star.contains("mass_solar_source")) {
-                data.host_star.mass_solar.source = parseDataSource(star["mass_solar_source"].get<std::string>());
-            } else {
-                data.host_star.mass_solar.source = DataSource::NASA_TAP;
-            }
-        }
-        if (star.contains("luminosity_solar")) {
-            data.host_star.luminosity_solar.value = star["luminosity_solar"].get<double>();
-            if (star.contains("luminosity_solar_source")) {
-                data.host_star.luminosity_solar.source = parseDataSource(star["luminosity_solar_source"].get<std::string>());
-            } else {
-                data.host_star.luminosity_solar.source = DataSource::NASA_TAP;
-            }
-        }
         data.host_star.spectral_type = star.value("spectral_type", "");
+        parseMeasuredField(star, "effective_temp_k", data.host_star.effective_temp_k, DataSource::NASA_TAP);
+        parseMeasuredField(star, "radius_solar", data.host_star.radius_solar, DataSource::NASA_TAP);
+        parseMeasuredField(star, "mass_solar", data.host_star.mass_solar, DataSource::NASA_TAP);
+        parseMeasuredField(star, "luminosity_solar", data.host_star.luminosity_solar, DataSource::NASA_TAP);
+        parseMeasuredField(star, "metallicity", data.host_star.metallicity, DataSource::CDS_VIZIER);
+        parseMeasuredField(star, "distance_pc", data.host_star.distance_pc, DataSource::GAIA);
+        parseMeasuredField(star, "age_gyr", data.host_star.age_gyr, DataSource::CDS_VIZIER);
+        parseMeasuredField(star, "ra_deg", data.host_star.ra_deg, DataSource::GAIA);
+        parseMeasuredField(star, "dec_deg", data.host_star.dec_deg, DataSource::GAIA);
     }
 
     // Orbital parameters
     if (j.contains("orbital")) {
         const auto& orb = j["orbital"];
-        if (orb.contains("period_days")) {
-            data.orbital_period_days.value = orb["period_days"].get<double>();
-            if (orb.contains("period_days_source")) {
-                data.orbital_period_days.source = parseDataSource(orb["period_days_source"].get<std::string>());
-            } else {
-                data.orbital_period_days.source = DataSource::NASA_TAP;
-            }
-        }
-        if (orb.contains("semi_major_axis_au")) {
-            data.semi_major_axis_au.value = orb["semi_major_axis_au"].get<double>();
-            if (orb.contains("semi_major_axis_au_source")) {
-                data.semi_major_axis_au.source = parseDataSource(orb["semi_major_axis_au_source"].get<std::string>());
-            } else {
-                data.semi_major_axis_au.source = DataSource::NASA_TAP;
-            }
-        }
-        if (orb.contains("eccentricity")) {
-            data.eccentricity.value = orb["eccentricity"].get<double>();
-            if (orb.contains("eccentricity_source")) {
-                data.eccentricity.source = parseDataSource(orb["eccentricity_source"].get<std::string>());
-            } else {
-                data.eccentricity.source = DataSource::NASA_TAP;
-            }
-        }
+        parseMeasuredField(orb, "period_days", data.orbital_period_days, DataSource::NASA_TAP);
+        parseMeasuredField(orb, "semi_major_axis_au", data.semi_major_axis_au, DataSource::NASA_TAP);
+        parseMeasuredField(orb, "eccentricity", data.eccentricity, DataSource::NASA_TAP);
+        parseMeasuredField(orb, "inclination_deg", data.inclination_deg, DataSource::NASA_TAP);
+        parseMeasuredField(orb, "omega_deg", data.omega_deg, DataSource::NASA_TAP);
     }
 
     // Physical parameters
     if (j.contains("physical")) {
         const auto& phys = j["physical"];
-        if (phys.contains("mass_earth")) {
-            data.mass_earth.value = phys["mass_earth"].get<double>();
-            if (phys.contains("mass_earth_source")) {
-                data.mass_earth.source = parseDataSource(phys["mass_earth_source"].get<std::string>());
-            } else {
-                data.mass_earth.source = DataSource::NASA_TAP;
-            }
-        }
-        if (phys.contains("radius_earth")) {
-            data.radius_earth.value = phys["radius_earth"].get<double>();
-            if (phys.contains("radius_earth_source")) {
-                data.radius_earth.source = parseDataSource(phys["radius_earth_source"].get<std::string>());
-            } else {
-                data.radius_earth.source = DataSource::NASA_TAP;
-            }
-        }
-        if (phys.contains("density_gcc")) {
-            data.density_gcc.value = phys["density_gcc"].get<double>();
-            if (phys.contains("density_gcc_source")) {
-                data.density_gcc.source = parseDataSource(phys["density_gcc_source"].get<std::string>());
-            } else {
-                data.density_gcc.source = DataSource::NASA_TAP;
-            }
-        }
-        if (phys.contains("equilibrium_temp_k")) {
-            data.equilibrium_temp_k.value = phys["equilibrium_temp_k"].get<double>();
-            if (phys.contains("equilibrium_temp_k_source")) {
-                data.equilibrium_temp_k.source = parseDataSource(phys["equilibrium_temp_k_source"].get<std::string>());
-            } else {
-                data.equilibrium_temp_k.source = DataSource::NASA_TAP;
-            }
-        }
+        parseMeasuredField(phys, "mass_earth", data.mass_earth, DataSource::NASA_TAP);
+        parseMeasuredField(phys, "mass_jupiter", data.mass_jupiter, DataSource::NASA_TAP);
+        parseMeasuredField(phys, "radius_earth", data.radius_earth, DataSource::NASA_TAP);
+        parseMeasuredField(phys, "radius_jupiter", data.radius_jupiter, DataSource::NASA_TAP);
+        parseMeasuredField(phys, "density_gcc", data.density_gcc, DataSource::NASA_TAP);
+        parseMeasuredField(phys, "equilibrium_temp_k", data.equilibrium_temp_k, DataSource::NASA_TAP);
+        parseMeasuredField(phys, "surface_gravity_g", data.surface_gravity_g, DataSource::CALCULATED);
     }
 
-    // Classification parameters
+    // Atmosphere
+    if (j.contains("atmosphere")) {
+        const auto& atmo = j["atmosphere"];
+        parseMeasuredField(atmo, "surface_pressure_atm", data.surface_pressure_atm, DataSource::AI_INFERRED);
+        parseMeasuredField(atmo, "albedo", data.albedo, DataSource::AI_INFERRED);
+        parseMeasuredField(atmo, "greenhouse_effect", data.greenhouse_effect, DataSource::AI_INFERRED);
+        parseMeasuredString(atmo, "atmosphere_composition", data.atmosphere_composition, DataSource::AI_INFERRED);
+        parseMeasuredField(atmo, "ocean_coverage_fraction", data.ocean_coverage_fraction, DataSource::AI_INFERRED);
+        parseMeasuredField(atmo, "cloud_coverage_fraction", data.cloud_coverage_fraction, DataSource::AI_INFERRED);
+        parseMeasuredField(atmo, "ice_coverage_fraction", data.ice_coverage_fraction, DataSource::AI_INFERRED);
+    }
+
+    // Rendering
+    if (j.contains("rendering")) {
+        const auto& rend = j["rendering"];
+        parseMeasuredString(rend, "biome_classification", data.biome_classification, DataSource::AI_INFERRED);
+        parseMeasuredString(rend, "surface_color_hint", data.surface_color_hint, DataSource::AI_INFERRED);
+    }
+
+    // Classification
     if (j.contains("classification")) {
         const auto& cls = j["classification"];
-        if (cls.contains("planet_type")) {
-            data.planet_type.value = cls["planet_type"].get<std::string>();
-            if (cls.contains("planet_type_source")) {
-                data.planet_type.source = parseDataSource(cls["planet_type_source"].get<std::string>());
-            } else {
-                data.planet_type.source = DataSource::CALCULATED;
-            }
-        }
-        if (cls.contains("hz_distance")) {
-            data.habitable_zone_distance.value = cls["hz_distance"].get<double>();
-            if (cls.contains("hz_distance_source")) {
-                data.habitable_zone_distance.source = parseDataSource(cls["hz_distance_source"].get<std::string>());
-            } else {
-                data.habitable_zone_distance.source = DataSource::CALCULATED;
-            }
-        }
+        parseMeasuredString(cls, "planet_type", data.planet_type, DataSource::CALCULATED);
+        parseMeasuredField(cls, "hz_distance", data.habitable_zone_distance, DataSource::CALCULATED);
+        parseMeasuredField(cls, "earth_similarity_index", data.earth_similarity_index, DataSource::CALCULATED);
     }
 
     return data;

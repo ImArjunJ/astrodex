@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <format>
+#include <spdlog/fmt/fmt.h>
 #include "data/ExoplanetData.hpp"
 
 namespace astrocore::prompts {
@@ -11,11 +11,11 @@ constexpr std::string_view SYSTEM_PROMPT = R"(You are an expert astrophysicist a
 IMPORTANT: You must respond ONLY with valid JSON. No explanations outside the JSON.
 
 Use these empirical relationships:
-1. Mass-Radius (rocky planets, M < 10 M_Earth): R/R_Earth ≈ (M/M_Earth)^0.27
-2. Mass-Radius (Neptune-like): R/R_Earth ≈ 2.5 * (M/M_Earth)^0.1
-3. Mass-Radius (gas giants): R/R_Jupiter ≈ (M/M_Jupiter)^-0.04
+1. Mass-Radius (rocky planets, M < 10 M_Earth): R/R_Earth = (M/M_Earth)^0.27
+2. Mass-Radius (Neptune-like): R/R_Earth = 2.5 * (M/M_Earth)^0.1
+3. Mass-Radius (gas giants): R/R_Jupiter = (M/M_Jupiter)^-0.04
 4. Equilibrium temperature: T_eq = T_star * sqrt(R_star / (2*a)) * (1-A)^0.25
-5. Scale height: H = kT / (μg) where μ is mean molecular weight
+5. Scale height: H = kT / (ug) where u is mean molecular weight
 6. Escape velocity: v_esc = sqrt(2GM/R)
 
 For atmosphere inference:
@@ -41,31 +41,31 @@ inline std::string buildAtmospherePrompt(const ExoplanetData& data) {
     std::string prompt = "Infer atmospheric properties for this exoplanet:\n\n";
 
     prompt += "KNOWN DATA:\n";
-    prompt += std::format("- Planet name: {}\n", data.name);
+    prompt += fmt::format("- Planet name: {}\n", data.name);
 
     if (data.mass_earth.hasValue()) {
-        prompt += std::format("- Mass: {:.2f} Earth masses\n", data.mass_earth.value);
+        prompt += fmt::format("- Mass: {:.2f} Earth masses\n", data.mass_earth.value);
     }
     if (data.radius_earth.hasValue()) {
-        prompt += std::format("- Radius: {:.2f} Earth radii\n", data.radius_earth.value);
+        prompt += fmt::format("- Radius: {:.2f} Earth radii\n", data.radius_earth.value);
     }
     if (data.equilibrium_temp_k.hasValue()) {
-        prompt += std::format("- Equilibrium temperature: {:.0f} K\n", data.equilibrium_temp_k.value);
+        prompt += fmt::format("- Equilibrium temperature: {:.0f} K\n", data.equilibrium_temp_k.value);
     }
     if (data.surface_gravity_g.hasValue()) {
-        prompt += std::format("- Surface gravity: {:.2f} g\n", data.surface_gravity_g.value);
+        prompt += fmt::format("- Surface gravity: {:.2f} g\n", data.surface_gravity_g.value);
     }
     if (data.orbital_period_days.hasValue()) {
-        prompt += std::format("- Orbital period: {:.2f} days\n", data.orbital_period_days.value);
+        prompt += fmt::format("- Orbital period: {:.2f} days\n", data.orbital_period_days.value);
     }
     if (data.semi_major_axis_au.hasValue()) {
-        prompt += std::format("- Semi-major axis: {:.4f} AU\n", data.semi_major_axis_au.value);
+        prompt += fmt::format("- Semi-major axis: {:.4f} AU\n", data.semi_major_axis_au.value);
     }
     if (data.host_star.effective_temp_k.hasValue()) {
-        prompt += std::format("- Host star temperature: {:.0f} K\n", data.host_star.effective_temp_k.value);
+        prompt += fmt::format("- Host star temperature: {:.0f} K\n", data.host_star.effective_temp_k.value);
     }
     if (!data.host_star.spectral_type.empty()) {
-        prompt += std::format("- Host star spectral type: {}\n", data.host_star.spectral_type);
+        prompt += fmt::format("- Host star spectral type: {}\n", data.host_star.spectral_type);
     }
 
     prompt += R"(
@@ -87,15 +87,15 @@ Consider:
 inline std::string buildRenderHintsPrompt(const ExoplanetData& data) {
     std::string prompt = "Generate visualization hints for this exoplanet:\n\n";
 
-    prompt += std::format("Planet: {}\n", data.name);
+    prompt += fmt::format("Planet: {}\n", data.name);
     if (data.planet_type.hasValue()) {
-        prompt += std::format("Type: {}\n", data.planet_type.value);
+        prompt += fmt::format("Type: {}\n", data.planet_type.value);
     }
     if (data.equilibrium_temp_k.hasValue()) {
-        prompt += std::format("Temperature: {:.0f} K\n", data.equilibrium_temp_k.value);
+        prompt += fmt::format("Temperature: {:.0f} K\n", data.equilibrium_temp_k.value);
     }
     if (data.mass_earth.hasValue()) {
-        prompt += std::format("Mass: {:.2f} Earth masses\n", data.mass_earth.value);
+        prompt += fmt::format("Mass: {:.2f} Earth masses\n", data.mass_earth.value);
     }
 
     prompt += R"(
