@@ -3,9 +3,11 @@
 #include <curl/curl.h>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 
 namespace astrocore {
 
@@ -84,6 +86,7 @@ std::string NasaApiClient::buildADQL(const std::string& whereClause, int limit) 
          << "st_lum, "
          << "st_spectype, "
          << "sy_dist, "
+         << "st_ra, st_dec, "
          << "disc_year, discoverymethod "
          << "FROM ps "
          << "WHERE default_flag = 1";
@@ -97,41 +100,120 @@ std::string NasaApiClient::buildADQL(const std::string& whereClause, int limit) 
     return adql.str();
 }
 
+std::string NasaApiClient::getCachePath(const std::string& queryKey) const {
+    // Hash the query to produce a filename
+    std::hash<std::string> hasher;
+    size_t hash = hasher(queryKey);
+
+    std::ostringstream filename;
+    filename << std::hex << hash << ".json";
+
+    std::filesystem::path cachePath = m_impl->config.cache_directory;
+    cachePath /= filename.str();
+
+    return cachePath.string();
+}
+
+std::optional<std::string> NasaApiClient::readCache(const std::string& cachePath) const {
+    if (!m_impl->config.use_cache) {
+        return std::nullopt;
+    }
+
+    if (!std::filesystem::exists(cachePath)) {
+        return std::nullopt;
+    }
+
+    // Check if cache is expired
+    auto lastWriteTime = std::filesystem::last_write_time(cachePath);
+    auto now = std::filesystem::file_time_type::clock::now();
+    auto age = std::chrono::duration_cast<std::chrono::hours>(now - lastWriteTime);
+
+    int maxAgeHours = m_impl->config.cache_ttl_days * 24;
+    if (age.count() > maxAgeHours) {
+        LOG_DEBUG("NASA cache expired: {}", cachePath);
+        return std::nullopt;
+    }
+
+    // Read cache file
+    std::ifstream file(cachePath);
+    if (!file) {
+        return std::nullopt;
+    }
+
+    std::string content((std::istreambuf_iterator<char>(file)),
+                        std::istreambuf_iterator<char>());
+
+    return content;
+}
+
+void NasaApiClient::writeCache(const std::string& cachePath, const std::string& data) const {
+    if (!m_impl->config.use_cache) {
+        return;
+    }
+
+    // Ensure cache directory exists
+    std::filesystem::path path(cachePath);
+    std::filesystem::create_directories(path.parent_path());
+
+    // Write to file
+    std::ofstream file(cachePath);
+    if (file) {
+        file << data;
+        LOG_DEBUG("NASA cache written: {}", cachePath);
+    } else {
+        LOG_WARN("Failed to write NASA cache: {}", cachePath);
+    }
+}
+
 std::vector<ExoplanetData> NasaApiClient::executeQuery(const std::string& adql) {
     if (!m_impl->curl) {
         LOG_ERROR("CURL not initialized");
         return {};
     }
 
-    m_impl->responseBuffer.clear();
+    // Check cache first
+    std::string cachePath = getCachePath(adql);
+    auto cachedData = readCache(cachePath);
 
-    // Build URL with TAP query parameter
-    std::string url = m_impl->config.tap_endpoint +
-                      "?query=" + urlEncode(adql) +
-                      "&format=json";
+    if (cachedData) {
+        LOG_DEBUG("NASA cache hit: {}", cachePath);
+        m_impl->responseBuffer = *cachedData;
+    } else {
+        LOG_DEBUG("NASA cache miss: {}", cachePath);
 
-    LOG_DEBUG("NASA API query: {}", url);
+        m_impl->responseBuffer.clear();
 
-    curl_easy_setopt(m_impl->curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(m_impl->curl, CURLOPT_WRITEFUNCTION, Impl::writeCallback);
-    curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, m_impl.get());
-    curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, static_cast<long>(m_impl->config.timeout_seconds));
-    curl_easy_setopt(m_impl->curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(m_impl->curl, CURLOPT_USERAGENT, "AstroCore/0.1.0");
+        // Build URL with TAP query parameter
+        std::string url = m_impl->config.tap_endpoint +
+                          "?query=" + urlEncode(adql) +
+                          "&format=json";
 
-    CURLcode res = curl_easy_perform(m_impl->curl);
+        LOG_DEBUG("NASA API query: {}", url);
 
-    if (res != CURLE_OK) {
-        LOG_ERROR("NASA API request failed: {}", curl_easy_strerror(res));
-        return {};
-    }
+        curl_easy_setopt(m_impl->curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEFUNCTION, Impl::writeCallback);
+        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, m_impl.get());
+        curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, static_cast<long>(m_impl->config.timeout_seconds));
+        curl_easy_setopt(m_impl->curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(m_impl->curl, CURLOPT_USERAGENT, "AstroCore/0.1.0");
 
-    long httpCode = 0;
-    curl_easy_getinfo(m_impl->curl, CURLINFO_RESPONSE_CODE, &httpCode);
+        CURLcode res = curl_easy_perform(m_impl->curl);
 
-    if (httpCode != 200) {
-        LOG_ERROR("NASA API returned HTTP {}", httpCode);
-        return {};
+        if (res != CURLE_OK) {
+            LOG_ERROR("NASA API request failed: {}", curl_easy_strerror(res));
+            return {};
+        }
+
+        long httpCode = 0;
+        curl_easy_getinfo(m_impl->curl, CURLINFO_RESPONSE_CODE, &httpCode);
+
+        if (httpCode != 200) {
+            LOG_ERROR("NASA API returned HTTP {}", httpCode);
+            return {};
+        }
+
+        // Cache the response
+        writeCache(cachePath, m_impl->responseBuffer);
     }
 
     // Parse JSON response
@@ -234,6 +316,14 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
         data.host_star.distance_pc.value = *val;
         data.host_star.distance_pc.source = DataSource::NASA_TAP;
     }
+    if (auto val = getValue("st_ra")) {
+        data.host_star.ra_deg.value = *val;
+        data.host_star.ra_deg.source = DataSource::NASA_TAP;
+    }
+    if (auto val = getValue("st_dec")) {
+        data.host_star.dec_deg.value = *val;
+        data.host_star.dec_deg.source = DataSource::NASA_TAP;
+    }
 
     // Orbital parameters
     if (auto val = getValue("pl_orbper")) {
@@ -318,6 +408,20 @@ std::future<std::vector<ExoplanetData>> NasaApiClient::queryHabitableZone() {
 std::future<std::vector<ExoplanetData>> NasaApiClient::queryAll(int limit) {
     return std::async(std::launch::async, [this, limit]() {
         return executeQuery(buildADQL("", limit));
+    });
+}
+
+std::future<std::vector<ExoplanetData>> NasaApiClient::queryByCoords(double ra_deg, double dec_deg, double radius_arcsec) {
+    return std::async(std::launch::async, [this, ra_deg, dec_deg, radius_arcsec]() {
+        // Convert arcseconds to degrees
+        double radius_deg = radius_arcsec / 3600.0;
+
+        // Build ADQL with CONTAINS and CIRCLE for cone search
+        std::ostringstream where;
+        where << "CONTAINS(POINT('ICRS', st_ra, st_dec), "
+              << "CIRCLE('ICRS', " << ra_deg << ", " << dec_deg << ", " << radius_deg << "))=1";
+
+        return executeQuery(buildADQL(where.str(), 100));
     });
 }
 

@@ -62,6 +62,8 @@ struct HostStarData {
     std::string spectral_type;                  // e.g., "G2V", "M4"
     MeasuredValue<double> distance_pc;          // Distance in parsecs
     MeasuredValue<double> age_gyr;              // Age in billion years
+    MeasuredValue<double> ra_deg;               // Right ascension (ICRS, degrees)
+    MeasuredValue<double> dec_deg;              // Declination (ICRS, degrees)
 };
 
 // Main exoplanet data structure
