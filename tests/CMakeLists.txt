@@ -1,5 +1,6 @@
 add_executable(data_aggregation_tests
     data/test_nasa_client.cpp
+    data/test_oec_parser.cpp
 )
 
 target_link_libraries(data_aggregation_tests

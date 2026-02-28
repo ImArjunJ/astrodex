@@ -42,6 +42,7 @@ set(ASTROCORE_SOURCES
     src/core/Logger.cpp
     src/data/NasaApiClient.cpp
     src/data/OecClient.cpp
+    src/data/GaiaClient.cpp
     src/data/ExoplanetData.cpp
 )
 
