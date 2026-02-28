@@ -5,6 +5,7 @@ add_executable(data_aggregation_tests
     data/test_cds_client.cpp
     data/test_coordinate_matcher.cpp
     data/test_data_fusion.cpp
+    data/test_inference_integration.cpp
 )
 
 target_link_libraries(data_aggregation_tests
