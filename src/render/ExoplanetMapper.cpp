@@ -8,11 +8,10 @@ namespace astrocore {
 // ─── Classification ──────────────────────────────────────────────────────────
 
 PlanetCategory ExoplanetMapper::classify(const ExoplanetData& data) {
-    const double mass   = data.mass_earth.hasValue()        ? data.mass_earth.value        : 0.0;
-    const double radius = data.radius_earth.hasValue()      ? data.radius_earth.value      : 1.0;
+    const double mass   = data.mass_earth.hasValue()         ? data.mass_earth.value         : 0.0;
+    const double radius = data.radius_earth.hasValue()       ? data.radius_earth.value       : 1.0;
     const double temp   = data.equilibrium_temp_k.hasValue() ? data.equilibrium_temp_k.value : 250.0;
 
-    // Honour pre-classified planet_type strings from NASA / calculateDerivedValues()
     if (data.planet_type.hasValue()) {
         const auto& pt = data.planet_type.value;
         if (pt.find("Gas Giant") != std::string::npos)
@@ -21,22 +20,17 @@ PlanetCategory ExoplanetMapper::classify(const ExoplanetData& data) {
             return PlanetCategory::IceGiant;
     }
 
-    // Size thresholds
     if (mass > 50.0 || radius > 6.0)
         return temp > 1200.0 ? PlanetCategory::HotJupiter : PlanetCategory::GasGiant;
     if (mass > 10.0 || radius > 3.0)
         return PlanetCategory::IceGiant;
-
-    // Temperature thresholds (rocky / small planets)
     if (temp > 1800.0) return PlanetCategory::LavaWorld;
     if (temp > 800.0)  return PlanetCategory::HotRocky;
     if (temp < 200.0)  return PlanetCategory::IceWorld;
 
-    // Use AI / calculated ocean coverage if available
     if (data.ocean_coverage_fraction.hasValue() && data.ocean_coverage_fraction.value > 0.5)
         return PlanetCategory::OceanWorld;
 
-    // Habitable-zone temperature range → terrestrial
     if (temp >= 220.0 && temp <= 370.0)
         return PlanetCategory::Terrestrial;
 
@@ -47,9 +41,7 @@ PlanetCategory ExoplanetMapper::classify(const ExoplanetData& data) {
 
 static PlanetParams baseForCategory(PlanetCategory cat) {
     PlanetParams p;
-
     switch (cat) {
-
     case PlanetCategory::LavaWorld:
         p.rockColor        = {0.70f, 0.15f, 0.02f};
         p.sandColor        = {0.90f, 0.40f, 0.10f};
@@ -65,7 +57,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.sunIntensity     = 4.5f;
         p.sunColor         = {1.0f, 0.80f, 0.50f};
         break;
-
     case PlanetCategory::HotRocky:
         p.rockColor        = {0.45f, 0.25f, 0.15f};
         p.sandColor        = {0.75f, 0.55f, 0.30f};
@@ -78,7 +69,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.craterStrength   = 0.30f;
         p.terrainScale     = 0.9f;
         break;
-
     case PlanetCategory::HotJupiter:
         p.bandingStrength  = 0.85f;
         p.bandingFrequency = 18.0f;
@@ -94,7 +84,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.sunIntensity     = 5.0f;
         p.sunColor         = {1.0f, 0.90f, 0.70f};
         break;
-
     case PlanetCategory::GasGiant:
         p.bandingStrength  = 0.75f;
         p.bandingFrequency = 14.0f;
@@ -108,7 +97,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.noiseStrength    = 0.10f;
         p.waterLevel       = 0.0f;
         break;
-
     case PlanetCategory::IceGiant:
         p.atmosphereColor  = {0.30f, 0.60f, 0.90f};
         p.atmosphereDensity = 0.7f;
@@ -121,7 +109,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.waterColorSurface = {0.20f, 0.50f, 0.80f};
         p.noiseStrength    = 0.20f;
         break;
-
     case PlanetCategory::IceWorld:
         p.iceColor         = {0.88f, 0.93f, 0.98f};
         p.rockColor        = {0.50f, 0.50f, 0.55f};
@@ -135,7 +122,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.craterStrength   = 0.40f;
         p.waterLevel       = 0.0f;
         break;
-
     case PlanetCategory::OceanWorld:
         p.waterLevel       = 0.45f;
         p.waterColorDeep   = {0.01f, 0.04f, 0.18f};
@@ -147,7 +133,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.continentScale   = 0.30f;
         p.noiseStrength    = 0.15f;
         break;
-
     case PlanetCategory::Terrestrial:
         p.waterLevel       = 0.20f;
         p.waterColorDeep   = {0.01f, 0.05f, 0.15f};
@@ -163,7 +148,6 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.noiseStrength    = 0.20f;
         p.craterStrength   = 0.02f;
         break;
-
     case PlanetCategory::RockyDesert:
     default:
         p.rockColor        = {0.45f, 0.32f, 0.22f};
@@ -177,105 +161,124 @@ static PlanetParams baseForCategory(PlanetCategory cat) {
         p.noiseStrength    = 0.25f;
         break;
     }
-
     return p;
 }
 
 // ─── Physics pass ────────────────────────────────────────────────────────────
 
-PlanetParams ExoplanetMapper::toPlanetParams(const ExoplanetData& data) {
+PlanetParams ExoplanetMapper::toPlanetParams(const ExoplanetData&  data,
+                                              std::set<std::string>* physicsFields,
+                                              const PlanetParams*   analogBase) {
     PlanetCategory cat = classify(data);
-    PlanetParams p = baseForCategory(cat);
 
-    // Visual radius: map Earth radii [0.5, 22] → renderer units [0.8, 5.0]
+    // Start from analog base if provided, otherwise generic category defaults
+    PlanetParams p = analogBase ? *analogBase : baseForCategory(cat);
+
+    auto markField = [&](const std::string& name) {
+        if (physicsFields) physicsFields->insert(name);
+    };
+
+    // Visual radius: map Earth radii → renderer units [0.8, 5.0]
     if (data.radius_earth.hasValue()) {
-        double re = data.radius_earth.value;
-        p.radius = static_cast<float>(std::clamp(re * 0.45, 0.8, 5.0));
+        p.radius = static_cast<float>(std::clamp(data.radius_earth.value * 0.45, 0.8, 5.0));
+        markField("radius");
     }
 
-    // Atmosphere color from composition (overrides base category color)
+    // Atmosphere colour from measured composition
     if (data.atmosphere_composition.hasValue()) {
         try {
             auto atmo = nlohmann::json::parse(data.atmosphere_composition.value);
-            double co2 = atmo.value("CO2", 0.0);
-            double n2  = atmo.value("N2",  0.0);
-            double h2  = atmo.value("H2",  0.0) + atmo.value("H2/He", 0.0);
-            double ch4 = atmo.value("CH4", 0.0);
-            double so2 = atmo.value("SO2", 0.0);
+            double co2 = atmo.value("CO2",   0.0);
+            double n2  = atmo.value("N2",    0.0);
+            double h2  = atmo.value("H2",    0.0) + atmo.value("H2/He", 0.0);
+            double ch4 = atmo.value("CH4",   0.0);
+            double so2 = atmo.value("SO2",   0.0);
 
-            // Map dominant gas → characteristic sky colour
-            if (so2 > 0.3)       p.atmosphereColor = {0.70f, 0.40f, 0.20f};  // sulfurous
-            else if (co2 > 0.5)  p.atmosphereColor = {0.40f, 0.35f, 0.30f};  // thick CO2
-            else if (h2  > 0.5)  p.atmosphereColor = {0.50f, 0.45f, 0.35f};  // H2/He (Jupiter-like)
-            else if (ch4 > 0.1)  p.atmosphereColor = {0.05f, 0.55f, 0.85f};  // methane (Uranus-like)
-            else if (n2  > 0.5)  p.atmosphereColor = {0.05f, 0.25f, 0.85f};  // N2-dominated
+            if      (so2 > 0.3)  p.atmosphereColor = {0.70f, 0.40f, 0.20f};
+            else if (co2 > 0.5)  p.atmosphereColor = {0.40f, 0.35f, 0.30f};
+            else if (h2  > 0.5)  p.atmosphereColor = {0.50f, 0.45f, 0.35f};
+            else if (ch4 > 0.1)  p.atmosphereColor = {0.05f, 0.55f, 0.85f};
+            else if (n2  > 0.5)  p.atmosphereColor = {0.05f, 0.25f, 0.85f};
+
+            markField("atmosphereColor");
         } catch (...) {}
     }
 
-    // Atmosphere density from surface pressure (log-scale: 0→0, 1atm→0.3, 100atm→0.9)
+    // Atmosphere density from measured surface pressure (log-scale)
     if (data.surface_pressure_atm.hasValue()) {
         double pressure = data.surface_pressure_atm.value;
         float density = static_cast<float>(
             std::clamp(0.3 * std::log10(pressure + 1.0) + 0.05, 0.0, 1.0));
         p.atmosphereDensity = density;
+        markField("atmosphereDensity");
     }
 
-    // Water level from ocean coverage fraction [0,1] → [0, 0.55]
+    // Water level from measured ocean coverage [0,1] → [0, 0.55]
     if (data.ocean_coverage_fraction.hasValue()) {
         p.waterLevel = static_cast<float>(
             std::clamp(data.ocean_coverage_fraction.value * 0.55, 0.0, 0.55));
+        markField("waterLevel");
     }
 
-    // Cloud density directly from cloud coverage fraction
+    // Cloud density directly from measured cloud coverage
     if (data.cloud_coverage_fraction.hasValue()) {
         p.cloudsDensity = static_cast<float>(
             std::clamp(data.cloud_coverage_fraction.value, 0.0, 1.0));
+        markField("cloudsDensity");
     }
 
-    // Polar caps from ice coverage fraction [0,1] → [0, 0.9]
+    // Polar caps from measured ice coverage
     if (data.ice_coverage_fraction.hasValue()) {
         p.polarCapSize = static_cast<float>(
             std::clamp(data.ice_coverage_fraction.value * 0.9, 0.0, 0.9));
+        markField("polarCapSize");
     }
 
-    // Sun intensity from albedo: high albedo → more reflective → brighter appearance
+    // Sun intensity from measured albedo
     if (data.albedo.hasValue()) {
         float albedo = static_cast<float>(std::clamp(data.albedo.value, 0.0, 1.0));
-        p.sunIntensity = 2.0f + albedo * 3.0f;  // [2.0, 5.0]
+        p.sunIntensity = 2.0f + albedo * 3.0f;
+        markField("sunIntensity");
     }
 
-    // Terrain ruggedness from surface gravity (high g → erosion → smoother)
+    // Terrain ruggedness from measured surface gravity
     if (data.surface_gravity_g.hasValue()) {
         double g = data.surface_gravity_g.value;
-        // 1/g relationship: 1g→0.4, 2g→0.27, 0.3g→0.8 (clamped)
         float ruggedness = static_cast<float>(std::clamp(0.4 / (g + 0.2), 0.05, 0.65));
 
-        // Only override for categories where terrain texture makes sense
-        const bool isSolidSurface =
+        const bool solidSurface =
             cat == PlanetCategory::Terrestrial  ||
             cat == PlanetCategory::RockyDesert  ||
             cat == PlanetCategory::HotRocky     ||
             cat == PlanetCategory::IceWorld     ||
             cat == PlanetCategory::LavaWorld;
 
-        if (isSolidSurface) p.noiseStrength = ruggedness;
+        if (solidSurface) {
+            p.noiseStrength = ruggedness;
+            markField("noiseStrength");
+        }
 
-        // Low gravity + thin atmosphere → heavy cratering
         bool thinAtmo = !data.surface_pressure_atm.hasValue() ||
                          data.surface_pressure_atm.value < 0.1;
         if (g < 0.4 && thinAtmo) {
             p.craterStrength = std::min(p.craterStrength + 0.25f, 0.85f);
+            markField("craterStrength");
         }
     }
 
     return p;
 }
 
-// ─── AI override pass ────────────────────────────────────────────────────────
+// ─── AI override pass (fill-empty-slots only) ────────────────────────────────
 
-void ExoplanetMapper::applyAIRenderOverrides(PlanetParams& params,
-                                              const nlohmann::json& aiJson) {
+void ExoplanetMapper::applyAIRenderOverrides(PlanetParams&                params,
+                                              const nlohmann::json&        aiJson,
+                                              const std::set<std::string>& skipFields) {
     if (aiJson.empty()) return;
+
+    auto skip = [&](const std::string& k) {
+        return skipFields.count(k) > 0;
+    };
 
     auto getF = [&](const std::string& key) -> std::optional<float> {
         if (aiJson.contains(key) && aiJson[key].is_number())
@@ -291,57 +294,83 @@ void ExoplanetMapper::applyAIRenderOverrides(PlanetParams& params,
         return std::nullopt;
     };
 
-    // Terrain
-    if (auto v = getF("noiseStrength"))     params.noiseStrength     = *v;
-    if (auto v = getF("ridgedStrength"))    params.ridgedStrength     = *v;
-    if (auto v = getF("craterStrength"))    params.craterStrength     = *v;
-    if (auto v = getF("continentScale"))    params.continentScale     = *v;
-    if (auto v = getF("terrainScale"))      params.terrainScale       = *v;
-    if (auto v = getF("domainWarpStrength")) params.domainWarpStrength = *v;
+    // Terrain — only fill if physics pass didn't set from real data
+    if (!skip("noiseStrength"))     { if (auto v = getF("noiseStrength"))      params.noiseStrength     = *v; }
+    if (!skip("ridgedStrength"))    { if (auto v = getF("ridgedStrength"))      params.ridgedStrength    = *v; }
+    if (!skip("craterStrength"))    { if (auto v = getF("craterStrength"))      params.craterStrength    = *v; }
+    if (!skip("continentScale"))    { if (auto v = getF("continentScale"))      params.continentScale    = *v; }
+    if (!skip("terrainScale"))      { if (auto v = getF("terrainScale"))        params.terrainScale      = *v; }
+    if (!skip("domainWarpStrength")){ if (auto v = getF("domainWarpStrength"))  params.domainWarpStrength= *v; }
 
     // Surface levels
-    if (auto v = getF("waterLevel"))        params.waterLevel         = *v;
-    if (auto v = getF("polarCapSize"))      params.polarCapSize       = *v;
-    if (auto v = getF("sandLevel"))         params.sandLevel          = *v;
-    if (auto v = getF("treeLevel"))         params.treeLevel          = *v;
-    if (auto v = getF("rockLevel"))         params.rockLevel          = *v;
-    if (auto v = getF("iceLevel"))          params.iceLevel           = *v;
+    if (!skip("waterLevel"))        { if (auto v = getF("waterLevel"))          params.waterLevel        = *v; }
+    if (!skip("polarCapSize"))      { if (auto v = getF("polarCapSize"))        params.polarCapSize      = *v; }
+    if (!skip("sandLevel"))         { if (auto v = getF("sandLevel"))           params.sandLevel         = *v; }
+    if (!skip("treeLevel"))         { if (auto v = getF("treeLevel"))           params.treeLevel         = *v; }
+    if (!skip("rockLevel"))         { if (auto v = getF("rockLevel"))           params.rockLevel         = *v; }
+    if (!skip("iceLevel"))          { if (auto v = getF("iceLevel"))            params.iceLevel          = *v; }
 
     // Banding (gas giants)
-    if (auto v = getF("bandingStrength"))   params.bandingStrength    = *v;
-    if (auto v = getF("bandingFrequency"))  params.bandingFrequency   = *v;
+    if (!skip("bandingStrength"))   { if (auto v = getF("bandingStrength"))     params.bandingStrength   = *v; }
+    if (!skip("bandingFrequency"))  { if (auto v = getF("bandingFrequency"))    params.bandingFrequency  = *v; }
 
     // Clouds
-    if (auto v = getF("cloudsDensity"))     params.cloudsDensity      = *v;
-    if (auto v = getF("cloudsScale"))       params.cloudsScale        = *v;
-    if (auto v = getF("cloudAltitude"))     params.cloudAltitude      = *v;
-    if (auto v = getF("cloudThickness"))    params.cloudThickness     = *v;
+    if (!skip("cloudsDensity"))     { if (auto v = getF("cloudsDensity"))       params.cloudsDensity     = *v; }
+    if (!skip("cloudsScale"))       { if (auto v = getF("cloudsScale"))         params.cloudsScale       = *v; }
+    if (!skip("cloudAltitude"))     { if (auto v = getF("cloudAltitude"))       params.cloudAltitude     = *v; }
+    if (!skip("cloudThickness"))    { if (auto v = getF("cloudThickness"))      params.cloudThickness    = *v; }
 
     // Atmosphere
-    if (auto v = getF("atmosphereDensity")) params.atmosphereDensity  = *v;
+    if (!skip("atmosphereDensity")) { if (auto v = getF("atmosphereDensity"))   params.atmosphereDensity = *v; }
 
     // Lighting
-    if (auto v = getF("sunIntensity"))      params.sunIntensity       = *v;
-    if (auto v = getF("ambientLight"))      params.ambientLight       = *v;
+    if (!skip("sunIntensity"))      { if (auto v = getF("sunIntensity"))        params.sunIntensity      = *v; }
+    if (!skip("ambientLight"))      { if (auto v = getF("ambientLight"))        params.ambientLight      = *v; }
 
     // Colours
-    if (auto v = getV3("atmosphereColor"))   params.atmosphereColor   = *v;
-    if (auto v = getV3("waterColorDeep"))    params.waterColorDeep    = *v;
-    if (auto v = getV3("waterColorSurface")) params.waterColorSurface = *v;
-    if (auto v = getV3("sandColor"))         params.sandColor         = *v;
-    if (auto v = getV3("treeColor"))         params.treeColor         = *v;
-    if (auto v = getV3("rockColor"))         params.rockColor         = *v;
-    if (auto v = getV3("iceColor"))          params.iceColor          = *v;
-    if (auto v = getV3("cloudColor"))        params.cloudColor        = *v;
-    if (auto v = getV3("sunColor"))          params.sunColor          = *v;
+    if (!skip("atmosphereColor"))   { if (auto v = getV3("atmosphereColor"))    params.atmosphereColor   = *v; }
+    if (!skip("waterColorDeep"))    { if (auto v = getV3("waterColorDeep"))     params.waterColorDeep    = *v; }
+    if (!skip("waterColorSurface")) { if (auto v = getV3("waterColorSurface"))  params.waterColorSurface = *v; }
+    if (!skip("sandColor"))         { if (auto v = getV3("sandColor"))          params.sandColor         = *v; }
+    if (!skip("treeColor"))         { if (auto v = getV3("treeColor"))          params.treeColor         = *v; }
+    if (!skip("rockColor"))         { if (auto v = getV3("rockColor"))          params.rockColor         = *v; }
+    if (!skip("iceColor"))          { if (auto v = getV3("iceColor"))           params.iceColor          = *v; }
+    if (!skip("cloudColor"))        { if (auto v = getV3("cloudColor"))         params.cloudColor        = *v; }
+    if (!skip("sunColor"))          { if (auto v = getV3("sunColor"))           params.sunColor          = *v; }
 }
 
-// ─── Combined convenience method ─────────────────────────────────────────────
+// ─── Full pipeline ────────────────────────────────────────────────────────────
 
-PlanetParams ExoplanetMapper::toRenderParams(const ExoplanetData& data,
-                                              const nlohmann::json& aiJson) {
-    PlanetParams params = toPlanetParams(data);
-    applyAIRenderOverrides(params, aiJson);
+PlanetParams ExoplanetMapper::toRenderParams(const ExoplanetData&  data,
+                                              const nlohmann::json& aiJson,
+                                              AnalogMatch*          analogMatchOut) {
+    // Find closest solar-system analog if we have the physical dimensions
+    const PlanetParams* analogBase  = nullptr;
+    AnalogMatch         bestAnalog;
+
+    if (data.mass_earth.hasValue() && data.radius_earth.hasValue() &&
+        data.equilibrium_temp_k.hasValue()) {
+
+        auto found = SolarSystemDatabase::instance().findClosestAnalog(
+            data.mass_earth.value,
+            data.radius_earth.value,
+            data.equilibrium_temp_k.value,
+            0.35f);  // minimum similarity threshold
+
+        if (found) {
+            bestAnalog = *found;
+            analogBase = &found->entry->visualParams;
+            if (analogMatchOut) *analogMatchOut = bestAnalog;
+        }
+    }
+
+    // Pass 1: physics derivations (tracks which fields came from real data)
+    std::set<std::string> physicsFields;
+    PlanetParams params = toPlanetParams(data, &physicsFields, analogBase);
+
+    // Pass 2: AI fills only unknown fields
+    applyAIRenderOverrides(params, aiJson, physicsFields);
+
     return params;
 }
 

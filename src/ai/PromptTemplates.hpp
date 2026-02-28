@@ -2,6 +2,7 @@
 
 #include <string>
 #include <format>
+#include <set>
 #include "data/ExoplanetData.hpp"
 
 namespace astrocore::prompts {
@@ -75,11 +76,13 @@ INFER the following parameters:
 3. atmosphere_composition (primary gases as JSON object with percentages)
 4. ocean_coverage_fraction (estimated ocean coverage 0-1, based on temperature and composition)
 5. cloud_coverage_fraction (estimated cloud coverage 0-1)
+6. ice_coverage_fraction (estimated polar/surface ice coverage 0-1, based on temperature)
 
 Consider:
 - Planet's position relative to habitable zone
 - Likely atmospheric escape based on escape velocity and stellar radiation
-- Bulk composition implied by mass-radius relationship)";
+- Bulk composition implied by mass-radius relationship
+- For ice_coverage_fraction: T < 200K → high (0.5-0.9), T 200-260K → moderate (0.1-0.5), T > 280K → low (0-0.1))";
 
     return prompt;
 }
@@ -148,7 +151,14 @@ Physical reasoning to follow:
 - Low gravity + no atmosphere → high craterStrength, no water
 - High albedo → bright ice caps, high cloudsDensity)";
 
-inline std::string buildRenderParamsPrompt(const ExoplanetData& data) {
+// analogContext: human-readable description of the closest solar-system analog,
+//   e.g. "Jupiter (similarity 78%) — banded orange-tan gas giant, high cloud density"
+//   Pass empty string when no analog is available.
+// skipFields: PlanetParams field names already derived from measured data.
+//   Claude must NOT suggest overrides for these.
+inline std::string buildRenderParamsPrompt(const ExoplanetData&        data,
+                                            const std::string&          analogContext = "",
+                                            const std::set<std::string>& skipFields   = {}) {
     std::string prompt = std::format("Generate renderer override JSON for exoplanet: {}\n\n", data.name);
 
     prompt += "OBSERVATIONAL DATA:\n";
@@ -187,17 +197,41 @@ inline std::string buildRenderParamsPrompt(const ExoplanetData& data) {
     if (!data.host_star.spectral_type.empty())
         prompt += std::format("  star_spectral_type:   {}\n",     data.host_star.spectral_type);
 
+    // Closest solar-system analog gives Claude a concrete visual reference
+    if (!analogContext.empty()) {
+        prompt += "\nCLOSEST SOLAR SYSTEM ANALOG:\n";
+        prompt += "  " + analogContext + "\n";
+        prompt += "  Use this as a visual reference. Only deviate where the physical data above\n";
+        prompt += "  clearly indicates the planet differs from its analog.\n";
+    }
+
+    // Fields already derived from measured data — Claude must not touch these
+    if (!skipFields.empty()) {
+        prompt += "\nFIELDS ALREADY SET FROM MEASURED DATA (do NOT include these in output):\n  ";
+        bool first = true;
+        for (const auto& f : skipFields) {
+            if (!first) prompt += ", ";
+            prompt += f;
+            first = false;
+        }
+        prompt += "\n";
+    }
+
     prompt += R"(
-Output ONLY the JSON override object. Example for an Earth-like planet:
+IMPORTANT: Only output fields you genuinely need to set. Omit anything already
+covered by the measured data listed above. Output ONLY the JSON object.
+
+Example for an Earth-like planet (assuming waterLevel and atmosphereDensity are
+already set from measured data and therefore omitted):
 {
-  "atmosphereColor":    [0.05, 0.30, 0.90],
-  "atmosphereDensity":  0.30,
-  "waterLevel":         0.22,
-  "cloudsDensity":      0.50,
-  "polarCapSize":       0.15,
-  "noiseStrength":      0.20,
-  "continentScale":     0.50,
-  "sunIntensity":       3.00
+  "atmosphereColor":   [0.05, 0.30, 0.90],
+  "cloudsDensity":     0.50,
+  "polarCapSize":      0.15,
+  "noiseStrength":     0.20,
+  "continentScale":    0.50,
+  "sandColor":         [0.85, 0.75, 0.50],
+  "treeColor":         [0.02, 0.10, 0.04],
+  "rockColor":         [0.25, 0.22, 0.18]
 })";
 
     return prompt;

@@ -59,6 +59,7 @@ set(ASTROCORE_SOURCES
     # Data layer
     src/data/ExoplanetData.cpp
     src/data/NasaApiClient.cpp
+    src/data/SolarSystemDatabase.cpp
     # AI / inference layer
     src/ai/BedrockClient.cpp
     src/ai/InferenceEngine.cpp

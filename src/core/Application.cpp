@@ -3,6 +3,8 @@
 #include "render/Camera.hpp"
 #include <imgui.h>
 #include <chrono>
+#include <format>
+#include <set>
 
 #ifdef ASTRO_METAL
 #  include "render/MetalRenderer.hpp"
@@ -90,13 +92,23 @@ void Application::loadPlanet(const std::string& name) {
     if (m_planetLoading) return;
     m_planetLoading = true;
 
-    LOG_INFO("Loading exoplanet: {}", name);
-    m_ui->setExoplanetStatus("Querying NASA archive...");
+    LOG_INFO("Loading planet: {}", name);
+    m_ui->setExoplanetStatus("Searching...");
 
     m_planetFuture = std::async(std::launch::async,
         [this, name]() -> LoadResult {
 
-            // Step 1: NASA query
+            // ── Step 1: Solar system direct lookup (no AI needed) ──────────
+            const auto* solarEntry = SolarSystemDatabase::instance().findByName(name);
+            if (solarEntry) {
+                LOG_INFO("Solar system match: {}", solarEntry->name);
+                std::string cat = ExoplanetMapper::categoryName(
+                    ExoplanetMapper::classify(solarEntry->physicalData));
+                return {solarEntry->visualParams,
+                        solarEntry->name + "  |  " + cat + "  |  Solar System"};
+            }
+
+            // ── Step 2: NASA Exoplanet Archive query ───────────────────────
             auto results = m_nasa->queryByNameSync(name);
             if (results.empty()) {
                 return {std::nullopt, "Not found: \"" + name + "\""};
@@ -105,23 +117,55 @@ void Application::loadPlanet(const std::string& name) {
             auto data = results[0];
             data.calculateDerivedValues();
 
-            // Step 2: AI fills missing atmosphere / physical fields
+            // ── Step 3: AI fills missing atmosphere / physical fields ───────
             if (m_inference->isAvailable()) {
                 data = m_inference->fillMissingParametersSync(std::move(data));
             }
 
-            // Step 3: AI generates numeric renderer overrides
-            nlohmann::json aiJson;
-            if (m_inference->isAvailable()) {
-                aiJson = m_inference->inferRenderParamsSync(data);
+            // ── Step 4: Find closest solar-system analog for context ────────
+            std::string           analogContext;
+            std::set<std::string> physicsFields;
+
+            // Compute physicsFields from a dry-run of the physics pass
+            ExoplanetMapper::toPlanetParams(data, &physicsFields, nullptr);
+
+            if (data.mass_earth.hasValue() && data.radius_earth.hasValue() &&
+                data.equilibrium_temp_k.hasValue()) {
+
+                auto analog = SolarSystemDatabase::instance().findClosestAnalog(
+                    data.mass_earth.value,
+                    data.radius_earth.value,
+                    data.equilibrium_temp_k.value,
+                    0.35f);
+
+                if (analog) {
+                    analogContext = std::format(
+                        "{} (similarity {:.0f}%) — {}",
+                        analog->entry->name,
+                        analog->score * 100.0f,
+                        analog->entry->description);
+                }
             }
 
-            // Step 4: Physics derivation → PlanetParams, then AI merge
-            PlanetParams params = ExoplanetMapper::toRenderParams(data, aiJson);
+            // ── Step 5: AI fills remaining unknown render fields ────────────
+            nlohmann::json aiJson;
+            if (m_inference->isAvailable()) {
+                aiJson = m_inference->inferRenderParamsSync(data, analogContext, physicsFields);
+            }
+
+            // ── Step 6: Physics base + AI fill → final PlanetParams ─────────
+            AnalogMatch usedAnalog;
+            PlanetParams params = ExoplanetMapper::toRenderParams(data, aiJson, &usedAnalog);
+
             std::string category = ExoplanetMapper::categoryName(
                 ExoplanetMapper::classify(data));
+            std::string label = data.name + "  |  " + category;
+            if (usedAnalog.entry) {
+                label += std::format("  |  ~{} ({:.0f}%)",
+                                     usedAnalog.entry->name, usedAnalog.score * 100.0f);
+            }
 
-            return {params, data.name + "  |  " + category};
+            return {params, label};
         });
 }
 

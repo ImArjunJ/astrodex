@@ -143,7 +143,9 @@ std::future<ExoplanetData> InferenceEngine::fillMissingParameters(ExoplanetData 
     });
 }
 
-nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData& data) {
+nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData&         data,
+                                                       const std::string&           analogContext,
+                                                       const std::set<std::string>& skipFields) {
     if (!isAvailable()) {
         LOG_DEBUG("AI inference not available, skipping render params");
         return {};
@@ -153,7 +155,7 @@ nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData& data)
 
     InferenceRequest request;
     request.system_prompt = std::string(prompts::RENDER_PARAMS_SYSTEM_PROMPT);
-    request.user_prompt   = prompts::buildRenderParamsPrompt(data);
+    request.user_prompt   = prompts::buildRenderParamsPrompt(data, analogContext, skipFields);
 
     auto response = m_bedrock->inferSync(request);
 
@@ -162,8 +164,6 @@ nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData& data)
         return {};
     }
 
-    // BedrockClient::parseResponse stores the raw JSON object in inferred_values
-    // when Claude doesn't use the {"inferred_values": ...} wrapper format.
     if (response.inferred_values.empty()) {
         LOG_WARN("Render params response was empty for {}", data.name);
         return {};
@@ -173,10 +173,15 @@ nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData& data)
     return response.inferred_values;
 }
 
-std::future<nlohmann::json> InferenceEngine::inferRenderParams(ExoplanetData data) {
-    return std::async(std::launch::async, [this, data = std::move(data)]() {
-        return inferRenderParamsSync(data);
-    });
+std::future<nlohmann::json> InferenceEngine::inferRenderParams(ExoplanetData        data,
+                                                                std::string          analogContext,
+                                                                std::set<std::string> skipFields) {
+    return std::async(std::launch::async,
+        [this, data = std::move(data),
+               analogContext = std::move(analogContext),
+               skipFields    = std::move(skipFields)]() {
+            return inferRenderParamsSync(data, analogContext, skipFields);
+        });
 }
 
 }  // namespace astrocore
