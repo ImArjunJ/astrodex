@@ -1,0 +1,32 @@
+# Build
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.a
+*.o
+*.so
+*.dylib
+.cache/
+
+# Executable
+astrosplat
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ImGui config
+imgui.ini
+
+# Logs
+*.log
+
+# Compiled shaders
+*.spv
