@@ -35,3 +35,8 @@ imgui.ini
 scripts/venv/
 __pycache__/
 *.pyc
+
+# Large data files (generated/fetched)
+assets/starmap/gaia_octree.bin
+assets/starmap/.hyg_cache.csv
+*.bin

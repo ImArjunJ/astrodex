@@ -74,3 +74,50 @@ add_custom_command(TARGET astrosplat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrosplat>/assets
 )
+
+# ── Star Explorer ────────────────────────────────────────────────────────────
+# Separate executable with its own Vulkan renderer for 3D star navigation.
+# Compiles Window.cpp and Logger.cpp directly (not via astrocore_lib) to avoid
+# duplicate VMA_IMPLEMENTATION / STB_IMAGE_IMPLEMENTATION symbols.
+
+set(STAREXPLORER_SOURCES
+    src/explorer/main_explorer.cpp
+    src/explorer/StarExplorerApp.cpp
+    src/explorer/StarRenderer.cpp
+    src/explorer/FreeFlyCamera.cpp
+    src/explorer/StarData.cpp
+    src/explorer/StarOctree.cpp
+    src/explorer/ExplorerUI.cpp
+    src/core/Window.cpp
+    src/core/Logger.cpp
+)
+
+add_executable(starexplorer ${STAREXPLORER_SOURCES})
+target_include_directories(starexplorer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(starexplorer
+    PRIVATE
+        glfw
+        Vulkan::Vulkan
+        glm::glm
+        spdlog::spdlog
+        imgui_impl
+        vk-bootstrap::vk-bootstrap
+        GPUOpen::VulkanMemoryAllocator
+)
+
+if(APPLE)
+    set_target_properties(starexplorer PROPERTIES
+        BUILD_RPATH "/opt/homebrew/lib;/usr/local/lib"
+    )
+endif()
+
+compile_shaders(starexplorer
+    ${CMAKE_SOURCE_DIR}/shaders/star.vert
+    ${CMAKE_SOURCE_DIR}/shaders/star.frag
+)
+
+add_custom_command(TARGET starexplorer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:starexplorer>/assets
+)
