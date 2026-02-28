@@ -13,7 +13,7 @@ namespace astrocore {
 
 static const char* presetNames[] = {
     "Earth", "Mars", "Lava World", "Ice World",
-    "Gas Giant", "Ocean World", "Desert", "Alien"
+    "Gas Giant", "Ocean World", "Desert", "Alien", "Black Hole"
 };
 static constexpr int presetCount = sizeof(presetNames) / sizeof(presetNames[0]);
 
@@ -167,6 +167,24 @@ static PlanetParams makePreset(int index) {
         p.ridgedStrength    = 0.5f;
         p.craterStrength    = 0.4f;
         break;
+    case 8: // Black Hole
+        p.isBlackHole           = true;
+        p.bhMass                = 1.0f;
+        p.bhAccretionInner      = 3.0f;
+        p.bhAccretionOuter      = 10.0f;
+        p.bhDiskSpeed           = 1.0f;
+        p.bhDiskTurbulence      = 0.3f;
+        p.bhDiskBrightness      = 2.0f;
+        p.bhDiskTemperatureInner = 10000.0f;
+        p.bhDiskTemperatureOuter = 3000.0f;
+        p.bhDiskTint            = {1.0f, 0.95f, 0.9f};
+        p.bhRaySteps            = 128;
+        p.bhDopplerStrength     = 1.0f;
+        p.radius                = 2.0f;
+        p.sunIntensity          = 3.0f;
+        p.deepSpaceColor        = {0.0f, 0.0f, 0.002f};
+        p.atmosphereColor       = {0.05f, 0.3f, 0.9f};
+        break;
     }
     return p;
 }
@@ -268,6 +286,30 @@ void UIManager::render(PlanetParams& p) {
         ImGui::SliderFloat("Rotation Speed", &p.rotationSpeed, 0.0f, 1.0f);
     }
 
+    // ── Black Hole ──────────────────────────────────────────────────────
+    if (ImGui::CollapsingHeader("Black Hole")) {
+        ImGui::Checkbox("Enable Black Hole", &p.isBlackHole);
+        if (p.isBlackHole) {
+            ImGui::SliderFloat("Mass", &p.bhMass, 0.1f, 5.0f);
+            ImGui::SliderInt("Ray Steps", &p.bhRaySteps, 32, 256);
+            ImGui::Separator();
+            ImGui::TextDisabled("Accretion Disk");
+            ImGui::SliderFloat("Inner Edge (Rs)", &p.bhAccretionInner, 1.5f, 6.0f, "%.1f");
+            ImGui::SliderFloat("Outer Edge (Rs)", &p.bhAccretionOuter, 4.0f, 30.0f, "%.1f");
+            ImGui::SliderFloat("Disk Speed", &p.bhDiskSpeed, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Turbulence", &p.bhDiskTurbulence, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Brightness", &p.bhDiskBrightness, 0.1f, 10.0f, "%.1f");
+            ImGui::Separator();
+            ImGui::TextDisabled("Temperature");
+            ImGui::SliderFloat("Inner Temp (K)", &p.bhDiskTemperatureInner, 3000.0f, 30000.0f, "%.0f");
+            ImGui::SliderFloat("Outer Temp (K)", &p.bhDiskTemperatureOuter, 1000.0f, 10000.0f, "%.0f");
+            ImGui::ColorEdit3("Disk Tint", &p.bhDiskTint.x);
+            ImGui::Separator();
+            ImGui::SliderFloat("Doppler Strength", &p.bhDopplerStrength, 0.0f, 2.0f, "%.2f");
+        }
+    }
+
+    if (!p.isBlackHole) {
     // ── Terrain ──────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Terrain", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SliderFloat("Noise Strength", &p.noiseStrength, 0.0f, 0.5f);
@@ -328,6 +370,7 @@ void UIManager::render(PlanetParams& p) {
         ImGui::ColorEdit3("Atmo Color", &p.atmosphereColor.x);
         ImGui::SliderFloat("Density##atmo", &p.atmosphereDensity, 0.0f, 1.0f);
     }
+    } // !isBlackHole
 
     // ── Lighting ────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {

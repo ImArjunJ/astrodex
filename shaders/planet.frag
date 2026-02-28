@@ -66,8 +66,25 @@ uniform float uPolarCapSize;
 uniform float uBandingStrength;
 uniform float uBandingFrequency;
 
+// Precomputed rotation matrix (set by CPU)
+uniform mat3 uPlanetRotation;
+
+// Black hole
+uniform bool  uIsBlackHole;
+uniform float uBhMass;
+uniform float uBhAccretionInner;
+uniform float uBhAccretionOuter;
+uniform float uBhDiskSpeed;
+uniform float uBhDiskTurbulence;
+uniform float uBhDiskBrightness;
+uniform float uBhTempInner;
+uniform float uBhTempOuter;
+uniform vec3  uBhDiskTint;
+uniform int   uBhRaySteps;
+uniform float uBhDopplerStrength;
+
 // Constants
-#define PLANET_ROTATION rotateY(uTime * uRotationSpeed + uRotationOffset)
+#define PLANET_ROTATION uPlanetRotation
 #define EPSILON 1e-3
 #define INFINITY 1e10
 #define PI 3.14159265
@@ -281,12 +298,36 @@ float planetDist(in vec3 ro, in vec3 rd) {
     return sphIntersect(ro, rd, Sphere(uPlanetPosition, uPlanetRadius + displacement));
 }
 
-vec3 planetNormal(vec3 p) {
-    vec3 rd = uPlanetPosition - p;
-    float dist = planetDist(p, rd);
-    vec2 e = vec2(max(.01, .03 * smoothstep(1300., 300., uResolution.x)), 0);
-    vec3 normal = dist - vec3(planetDist(p - e.xyy, rd), planetDist(p - e.yxy, rd), planetDist(p + e.yyx, rd));
-    return normalize(normal);
+// Compute normal by finite-differencing planetNoise on the sphere surface directly,
+// avoiding 4 redundant ray-sphere intersections + full planetDist evaluations.
+vec3 planetNormal(vec3 hitPos) {
+    vec3 localDir = normalize(hitPos - uPlanetPosition);
+    float e = max(.01, .03 * smoothstep(1300., 300., uResolution.x));
+
+    // Build a tangent frame on the sphere surface
+    vec3 tangent = normalize(cross(localDir, localDir.y < 0.99 ? vec3(0,1,0) : vec3(1,0,0)));
+    vec3 bitangent = cross(localDir, tangent);
+
+    // Sample planetNoise at 4 offset points on the sphere surface (rotated space)
+    vec3 c  = PLANET_ROTATION * (hitPos - uPlanetPosition) + uPlanetPosition;
+    vec3 px = PLANET_ROTATION * (localDir * uPlanetRadius + tangent   * e) + uPlanetPosition;
+    vec3 nx = PLANET_ROTATION * (localDir * uPlanetRadius - tangent   * e) + uPlanetPosition;
+    vec3 py = PLANET_ROTATION * (localDir * uPlanetRadius + bitangent * e) + uPlanetPosition;
+    vec3 ny = PLANET_ROTATION * (localDir * uPlanetRadius - bitangent * e) + uPlanetPosition;
+
+    float coastline = (uSandLevel + uWaterLevel) / 5.0;
+    float hc = max(planetNoise(c),  coastline);
+    float hpx = max(planetNoise(px), coastline);
+    float hnx = max(planetNoise(nx), coastline);
+    float hpy = max(planetNoise(py), coastline);
+    float hny = max(planetNoise(ny), coastline);
+
+    // Central differences → surface gradient
+    float dhdx = (hpx - hnx) / (2.0 * e);
+    float dhdy = (hpy - hny) / (2.0 * e);
+
+    // Perturb sphere normal by the gradient
+    return normalize(localDir - dhdx * tangent - dhdy * bitangent);
 }
 
 // ── Stars & space ────────────────────────────────────────────────────────────
@@ -311,6 +352,157 @@ vec3 spaceColor(vec3 direction) {
     vec3 backgroundCoord = direction * backgroundRotation;
     float spaceNoise = fbm(backgroundCoord * 3., 4, .5, 2., 6.);
     return stars(backgroundCoord) + mix(uDeepSpaceColor, uAtmosphereColor / 12., spaceNoise);
+}
+
+// ── Black Hole ───────────────────────────────────────────────────────────────
+
+// Attempt 5: Attempt to fix black hole rendering. Based on
+// Tanner Helland's fitted curves for CIE 1931 → sRGB.
+// Input: temperature in Kelvin (1000–40000 K).
+// Output: linear RGB color (not clamped to [0,1] — caller should clamp).
+vec3 blackbodyColor(float tempK) {
+    float t = tempK / 100.0;
+    vec3 c;
+
+    // Red
+    if (t <= 66.0)
+        c.r = 1.0;
+    else
+        c.r = 1.2929 * pow(t - 60.0, -0.1332);
+
+    // Green
+    if (t <= 66.0)
+        c.g = 0.3901 * log(t) - 0.6318;
+    else
+        c.g = 1.1299 * pow(t - 60.0, -0.0755);
+
+    // Blue
+    if (t >= 66.0)
+        c.b = 1.0;
+    else if (t <= 19.0)
+        c.b = 0.0;
+    else
+        c.b = 0.5432 * log(t - 10.0) - 1.1963;
+
+    return clamp(c, 0.0, 1.0);
+}
+
+// Core black hole ray tracer using Schwarzschild geodesic integration.
+// Traces a photon path through curved spacetime, accumulating accretion
+// disk color at equatorial plane crossings, then composites over the
+// gravitationally lensed star background.
+vec3 traceBlackHole(vec3 ro, vec3 rd) {
+    // Schwarzschild radius
+    float Rs = uBhMass * uPlanetRadius * 0.5;
+
+    // Transform ray into BH-local coordinates (origin at BH center)
+    vec3 pos = ro - uPlanetPosition;
+    vec3 vel = rd;
+
+    // Conserved specific angular momentum magnitude
+    float h = length(cross(pos, vel));
+
+    // Accretion disk bounds
+    float rInner = uBhAccretionInner * Rs;
+    float rOuter = uBhAccretionOuter * Rs;
+
+    // Front-to-back compositing state for accretion disk
+    vec3  diskColor = vec3(0.0);
+    float diskAlpha = 0.0;
+
+    float prevY = pos.y; // track equatorial plane crossings
+
+    for (int i = 0; i < uBhRaySteps; ++i) {
+        float r = length(pos);
+
+        // Captured by event horizon
+        if (r < Rs) {
+            return diskColor; // black — absorbed
+        }
+
+        // Escaped far enough — sample lensed background
+        if (r > 100.0 * Rs) {
+            vec3 bg = spaceColor(normalize(vel));
+            return diskColor + (1.0 - diskAlpha) * bg;
+        }
+
+        // Geodesic acceleration: Schwarzschild effective potential
+        // d²r/dλ² = -1.5 * h² * Rs / r^5 * pos (in Cartesian form)
+        float r2 = r * r;
+        float r5 = r2 * r2 * r;
+        vec3 accel = -1.5 * h * h * Rs / r5 * pos;
+
+        // Adaptive step size: small near BH, larger far away
+        float dt = 0.3 * r / (1.0 + 2.0 * Rs / max(r - Rs, 0.01));
+        dt = clamp(dt, 0.01 * Rs, 2.0 * Rs);
+
+        // Velocity Verlet integration
+        vec3 newPos = pos + vel * dt + 0.5 * accel * dt * dt;
+        float newR = length(newPos);
+        float newR5 = newR * newR * newR * newR * newR;
+        vec3 newAccel = -1.5 * h * h * Rs / newR5 * newPos;
+        vec3 newVel = vel + 0.5 * (accel + newAccel) * dt;
+
+        // Check equatorial plane crossing (y sign flip)
+        if (prevY * newPos.y < 0.0) {
+            // Interpolate to find crossing point
+            float t_cross = abs(prevY) / max(abs(prevY) + abs(newPos.y), 1e-6);
+            vec3 crossPos = mix(pos, newPos, t_cross);
+            float crossR = length(crossPos);
+
+            // Is crossing within the accretion disk annulus?
+            if (crossR >= rInner && crossR <= rOuter) {
+                // Radial parameter [0,1] from inner to outer edge
+                float radialT = (crossR - rInner) / (rOuter - rInner);
+
+                // Temperature gradient: hot inner, cool outer
+                float temp = mix(uBhTempInner, uBhTempOuter, radialT);
+                vec3 bbColor = blackbodyColor(temp);
+
+                // Procedural turbulence using existing noise texture
+                vec3 noiseCoord = crossPos * 0.5 / Rs;
+                // Add time-based rotation for disk orbital motion
+                float angle = atan(crossPos.z, crossPos.x);
+                angle += uTime * uBhDiskSpeed * sqrt(Rs / max(crossR, Rs)) * 0.5;
+                noiseCoord.x = crossR * cos(angle) * 0.5 / Rs;
+                noiseCoord.z = crossR * sin(angle) * 0.5 / Rs;
+                float turb = noise(noiseCoord);
+                turb = mix(1.0, turb, uBhDiskTurbulence);
+
+                // Density falls off at inner and outer edges
+                float edgeFade = smoothstep(0.0, 0.15, radialT)
+                               * smoothstep(1.0, 0.85, radialT);
+
+                // Doppler beaming: approaching side brighter, receding dimmer
+                // Orbital velocity direction is tangent to circular orbit
+                vec3 orbitDir = normalize(cross(vec3(0.0, 1.0, 0.0), normalize(crossPos)));
+                float orbitalV = uBhDiskSpeed * sqrt(Rs / (2.0 * max(crossR, Rs)));
+                float doppler = 1.0 + uBhDopplerStrength * orbitalV * dot(normalize(vel), orbitDir) * 4.0;
+                doppler = max(doppler, 0.1);
+
+                // Luminosity: brighter at inner edge (1/r² falloff)
+                float luminosity = (rInner / max(crossR, rInner));
+                luminosity *= luminosity;
+
+                vec3 sampleColor = bbColor * uBhDiskTint * turb * edgeFade
+                                 * luminosity * doppler * uBhDiskBrightness;
+                float sampleAlpha = edgeFade * turb * 0.8;
+
+                // Front-to-back alpha compositing
+                diskColor += (1.0 - diskAlpha) * sampleAlpha * sampleColor;
+                diskAlpha += (1.0 - diskAlpha) * sampleAlpha;
+                diskAlpha = min(diskAlpha, 1.0);
+            }
+        }
+
+        prevY = newPos.y;
+        pos = newPos;
+        vel = newVel;
+    }
+
+    // Ray didn't escape or get captured within step limit — treat as escaped
+    vec3 bg = spaceColor(normalize(vel));
+    return diskColor + (1.0 - diskAlpha) * bg;
 }
 
 vec3 simpleReinhardToneMapping(vec3 color) {
@@ -500,6 +692,8 @@ Hit intersectPlanet(vec3 ro, vec3 rd) {
 // ── Radiance ─────────────────────────────────────────────────────────────────
 
 vec3 radiance(vec3 ro, vec3 rd) {
+    if (uIsBlackHole) return traceBlackHole(ro, rd);
+
     vec3 color = vec3(0.);
     float spaceMask = 1.;
     Hit hit = intersectPlanet(ro, rd);
