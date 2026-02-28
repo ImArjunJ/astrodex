@@ -282,10 +282,26 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
     return data;
 }
 
+// NASA Exoplanet Archive uses "Kepler-452 b" (space before planet letter).
+// Normalise user input so "Kepler-452b" and "TRAPPIST-1e" etc. are found.
+static std::string normalizePlanetName(const std::string& name) {
+    if (name.size() >= 2) {
+        char last       = name.back();
+        char secondLast = name[name.size() - 2];
+        // Insert space when the name ends with [digit][lowercase-letter] (no space already)
+        if (std::islower(static_cast<unsigned char>(last)) &&
+            (std::isdigit(static_cast<unsigned char>(secondLast)) ||
+             std::isupper(static_cast<unsigned char>(secondLast)))) {
+            return name.substr(0, name.size() - 1) + " " + last;
+        }
+    }
+    return name;
+}
+
 std::future<std::vector<ExoplanetData>> NasaApiClient::queryByName(const std::string& name) {
     return std::async(std::launch::async, [this, name]() {
-        // Use LOWER() for case-insensitive search
-        std::string lowerName = name;
+        std::string normalized = normalizePlanetName(name);
+        std::string lowerName  = normalized;
         std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
         std::string where = "LOWER(pl_name) LIKE '%" + lowerName + "%'";
         return executeQuery(buildADQL(where, 50));
@@ -293,8 +309,8 @@ std::future<std::vector<ExoplanetData>> NasaApiClient::queryByName(const std::st
 }
 
 std::vector<ExoplanetData> NasaApiClient::queryByNameSync(const std::string& name) {
-    // Use LOWER() for case-insensitive search
-    std::string lowerName = name;
+    std::string normalized = normalizePlanetName(name);
+    std::string lowerName  = normalized;
     std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
     std::string where = "LOWER(pl_name) LIKE '%" + lowerName + "%'";
     return executeQuery(buildADQL(where, 50));
