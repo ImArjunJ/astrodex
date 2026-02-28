@@ -13,6 +13,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 #include <fstream>
 #include <vector>
 #include <array>
@@ -33,8 +37,39 @@ namespace astrocore {
         }                                                                   \
     } while (0)
 
+// Resolve path relative to executable, falling back to CWD
+static std::string resolveAssetPath(const std::string& relative) {
+#ifdef __APPLE__
+    // Get executable directory via _NSGetExecutablePath
+    char exePath[4096];
+    uint32_t size = sizeof(exePath);
+    if (_NSGetExecutablePath(exePath, &size) == 0) {
+        std::string dir(exePath);
+        auto pos = dir.find_last_of('/');
+        if (pos != std::string::npos) {
+            std::string candidate = dir.substr(0, pos + 1) + relative;
+            if (std::ifstream(candidate).good()) return candidate;
+        }
+    }
+#elif defined(__linux__)
+    char exePath[4096];
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (len > 0) {
+        exePath[len] = '\0';
+        std::string dir(exePath);
+        auto pos = dir.find_last_of('/');
+        if (pos != std::string::npos) {
+            std::string candidate = dir.substr(0, pos + 1) + relative;
+            if (std::ifstream(candidate).good()) return candidate;
+        }
+    }
+#endif
+    return relative; // fallback to CWD-relative
+}
+
 static std::vector<char> readFile(const std::string& path) {
-    std::ifstream f(path, std::ios::ate | std::ios::binary);
+    std::string resolved = resolveAssetPath(path);
+    std::ifstream f(resolved, std::ios::ate | std::ios::binary);
     if (!f.is_open()) throw std::runtime_error("Failed to open file: " + path);
     size_t sz = f.tellg();
     std::vector<char> buf(sz);
