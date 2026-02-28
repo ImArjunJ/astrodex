@@ -11,21 +11,8 @@ Window::Window(const WindowConfig& config) {
         throw std::runtime_error("Failed to initialize GLFW");
     }
 
-#ifdef ASTRO_METAL
-    // Metal path — tell GLFW not to create an OpenGL context.
-    // The MetalRenderer will attach a CAMetalLayer to the NSView directly.
+    // Vulkan — no OpenGL context needed
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-#else
-    // OpenGL 4.5 Core Profile
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-
-    if (config.samples > 0) {
-        glfwWindowHint(GLFW_SAMPLES, config.samples);
-    }
-#endif
 
     GLFWmonitor* monitor = config.fullscreen ? glfwGetPrimaryMonitor() : nullptr;
     m_window = glfwCreateWindow(config.width, config.height,
@@ -34,30 +21,6 @@ Window::Window(const WindowConfig& config) {
         glfwTerminate();
         throw std::runtime_error("Failed to create GLFW window");
     }
-
-#ifndef ASTRO_METAL
-    glfwMakeContextCurrent(m_window);
-
-    int version = gladLoadGL(glfwGetProcAddress);
-    if (version == 0) {
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
-        throw std::runtime_error("Failed to initialize GLAD");
-    }
-
-    LOG_INFO("OpenGL {}.{} loaded",
-             GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
-    LOG_INFO("Renderer: {}",
-             reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
-    LOG_INFO("Vendor: {}",
-             reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
-
-    glfwSwapInterval(config.vsync ? 1 : 0);
-
-    if (config.samples > 0) glEnable(GL_MULTISAMPLE);
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-#endif
 
     glfwGetFramebufferSize(m_window, &m_width, &m_height);
     glfwSetWindowUserPointer(m_window, this);
@@ -80,10 +43,7 @@ Window::~Window() {
 void Window::pollEvents()  { glfwPollEvents(); }
 
 void Window::swapBuffers() {
-#ifndef ASTRO_METAL
-    glfwSwapBuffers(m_window);
-#endif
-    // Metal: presentation is handled by MetalRenderer::endFrame via CAMetalDrawable
+    // Vulkan: presentation handled by VulkanRenderer::endFrame
 }
 
 bool Window::shouldClose() const { return glfwWindowShouldClose(m_window); }
@@ -98,9 +58,6 @@ void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) 
     auto* self   = static_cast<Window*>(glfwGetWindowUserPointer(window));
     self->m_width  = width;
     self->m_height = height;
-#ifndef ASTRO_METAL
-    glViewport(0, 0, width, height);
-#endif
     if (self->m_resizeCallback) self->m_resizeCallback(width, height);
 }
 

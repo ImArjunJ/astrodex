@@ -1,17 +1,13 @@
 #include "ui/UIManager.hpp"
 #include "render/IRenderer.hpp"
+#include "render/VulkanRenderer.hpp"
 #include "core/Logger.hpp"
 
+#include <vulkan/vulkan.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
-
-#ifdef ASTRO_METAL
-#  import <Metal/Metal.h>
-#  include <imgui_impl_metal.h>
-#else
-#  include <imgui_impl_opengl3.h>
-#endif
 
 namespace astrocore {
 
@@ -205,9 +201,7 @@ UIManager::~UIManager() {
     }
 }
 
-#ifdef ASTRO_METAL
-
-void UIManager::init(GLFWwindow* window, void* metalDevice) {
+void UIManager::init(GLFWwindow* window, VulkanRenderer* renderer) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
@@ -215,72 +209,47 @@ void UIManager::init(GLFWwindow* window, void* metalDevice) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-    ImGui_ImplGlfw_InitForOther(window, true);
-    ImGui_ImplMetal_Init((__bridge id<MTLDevice>)metalDevice);
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.Instance       = static_cast<VkInstance>(renderer->getInstance());
+    initInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(renderer->getPhysicalDevice());
+    initInfo.Device         = static_cast<VkDevice>(renderer->getDevice());
+    initInfo.QueueFamily    = renderer->getGraphicsQueueFamily();
+    initInfo.Queue          = static_cast<VkQueue>(renderer->getGraphicsQueue());
+    initInfo.DescriptorPool = static_cast<VkDescriptorPool>(renderer->getDescriptorPool());
+    initInfo.RenderPass     = static_cast<VkRenderPass>(renderer->getRenderPass());
+    initInfo.MinImageCount  = 2;
+    initInfo.ImageCount     = renderer->getSwapchainImageCount();
+    initInfo.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
+
+    ImGui_ImplVulkan_Init(&initInfo);
+    ImGui_ImplVulkan_CreateFontsTexture();
 
     setupStyle();
     m_initialized = true;
-    LOG_INFO("ImGui initialized (Metal backend)");
+    LOG_INFO("ImGui initialized (Vulkan backend)");
 }
 
 void UIManager::shutdown() {
-    ImGui_ImplMetal_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    m_initialized = false;
-}
-
-void UIManager::beginFrame(void* renderPassDescriptor) {
-    ImGui_ImplMetal_NewFrame((__bridge MTLRenderPassDescriptor*)renderPassDescriptor);
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-}
-
-void UIManager::endFrame(void* commandBuffer, void* commandEncoder) {
-    ImGui::Render();
-    ImGui_ImplMetal_RenderDrawData(
-        ImGui::GetDrawData(),
-        (__bridge id<MTLCommandBuffer>)commandBuffer,
-        (__bridge id<MTLRenderCommandEncoder>)commandEncoder);
-}
-
-#else  // OpenGL path
-
-void UIManager::init(GLFWwindow* window) {
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 450");
-
-    setupStyle();
-    m_initialized = true;
-    LOG_INFO("ImGui initialized (OpenGL backend)");
-}
-
-void UIManager::shutdown() {
-    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     m_initialized = false;
 }
 
 void UIManager::beginFrame() {
-    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 }
 
-void UIManager::endFrame() {
+void UIManager::endFrame(VulkanRenderer* renderer) {
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplVulkan_RenderDrawData(
+        ImGui::GetDrawData(),
+        static_cast<VkCommandBuffer>(renderer->getCurrentCommandBuffer()));
 }
-
-#endif  // ASTRO_METAL
 
 void UIManager::setupStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
