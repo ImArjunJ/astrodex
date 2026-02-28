@@ -162,16 +162,15 @@ nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData& data)
         return {};
     }
 
-    // The system prompt asks Claude for a raw JSON object (not the standard
-    // inferred_values wrapper), so parse the raw text directly.
-    try {
-        auto result = nlohmann::json::parse(response.raw_response);
-        LOG_INFO("Render params inferred for {} ({:.0f}ms)", data.name, response.latency_ms);
-        return result;
-    } catch (const nlohmann::json::parse_error& e) {
-        LOG_WARN("Failed to parse render params JSON for {}: {}", data.name, e.what());
+    // BedrockClient::parseResponse stores the raw JSON object in inferred_values
+    // when Claude doesn't use the {"inferred_values": ...} wrapper format.
+    if (response.inferred_values.empty()) {
+        LOG_WARN("Render params response was empty for {}", data.name);
         return {};
     }
+
+    LOG_INFO("Render params inferred for {} ({:.0f}ms)", data.name, response.latency_ms);
+    return response.inferred_values;
 }
 
 std::future<nlohmann::json> InferenceEngine::inferRenderParams(ExoplanetData data) {
