@@ -1,0 +1,11 @@
+{
+  "project_name": "Astrodex",
+  "milestone": 1,
+  "milestone_name": "Real Exoplanet Data + AI Inference Pipeline",
+  "phase_count": 4,
+  "created": "2026-02-28",
+  "platform": "desktop",
+  "language": "cpp",
+  "framework": "opengl",
+  "build_system": "cmake"
+}
