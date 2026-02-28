@@ -2,17 +2,12 @@
 #include "core/Logger.hpp"
 #include "render/Camera.hpp"
 #include "intro/IntroAnimation.hpp"
+#include "render/VulkanRenderer.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <chrono>
 #include <spdlog/fmt/fmt.h>
 #include <set>
-
-#ifdef ASTRO_METAL
-#  include "render/MetalRenderer.hpp"
-#else
-#  include "render/Renderer.hpp"
-#endif
 
 namespace astrocore {
 
@@ -44,26 +39,14 @@ void Application::init() {
         m_camera->setAspectRatio(static_cast<float>(width) / static_cast<float>(height));
     });
 
-#ifdef ASTRO_METAL
-    m_renderer = std::make_unique<MetalRenderer>();
-    LOG_INFO("Using Metal rendering backend");
-#else
-    m_renderer = std::make_unique<Renderer>();
-    LOG_INFO("Using OpenGL rendering backend");
-#endif
-
-    // Pass the GLFW window handle — Metal needs it to attach CAMetalLayer;
-    // the OpenGL renderer ignores it.
+    m_renderer = std::make_unique<VulkanRenderer>();
+    LOG_INFO("Using Vulkan rendering backend");
     m_renderer->init(m_window->getWidth(), m_window->getHeight(),
                      m_window->getHandle());
 
     m_ui = std::make_unique<UIManager>();
-
-#ifdef ASTRO_METAL
-    m_ui->init(m_window->getHandle(), m_renderer->getMetalDevice());
-#else
-    m_ui->init(m_window->getHandle());
-#endif
+    m_ui->init(m_window->getHandle(),
+               static_cast<VulkanRenderer*>(m_renderer.get()));
 
     // ML pipeline
     m_nasa      = std::make_unique<NasaApiClient>();
@@ -107,21 +90,7 @@ void Application::runIntro() {
         m_renderer->beginFrame();
         m_renderer->render(*m_camera);
 
-#ifdef ASTRO_METAL
-        MetalFrameContext ctx = m_renderer->getMetalContext();
-        // If the CAMetalLayer hasn't produced a drawable yet (common on first
-        // few frames), skip the ImGui frame entirely to avoid feeding a nil
-        // renderPassDescriptor into ImGui_ImplMetal_NewFrame which causes it
-        // to cache a zero-format pipeline state and spam error logs.
-        if (!ctx.renderPassDescriptor) {
-            m_renderer->endFrame();
-            m_window->swapBuffers();
-            continue;
-        }
-        m_ui->beginFrame(ctx.renderPassDescriptor);
-#else
         m_ui->beginFrame();
-#endif
         ImGuiIO& io = ImGui::GetIO();
 
         // ── Fade in the real UI panel once the border is assembled ────────────
@@ -165,11 +134,7 @@ void Application::runIntro() {
         }
         ImGui::End();
 
-#ifdef ASTRO_METAL
-        m_ui->endFrame(ctx.commandBuffer, ctx.commandEncoder);
-#else
-        m_ui->endFrame();
-#endif
+        m_ui->endFrame(static_cast<VulkanRenderer*>(m_renderer.get()));
         m_renderer->endFrame();
         m_window->swapBuffers();
     }
@@ -372,18 +337,9 @@ void Application::render() {
     m_renderer->beginFrame();
     m_renderer->render(*m_camera);
 
-#ifdef ASTRO_METAL
-    // For Metal, ImGui renders into the active command encoder.
-    // We hand UIManager the current Metal frame context.
-    MetalFrameContext ctx = m_renderer->getMetalContext();
-    m_ui->beginFrame(ctx.renderPassDescriptor);
-    m_ui->render(m_renderer->params());
-    m_ui->endFrame(ctx.commandBuffer, ctx.commandEncoder);
-#else
     m_ui->beginFrame();
     m_ui->render(m_renderer->params());
-    m_ui->endFrame();
-#endif
+    m_ui->endFrame(static_cast<VulkanRenderer*>(m_renderer.get()));
 
     m_renderer->endFrame();
 }

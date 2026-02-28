@@ -49,6 +49,11 @@ experiments/ml/.venv/
 experiments/ml/__pycache__/
 experiments/ml/models/__pycache__/
 experiments/ml/results/
-*.pyc
 *.pth
 *.pt
+scripts/venv/
+
+# Large data files (generated/fetched)
+assets/starmap/gaia_octree.bin
+assets/starmap/.hyg_cache.csv
+*.bin

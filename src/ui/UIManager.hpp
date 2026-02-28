@@ -9,21 +9,16 @@ struct GLFWwindow;
 namespace astrocore {
 
 struct PlanetParams;
+class VulkanRenderer;
 
 class UIManager {
 public:
     UIManager();
     ~UIManager();
 
-#ifdef ASTRO_METAL
-    void init(GLFWwindow* window, void* metalDevice);
-    void beginFrame(void* renderPassDescriptor);
-    void endFrame(void* commandBuffer, void* commandEncoder);
-#else
-    void init(GLFWwindow* window);
+    void init(GLFWwindow* window, VulkanRenderer* renderer);
     void beginFrame();
-    void endFrame();
-#endif
+    void endFrame(VulkanRenderer* renderer);
 
     void shutdown();
     // outPos/outSize are filled with the actual ImGui window rect this frame

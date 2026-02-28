@@ -1,54 +1,19 @@
 cmake_minimum_required(VERSION 3.25)
-project(AstroSplat VERSION 0.1.0 LANGUAGES C CXX)
+project(AstroSplat VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ── Metal backend flag ────────────────────────────────────────────────────────
-# Automatically ON for Apple Silicon (arm64 macOS); override with -DUSE_METAL=OFF.
-
-# Auto-detect Apple Silicon — always use Metal on arm64 macOS.
-# Override: cmake -DUSE_METAL=OFF (must also delete CMakeCache.txt).
-set(USE_METAL OFF CACHE BOOL "Use Metal rendering backend (Apple Silicon)")
-if(APPLE)
-    execute_process(
-        COMMAND uname -m
-        OUTPUT_VARIABLE HOST_ARCH
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(HOST_ARCH STREQUAL "arm64")
-        set(USE_METAL ON CACHE BOOL "Metal backend auto-enabled on Apple Silicon" FORCE)
-        message(STATUS "Apple Silicon (arm64) detected — Metal backend ENABLED")
-    endif()
-endif()
-
-if(USE_METAL AND NOT APPLE)
-    message(WARNING "USE_METAL=ON is only supported on macOS — ignoring.")
-    set(USE_METAL OFF CACHE BOOL "" FORCE)
-endif()
-
-if(USE_METAL)
-    message(STATUS "AstroSplat: Metal backend ENABLED (Apple Silicon)")
-    # OBJC must be enabled alongside OBJCXX so CMake doesn't compile GLFW's .m
-    # files as Objective-C++ (which applies C++ strict type rules and breaks them).
-    enable_language(OBJC)
-    enable_language(OBJCXX)
-else()
-    message(STATUS "AstroSplat: OpenGL backend")
-endif()
-
 # ── CMake modules ─────────────────────────────────────────────────────────────
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(CompilerOptions)
-
-# Detect display backends before loading dependencies (so Dependencies.cmake
-# can skip GLFW/GLAD/ImGui on headless builds).
-if(NOT USE_METAL)
-    find_package(OpenGL)
-endif()
-
 include(Dependencies)
+
+# ── Vulkan ────────────────────────────────────────────────────────────────────
+find_package(Vulkan REQUIRED)
+include(ShaderCompilation)
 
 find_package(CURL)
 
@@ -74,9 +39,18 @@ if(NOT CURL_FOUND)
     set(CURL_FOUND TRUE)
 endif()
 
-# ── Core sources (always compiled — no display backend required) ─────────────
+# ── Core sources (unified — Vulkan backend) ──────────────────────────────────
 set(ASTROCORE_SOURCES
+    src/core/Window.cpp
+    src/core/Application.cpp
     src/core/Logger.cpp
+    src/render/Camera.cpp
+    src/render/VulkanRenderer.cpp
+    src/render/PlanetParams.cpp
+    src/render/ExoplanetMapper.cpp
+    src/ui/UIManager.cpp
+    src/intro/IntroAnimation.cpp
+    # Data layer
     src/data/NasaApiClient.cpp
     src/data/OecClient.cpp
     src/data/GaiaClient.cpp
@@ -86,100 +60,112 @@ set(ASTROCORE_SOURCES
     src/data/CacheManager.cpp
     src/data/ExoplanetData.cpp
     src/data/SolarSystemDatabase.cpp
+    # AI inference
     src/ai/InferenceEngine.cpp
     src/ai/BedrockClient.cpp
-    src/render/PlanetParams.cpp
-    src/render/ExoplanetMapper.cpp
 )
 
-# ── Display-dependent sources (need GLFW / window system) ────────────────────
-if(USE_METAL OR OpenGL_FOUND)
-    list(APPEND ASTROCORE_SOURCES
-        src/core/Window.cpp
-        src/core/Application.cpp
-        src/render/Camera.cpp
-        src/ui/UIManager.cpp
-        src/intro/IntroAnimation.cpp
-    )
-endif()
-
-# ── Backend-specific sources ─────────────────────────────────────────────────
-if(USE_METAL)
-    list(APPEND ASTROCORE_SOURCES src/render/MetalRenderer.mm)
-elseif(OpenGL_FOUND)
-    list(APPEND ASTROCORE_SOURCES
-        src/render/ShaderProgram.cpp
-        src/render/Renderer.cpp
-    )
-endif()
-
 add_library(astrocore_lib STATIC ${ASTROCORE_SOURCES})
-
 target_include_directories(astrocore_lib PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
-# ── Core link libraries (always linked) ──────────────────────────────────────
 target_link_libraries(astrocore_lib
     PUBLIC
+        glfw
+        Vulkan::Vulkan
         glm::glm
         spdlog::spdlog
         nlohmann_json::nlohmann_json
+        imgui_impl
+        vk-bootstrap::vk-bootstrap
+        GPUOpen::VulkanMemoryAllocator
         CURL::libcurl
         pugixml
 )
 
-# ── Display backend libraries ────────────────────────────────────────────────
-if(USE_METAL)
-    target_compile_definitions(astrocore_lib PUBLIC ASTRO_METAL)
+# ── Executable ────────────────────────────────────────────────────────────────
+add_executable(astrosplat src/main.cpp)
+target_link_libraries(astrosplat PRIVATE astrocore_lib)
 
-    find_library(METAL_FW         Metal         REQUIRED)
-    find_library(METALKIT_FW      MetalKit      REQUIRED)
-    find_library(FOUNDATION_FW    Foundation    REQUIRED)
-    find_library(QUARTZCORE_FW    QuartzCore    REQUIRED)
-    find_library(APPKIT_FW        AppKit        REQUIRED)
-
-    target_link_libraries(astrocore_lib
-        PUBLIC
-            glfw
-            imgui_impl
-            ${METAL_FW}
-            ${METALKIT_FW}
-            ${FOUNDATION_FW}
-            ${QUARTZCORE_FW}
-            ${APPKIT_FW}
+# On macOS with Homebrew Vulkan/MoltenVK, ensure loader finds the ICD and dylib
+if(APPLE)
+    set_target_properties(astrosplat PROPERTIES
+        BUILD_RPATH "/opt/homebrew/lib;/usr/local/lib"
     )
-elseif(OpenGL_FOUND)
-    target_link_libraries(astrocore_lib
-        PUBLIC
-            glad_gl45_core
-            glfw
-            OpenGL::GL
-            imgui_impl
-    )
-endif()
-
-# ── Objective-C++ compilation for Metal translation units ─────────────────────
-if(USE_METAL)
-    set_source_files_properties(src/ui/UIManager.cpp
-        PROPERTIES LANGUAGE OBJCXX)
-
-    foreach(_src src/render/MetalRenderer.mm src/ui/UIManager.cpp)
-        set_source_files_properties(${_src}
-            PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    # Generate a launch wrapper that sets the MoltenVK ICD path
+    set(_ICD_PATHS
+        "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+        "/usr/local/etc/vulkan/icd.d/MoltenVK_icd.json")
+    foreach(_ICD ${_ICD_PATHS})
+        if(EXISTS ${_ICD})
+            set(MOLTENVK_ICD ${_ICD})
+            break()
+        endif()
     endforeach()
+    if(MOLTENVK_ICD)
+        message(STATUS "MoltenVK ICD found: ${MOLTENVK_ICD}")
+    endif()
 endif()
 
-# ── Executable (only with a display backend) ─────────────────────────────────
-if(USE_METAL OR OpenGL_FOUND)
-    add_executable(astrosplat src/main.cpp)
-    target_link_libraries(astrosplat PRIVATE astrocore_lib)
+# ── Compile shaders to SPIR-V ────────────────────────────────────────────────
+compile_shaders(astrosplat
+    ${CMAKE_SOURCE_DIR}/shaders/planet_vk.vert
+    ${CMAKE_SOURCE_DIR}/shaders/planet_vk.frag
+)
 
-    add_custom_command(TARGET astrosplat POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:astrosplat>/shaders
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrosplat>/assets
+# ── Post-build: copy assets ──────────────────────────────────────────────────
+add_custom_command(TARGET astrosplat POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:astrosplat>/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrosplat>/assets
+)
+
+# ── Star Explorer ────────────────────────────────────────────────────────────
+# Separate executable with its own Vulkan renderer for 3D star navigation.
+# Compiles Window.cpp and Logger.cpp directly (not via astrocore_lib) to avoid
+# duplicate VMA_IMPLEMENTATION / STB_IMAGE_IMPLEMENTATION symbols.
+
+set(STAREXPLORER_SOURCES
+    src/explorer/main_explorer.cpp
+    src/explorer/StarExplorerApp.cpp
+    src/explorer/StarRenderer.cpp
+    src/explorer/FreeFlyCamera.cpp
+    src/explorer/StarData.cpp
+    src/explorer/StarOctree.cpp
+    src/explorer/ExplorerUI.cpp
+    src/core/Window.cpp
+    src/core/Logger.cpp
+)
+
+add_executable(starexplorer ${STAREXPLORER_SOURCES})
+target_include_directories(starexplorer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(starexplorer
+    PRIVATE
+        glfw
+        Vulkan::Vulkan
+        glm::glm
+        spdlog::spdlog
+        imgui_impl
+        vk-bootstrap::vk-bootstrap
+        GPUOpen::VulkanMemoryAllocator
+)
+
+if(APPLE)
+    set_target_properties(starexplorer PROPERTIES
+        BUILD_RPATH "/opt/homebrew/lib;/usr/local/lib"
     )
 endif()
+
+compile_shaders(starexplorer
+    ${CMAKE_SOURCE_DIR}/shaders/star.vert
+    ${CMAKE_SOURCE_DIR}/shaders/star.frag
+)
+
+add_custom_command(TARGET starexplorer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:starexplorer>/assets
+)
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt)

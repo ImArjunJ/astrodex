@@ -7,7 +7,6 @@ namespace astrocore {
 class Camera;
 
 // All the knobs for procedural planet generation.
-// Shared between OpenGL Renderer and MetalRenderer.
 struct PlanetParams {
     float radius = 2.0f;
     float rotationSpeed = 0.1f;
@@ -80,20 +79,10 @@ struct PlanetParams {
     float quality = 1.0f;
 };
 
-// Optional Metal frame context — populated by MetalRenderer each frame.
-// OpenGL renderer leaves this zeroed.
-struct MetalFrameContext {
-    void* commandBuffer      = nullptr;
-    void* commandEncoder     = nullptr;
-    void* renderPassDescriptor = nullptr;
-};
-
 class IRenderer {
 public:
     virtual ~IRenderer() = default;
 
-    // nativeWindow: GLFWwindow* — used by MetalRenderer to attach CAMetalLayer.
-    // Ignored by the OpenGL renderer.
     virtual void init(int width, int height, void* nativeWindow = nullptr) = 0;
     virtual void resize(int width, int height) = 0;
 
@@ -102,10 +91,6 @@ public:
     virtual void endFrame() = 0;
 
     virtual PlanetParams& params() = 0;
-
-    // Metal-only: returns current frame's command buffer + encoder.
-    virtual MetalFrameContext getMetalContext() { return {}; }
-    virtual void* getMetalDevice() { return nullptr; }
 };
 
 }  // namespace astrocore
