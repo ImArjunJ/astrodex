@@ -3,6 +3,7 @@ add_executable(data_aggregation_tests
     data/test_oec_parser.cpp
     data/test_gaia_client.cpp
     data/test_cds_client.cpp
+    data/test_coordinate_matcher.cpp
 )
 
 target_link_libraries(data_aggregation_tests
