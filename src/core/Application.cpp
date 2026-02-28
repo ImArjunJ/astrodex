@@ -2,6 +2,7 @@
 #include "core/Logger.hpp"
 #include "render/Camera.hpp"
 #include <imgui.h>
+#include <chrono>
 
 #ifdef ASTRO_METAL
 #  include "render/MetalRenderer.hpp"
@@ -60,6 +61,14 @@ void Application::init() {
     m_ui->init(m_window->getHandle());
 #endif
 
+    // ML pipeline
+    m_nasa      = std::make_unique<NasaApiClient>();
+    m_inference = std::make_unique<InferenceEngine>();
+
+    m_ui->setExoplanetCallback([this](const std::string& name) {
+        loadPlanet(name);
+    });
+
     m_lastFrameTime = m_window->getTime();
     LOG_INFO("Ready");
 }
@@ -75,6 +84,45 @@ void Application::run() {
         render();
         m_window->swapBuffers();
     }
+}
+
+void Application::loadPlanet(const std::string& name) {
+    if (m_planetLoading) return;
+    m_planetLoading = true;
+
+    LOG_INFO("Loading exoplanet: {}", name);
+    m_ui->setExoplanetStatus("Querying NASA archive...");
+
+    m_planetFuture = std::async(std::launch::async,
+        [this, name]() -> LoadResult {
+
+            // Step 1: NASA query
+            auto results = m_nasa->queryByNameSync(name);
+            if (results.empty()) {
+                return {std::nullopt, "Not found: \"" + name + "\""};
+            }
+
+            auto data = results[0];
+            data.calculateDerivedValues();
+
+            // Step 2: AI fills missing atmosphere / physical fields
+            if (m_inference->isAvailable()) {
+                data = m_inference->fillMissingParametersSync(std::move(data));
+            }
+
+            // Step 3: AI generates numeric renderer overrides
+            nlohmann::json aiJson;
+            if (m_inference->isAvailable()) {
+                aiJson = m_inference->inferRenderParamsSync(data);
+            }
+
+            // Step 4: Physics derivation → PlanetParams, then AI merge
+            PlanetParams params = ExoplanetMapper::toRenderParams(data, aiJson);
+            std::string category = ExoplanetMapper::categoryName(
+                ExoplanetMapper::classify(data));
+
+            return {params, data.name + "  |  " + category};
+        });
 }
 
 void Application::update(float deltaTime) {
@@ -100,6 +148,19 @@ void Application::update(float deltaTime) {
     }
 
     m_camera->update(deltaTime);
+
+    // Apply planet load result if ready
+    if (m_planetLoading && m_planetFuture.valid()) {
+        if (m_planetFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            auto [params, status] = m_planetFuture.get();
+            if (params.has_value()) {
+                m_renderer->params() = *params;
+            }
+            m_ui->setExoplanetStatus(status);
+            m_planetLoading = false;
+            LOG_INFO("Planet loaded: {}", status);
+        }
+    }
 }
 
 void Application::render() {

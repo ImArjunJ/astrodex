@@ -47,6 +47,8 @@ if(NOT USE_METAL)
     find_package(OpenGL REQUIRED)
 endif()
 
+find_package(CURL REQUIRED)
+
 # ── Core sources (always compiled) ───────────────────────────────────────────
 set(ASTROCORE_SOURCES
     src/core/Window.cpp
@@ -54,6 +56,14 @@ set(ASTROCORE_SOURCES
     src/core/Logger.cpp
     src/render/Camera.cpp
     src/ui/UIManager.cpp
+    # Data layer
+    src/data/ExoplanetData.cpp
+    src/data/NasaApiClient.cpp
+    # AI / inference layer
+    src/ai/BedrockClient.cpp
+    src/ai/InferenceEngine.cpp
+    # ML / render pipeline
+    src/render/ExoplanetMapper.cpp
 )
 
 # ── Backend-specific sources ─────────────────────────────────────────────────
@@ -85,6 +95,8 @@ if(USE_METAL)
             glfw
             glm::glm
             spdlog::spdlog
+            nlohmann_json::nlohmann_json
+            CURL::libcurl
             imgui_impl
             ${METAL_FW}
             ${METALKIT_FW}
@@ -100,6 +112,8 @@ else()
             OpenGL::GL
             glm::glm
             spdlog::spdlog
+            nlohmann_json::nlohmann_json
+            CURL::libcurl
             imgui_impl
     )
 endif()

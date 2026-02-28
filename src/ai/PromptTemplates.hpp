@@ -110,4 +110,97 @@ Base your inference on temperature, mass, and likely composition.)";
     return prompt;
 }
 
+// ─── Render-params system prompt ─────────────────────────────────────────────
+// Claude is asked to produce a JSON object whose keys are PlanetParams field
+// names and whose values are floats or [r,g,b] arrays in [0,1].  These are
+// merged on top of the physics-based ExoplanetMapper output, so Claude only
+// needs to override values it has genuine scientific reason to change.
+
+constexpr std::string_view RENDER_PARAMS_SYSTEM_PROMPT = R"(You are an expert planetary scientist and 3D visualisation specialist.
+Given exoplanet observational data you must output a JSON object of visual renderer overrides.
+
+RULES:
+- Respond ONLY with a single valid JSON object — no prose, no markdown fences.
+- Only include keys you have a genuine scientific basis to override.
+- All float values must be in [0, 1] unless the field description says otherwise.
+- Colour keys ("atmosphereColor", "waterColorDeep", "waterColorSurface", "sandColor",
+  "treeColor", "rockColor", "iceColor", "cloudColor", "sunColor") must be [r, g, b]
+  arrays with each component in [0, 1].
+- "sunIntensity" is in [0, 8] (solar-luminosity-scaled).
+- "bandingFrequency" is in [5, 40] (relevant only for gas giants).
+
+Available keys (subset of PlanetParams):
+  Terrain:    noiseStrength, ridgedStrength, craterStrength, continentScale,
+              terrainScale, domainWarpStrength
+  Levels:     waterLevel, polarCapSize, sandLevel, treeLevel, rockLevel, iceLevel
+  Banding:    bandingStrength, bandingFrequency
+  Clouds:     cloudsDensity, cloudsScale, cloudAltitude, cloudThickness
+  Atmosphere: atmosphereDensity
+  Lighting:   sunIntensity, ambientLight
+  Colours:    atmosphereColor, waterColorDeep, waterColorSurface, sandColor,
+              treeColor, rockColor, iceColor, cloudColor, sunColor
+
+Physical reasoning to follow:
+- Temperature 200-370 K + liquid water → blue atmosphere, moderate cloud cover
+- Hot Jupiter (T > 1200 K, mass > 100 M_Earth) → tan/orange banded atmosphere, high cloud density
+- CO2-dominated atmosphere → hazy yellow-grey atmosphere, dense clouds
+- CH4 in atmosphere → cyan/blue tint (like Uranus/Neptune)
+- Low gravity + no atmosphere → high craterStrength, no water
+- High albedo → bright ice caps, high cloudsDensity)";
+
+inline std::string buildRenderParamsPrompt(const ExoplanetData& data) {
+    std::string prompt = std::format("Generate renderer override JSON for exoplanet: {}\n\n", data.name);
+
+    prompt += "OBSERVATIONAL DATA:\n";
+
+    if (data.mass_earth.hasValue())
+        prompt += std::format("  mass_earth:           {:.3f}\n", data.mass_earth.value);
+    if (data.radius_earth.hasValue())
+        prompt += std::format("  radius_earth:         {:.3f}\n", data.radius_earth.value);
+    if (data.equilibrium_temp_k.hasValue())
+        prompt += std::format("  equilibrium_temp_k:   {:.1f}\n", data.equilibrium_temp_k.value);
+    if (data.surface_gravity_g.hasValue())
+        prompt += std::format("  surface_gravity_g:    {:.3f}\n", data.surface_gravity_g.value);
+    if (data.density_gcc.hasValue())
+        prompt += std::format("  density_gcc:          {:.3f}\n", data.density_gcc.value);
+    if (data.semi_major_axis_au.hasValue())
+        prompt += std::format("  semi_major_axis_au:   {:.4f}\n", data.semi_major_axis_au.value);
+    if (data.albedo.hasValue())
+        prompt += std::format("  albedo:               {:.3f}\n", data.albedo.value);
+    if (data.surface_pressure_atm.hasValue())
+        prompt += std::format("  surface_pressure_atm: {:.3f}\n", data.surface_pressure_atm.value);
+    if (data.ocean_coverage_fraction.hasValue())
+        prompt += std::format("  ocean_coverage:       {:.3f}\n", data.ocean_coverage_fraction.value);
+    if (data.cloud_coverage_fraction.hasValue())
+        prompt += std::format("  cloud_coverage:       {:.3f}\n", data.cloud_coverage_fraction.value);
+    if (data.ice_coverage_fraction.hasValue())
+        prompt += std::format("  ice_coverage:         {:.3f}\n", data.ice_coverage_fraction.value);
+    if (data.atmosphere_composition.hasValue())
+        prompt += std::format("  atmosphere_composition: {}\n",   data.atmosphere_composition.value);
+    if (data.planet_type.hasValue())
+        prompt += std::format("  planet_type:          {}\n",     data.planet_type.value);
+    if (data.biome_classification.hasValue())
+        prompt += std::format("  biome:                {}\n",     data.biome_classification.value);
+
+    if (data.host_star.effective_temp_k.hasValue())
+        prompt += std::format("  star_temp_k:          {:.0f}\n", data.host_star.effective_temp_k.value);
+    if (!data.host_star.spectral_type.empty())
+        prompt += std::format("  star_spectral_type:   {}\n",     data.host_star.spectral_type);
+
+    prompt += R"(
+Output ONLY the JSON override object. Example for an Earth-like planet:
+{
+  "atmosphereColor":    [0.05, 0.30, 0.90],
+  "atmosphereDensity":  0.30,
+  "waterLevel":         0.22,
+  "cloudsDensity":      0.50,
+  "polarCapSize":       0.15,
+  "noiseStrength":      0.20,
+  "continentScale":     0.50,
+  "sunIntensity":       3.00
+})";
+
+    return prompt;
+}
+
 }  // namespace astrocore::prompts

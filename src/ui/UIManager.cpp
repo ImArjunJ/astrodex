@@ -298,6 +298,22 @@ void UIManager::render(PlanetParams& p) {
         return;
     }
 
+    // ── Exoplanet Search ─────────────────────────────────────────────────
+    if (ImGui::CollapsingHeader("Exoplanet Lookup", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextDisabled("Search NASA Exoplanet Archive");
+        ImGui::SetNextItemWidth(-80);
+        bool hitEnter = ImGui::InputText("##planet", m_searchBuf, sizeof(m_searchBuf),
+                                         ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        bool clicked = ImGui::Button("Load");
+        if ((hitEnter || clicked) && m_exoCallback && m_searchBuf[0] != '\0') {
+            m_exoStatus = "Loading...";
+            m_exoCallback(std::string(m_searchBuf));
+        }
+        ImGui::TextDisabled("%s", m_exoStatus.c_str());
+        ImGui::Spacing();
+    }
+
     // ── Presets ──────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Presets", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SetNextItemWidth(-70);
@@ -396,6 +412,14 @@ void UIManager::render(PlanetParams& p) {
     }
 
     ImGui::End();
+}
+
+void UIManager::setExoplanetCallback(std::function<void(const std::string&)> onLoad) {
+    m_exoCallback = std::move(onLoad);
+}
+
+void UIManager::setExoplanetStatus(const std::string& status) {
+    m_exoStatus = status;
 }
 
 }  // namespace astrocore

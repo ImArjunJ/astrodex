@@ -11,12 +11,16 @@ FetchContent_Declare(
 )
 
 # ── nlohmann/json ─────────────────────────────────────────────────────────────
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
+# Vendored header-only library in third_party/nlohmann/json.hpp.
+# Creates the nlohmann_json::nlohmann_json INTERFACE target without any
+# network access or FetchContent population.
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    add_library(nlohmann_json INTERFACE)
+    add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
+    target_include_directories(nlohmann_json INTERFACE
+        "${CMAKE_SOURCE_DIR}/third_party"
+    )
+endif()
 
 # ── spdlog ────────────────────────────────────────────────────────────────────
 FetchContent_Declare(
@@ -50,7 +54,7 @@ if(NOT glfw3_FOUND)
     list(APPEND _FETCH_TARGETS glfw)
 endif()
 
-FetchContent_MakeAvailable(glm nlohmann_json spdlog ${_FETCH_TARGETS})
+FetchContent_MakeAvailable(glm spdlog ${_FETCH_TARGETS})
 
 # Normalize the GLFW target name: find_package gives glfw3::glfw,
 # FetchContent gives glfw.  Create an alias so both cases look the same.

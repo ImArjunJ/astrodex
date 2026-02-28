@@ -143,4 +143,41 @@ std::future<ExoplanetData> InferenceEngine::fillMissingParameters(ExoplanetData 
     });
 }
 
+nlohmann::json InferenceEngine::inferRenderParamsSync(const ExoplanetData& data) {
+    if (!isAvailable()) {
+        LOG_DEBUG("AI inference not available, skipping render params");
+        return {};
+    }
+
+    LOG_INFO("Inferring render params for {}", data.name);
+
+    InferenceRequest request;
+    request.system_prompt = std::string(prompts::RENDER_PARAMS_SYSTEM_PROMPT);
+    request.user_prompt   = prompts::buildRenderParamsPrompt(data);
+
+    auto response = m_bedrock->inferSync(request);
+
+    if (!response.success) {
+        LOG_WARN("Render params inference failed for {}: {}", data.name, response.error_message);
+        return {};
+    }
+
+    // The system prompt asks Claude for a raw JSON object (not the standard
+    // inferred_values wrapper), so parse the raw text directly.
+    try {
+        auto result = nlohmann::json::parse(response.raw_response);
+        LOG_INFO("Render params inferred for {} ({:.0f}ms)", data.name, response.latency_ms);
+        return result;
+    } catch (const nlohmann::json::parse_error& e) {
+        LOG_WARN("Failed to parse render params JSON for {}: {}", data.name, e.what());
+        return {};
+    }
+}
+
+std::future<nlohmann::json> InferenceEngine::inferRenderParams(ExoplanetData data) {
+    return std::async(std::launch::async, [this, data = std::move(data)]() {
+        return inferRenderParamsSync(data);
+    });
+}
+
 }  // namespace astrocore
