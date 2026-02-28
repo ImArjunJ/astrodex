@@ -56,6 +56,7 @@ set(ASTROCORE_SOURCES
     src/core/Logger.cpp
     src/render/Camera.cpp
     src/ui/UIManager.cpp
+    src/intro/IntroAnimation.cpp
     # Data layer
     src/data/ExoplanetData.cpp
     src/data/NasaApiClient.cpp

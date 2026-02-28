@@ -213,17 +213,25 @@ void UIManager::shutdown() {
 }
 
 void UIManager::beginFrame(void* renderPassDescriptor) {
-    ImGui_ImplMetal_NewFrame((__bridge MTLRenderPassDescriptor*)renderPassDescriptor);
+    // Guard: only feed ImGui the Metal descriptor when the drawable is ready.
+    // Passing nil would cause ImGui to cache a zero-format framebuffer descriptor
+    // and spam "failed to create Metal library" on every frame.
+    if (renderPassDescriptor) {
+        ImGui_ImplMetal_NewFrame((__bridge MTLRenderPassDescriptor*)renderPassDescriptor);
+    }
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 }
 
 void UIManager::endFrame(void* commandBuffer, void* commandEncoder) {
     ImGui::Render();
-    ImGui_ImplMetal_RenderDrawData(
-        ImGui::GetDrawData(),
-        (__bridge id<MTLCommandBuffer>)commandBuffer,
-        (__bridge id<MTLRenderCommandEncoder>)commandEncoder);
+    // Only submit draw data when we have a live command encoder.
+    if (commandBuffer && commandEncoder) {
+        ImGui_ImplMetal_RenderDrawData(
+            ImGui::GetDrawData(),
+            (__bridge id<MTLCommandBuffer>)commandBuffer,
+            (__bridge id<MTLRenderCommandEncoder>)commandEncoder);
+    }
 }
 
 #else  // OpenGL path
@@ -268,32 +276,80 @@ void UIManager::setupStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
     ImGui::StyleColorsDark();
 
-    style.WindowRounding = 4.0f;
-    style.FrameRounding = 2.0f;
-    style.GrabRounding = 2.0f;
-    style.WindowBorderSize = 1.0f;
-    style.FrameBorderSize = 0.0f;
-    style.WindowPadding = ImVec2(10, 10);
-    style.FramePadding = ImVec2(6, 4);
-    style.ItemSpacing = ImVec2(8, 6);
+    // ── Shape ────────────────────────────────────────────────────────────────
+    style.WindowRounding    = 10.0f;
+    style.ChildRounding     =  8.0f;
+    style.FrameRounding     =  6.0f;
+    style.GrabRounding      =  6.0f;
+    style.PopupRounding     =  8.0f;
+    style.ScrollbarRounding =  6.0f;
+    style.TabRounding       =  6.0f;
+    style.WindowBorderSize  =  1.0f;
+    style.FrameBorderSize   =  0.0f;
+    style.WindowPadding     = ImVec2(12, 10);
+    style.FramePadding      = ImVec2( 7,  4);
+    style.ItemSpacing       = ImVec2( 8,  6);
+    style.ScrollbarSize     = 10.0f;
 
-    ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.08f, 0.10f, 0.95f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.10f, 0.10f, 0.14f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.15f, 0.15f, 0.20f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.20f, 0.20f, 0.25f, 1.00f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.30f, 0.30f, 0.35f, 1.00f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.35f, 0.35f, 0.40f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.20f, 0.40f, 0.60f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.30f, 0.50f, 0.70f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.25f, 0.45f, 0.65f, 1.00f);
+    ImVec4* c = style.Colors;
+
+    // ── Glass window background — very low alpha so stars bleed through ──────
+    c[ImGuiCol_WindowBg]          = ImVec4(0.04f, 0.07f, 0.12f, 0.18f);
+    c[ImGuiCol_ChildBg]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    c[ImGuiCol_PopupBg]           = ImVec4(0.05f, 0.08f, 0.14f, 0.88f);
+
+    // ── Glassy frost border ──────────────────────────────────────────────────
+    c[ImGuiCol_Border]            = ImVec4(0.55f, 0.80f, 1.00f, 0.32f);
+    c[ImGuiCol_BorderShadow]      = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+
+    // ── Title bar — slightly more opaque for legibility ──────────────────────
+    c[ImGuiCol_TitleBg]           = ImVec4(0.04f, 0.10f, 0.18f, 0.72f);
+    c[ImGuiCol_TitleBgActive]     = ImVec4(0.06f, 0.15f, 0.26f, 0.80f);
+    c[ImGuiCol_TitleBgCollapsed]  = ImVec4(0.02f, 0.05f, 0.10f, 0.55f);
+
+    // ── Frame / input backgrounds ────────────────────────────────────────────
+    c[ImGuiCol_FrameBg]           = ImVec4(0.10f, 0.18f, 0.28f, 0.42f);
+    c[ImGuiCol_FrameBgHovered]    = ImVec4(0.16f, 0.26f, 0.40f, 0.55f);
+    c[ImGuiCol_FrameBgActive]     = ImVec4(0.20f, 0.32f, 0.48f, 0.65f);
+
+    // ── Collapsing headers ───────────────────────────────────────────────────
+    c[ImGuiCol_Header]            = ImVec4(0.20f, 0.38f, 0.60f, 0.32f);
+    c[ImGuiCol_HeaderHovered]     = ImVec4(0.28f, 0.50f, 0.76f, 0.42f);
+    c[ImGuiCol_HeaderActive]      = ImVec4(0.32f, 0.56f, 0.82f, 0.52f);
+
+    // ── Slider ───────────────────────────────────────────────────────────────
+    c[ImGuiCol_SliderGrab]        = ImVec4(0.35f, 0.78f, 1.00f, 0.85f);
+    c[ImGuiCol_SliderGrabActive]  = ImVec4(0.50f, 0.90f, 1.00f, 1.00f);
+
+    // ── Scrollbar ────────────────────────────────────────────────────────────
+    c[ImGuiCol_ScrollbarBg]       = ImVec4(0.00f, 0.00f, 0.00f, 0.10f);
+    c[ImGuiCol_ScrollbarGrab]     = ImVec4(0.30f, 0.60f, 0.90f, 0.40f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.72f, 1.00f, 0.55f);
+    c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.50f, 0.82f, 1.00f, 0.70f);
+
+    // ── Buttons ──────────────────────────────────────────────────────────────
+    c[ImGuiCol_Button]            = ImVec4(0.16f, 0.36f, 0.58f, 0.68f);
+    c[ImGuiCol_ButtonHovered]     = ImVec4(0.24f, 0.50f, 0.76f, 0.78f);
+    c[ImGuiCol_ButtonActive]      = ImVec4(0.20f, 0.44f, 0.70f, 0.90f);
+
+    // ── Text — bright white for legibility against transparent background ─────
+    c[ImGuiCol_Text]              = ImVec4(0.96f, 0.97f, 1.00f, 1.00f);
+    c[ImGuiCol_TextDisabled]      = ImVec4(0.55f, 0.68f, 0.82f, 0.80f);
+
+    // ── Check / combo ────────────────────────────────────────────────────────
+    c[ImGuiCol_CheckMark]         = ImVec4(0.45f, 0.85f, 1.00f, 1.00f);
+    c[ImGuiCol_Separator]         = ImVec4(0.45f, 0.70f, 1.00f, 0.25f);
+    c[ImGuiCol_SeparatorHovered]  = ImVec4(0.55f, 0.80f, 1.00f, 0.45f);
+    c[ImGuiCol_SeparatorActive]   = ImVec4(0.60f, 0.88f, 1.00f, 0.60f);
 }
 
-void UIManager::render(PlanetParams& p) {
+void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
     ImGui::SetNextWindowSize(ImVec2(340, 720), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(10, 10),  ImGuiCond_Always);
 
     if (!ImGui::Begin("Planet Editor")) {
+        if (outPos)  *outPos  = ImGui::GetWindowPos();
+        if (outSize) *outSize = ImGui::GetWindowSize();
         ImGui::End();
         return;
     }
@@ -411,6 +467,8 @@ void UIManager::render(PlanetParams& p) {
         m_presetIndex = 0;
     }
 
+    if (outPos)  *outPos  = ImGui::GetWindowPos();
+    if (outSize) *outSize = ImGui::GetWindowSize();
     ImGui::End();
 }
 

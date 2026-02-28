@@ -26,7 +26,10 @@ public:
 #endif
 
     void shutdown();
-    void render(PlanetParams& params);
+    // outPos/outSize are filled with the actual ImGui window rect this frame
+    void render(PlanetParams& params,
+                ImVec2* outPos  = nullptr,
+                ImVec2* outSize = nullptr);
 
     // Called by Application to register the async planet-load trigger
     void setExoplanetCallback(std::function<void(const std::string&)> onLoad);
