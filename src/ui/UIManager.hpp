@@ -13,22 +13,30 @@ public:
     UIManager();
     ~UIManager();
 
-    // Initialize ImGui with GLFW/OpenGL
-    void init(GLFWwindow* window);
-    void shutdown();
+#ifdef ASTRO_METAL
+    // Metal path — also needs the MTLDevice to init ImGui Metal backend.
+    void init(GLFWwindow* window, void* metalDevice);
 
-    // Frame lifecycle
+    // beginFrame needs the MTLRenderPassDescriptor for ImGui_ImplMetal_NewFrame.
+    void beginFrame(void* renderPassDescriptor);
+
+    // endFrame renders ImGui draw data into the active Metal encoder.
+    void endFrame(void* commandBuffer, void* commandEncoder);
+#else
+    // OpenGL path
+    void init(GLFWwindow* window);
     void beginFrame();
     void endFrame();
+#endif
 
-    // Render planet editor UI — edits params directly
+    void shutdown();
     void render(PlanetParams& params);
 
 private:
     void setupStyle();
 
     bool m_initialized = false;
-    int m_presetIndex = 0;
+    int  m_presetIndex = 0;
 };
 
 }  // namespace astrocore

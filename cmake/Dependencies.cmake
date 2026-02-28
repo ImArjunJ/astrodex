@@ -1,8 +1,8 @@
-# Dependencies.cmake - FetchContent declarations for dependencies
+# Dependencies.cmake — FetchContent declarations
 
 include(FetchContent)
 
-# GLM - OpenGL Mathematics
+# ── GLM ───────────────────────────────────────────────────────────────────────
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
@@ -10,7 +10,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# nlohmann/json - JSON parsing
+# ── nlohmann/json ─────────────────────────────────────────────────────────────
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -18,7 +18,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# spdlog - Fast logging
+# ── spdlog ────────────────────────────────────────────────────────────────────
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -26,41 +26,55 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# GLFW - Window and input
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
-    GIT_SHALLOW    TRUE
-)
-
-# Disable GLFW extras we don't need
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-
-# Make dependencies available (without glad for now)
-FetchContent_MakeAvailable(glm nlohmann_json spdlog glfw)
-
-# GLAD - OpenGL loader (using glad2)
-# We need to fetch it and include its cmake module before using glad_add_library
-FetchContent_Declare(
-    glad
-    GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-    GIT_TAG        v2.0.6
-    GIT_SHALLOW    TRUE
-)
-FetchContent_GetProperties(glad)
-if(NOT glad_POPULATED)
-    FetchContent_Populate(glad)
-    add_subdirectory(${glad_SOURCE_DIR}/cmake ${glad_BINARY_DIR})
+# ── GLFW ─────────────────────────────────────────────────────────────────────
+# Prefer the Homebrew-installed GLFW on macOS to skip source compilation
+# entirely (install with: brew install glfw).  Fall back to FetchContent if not
+# found — pinned to 3.3.9 which is compatible with Xcode 16 / macOS SDK 15.
+if(APPLE)
+    find_package(glfw3 3.3 QUIET CONFIG
+        HINTS /opt/homebrew/lib/cmake/glfw3
+              /usr/local/lib/cmake/glfw3)
 endif()
 
-# Generate GLAD for OpenGL 4.5 Core
-glad_add_library(glad_gl45_core REPRODUCIBLE API gl:core=4.5)
+if(NOT glfw3_FOUND)
+    FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.3.9
+        GIT_SHALLOW    TRUE
+    )
+    set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
+    list(APPEND _FETCH_TARGETS glfw)
+endif()
 
-# Dear ImGui for UI
+FetchContent_MakeAvailable(glm nlohmann_json spdlog ${_FETCH_TARGETS})
+
+# Normalize the GLFW target name: find_package gives glfw3::glfw,
+# FetchContent gives glfw.  Create an alias so both cases look the same.
+if(glfw3_FOUND AND NOT TARGET glfw)
+    add_library(glfw ALIAS glfw3::glfw)
+endif()
+
+# ── GLAD (OpenGL only) ────────────────────────────────────────────────────────
+if(NOT USE_METAL)
+    FetchContent_Declare(
+        glad
+        GIT_REPOSITORY https://github.com/Dav1dde/glad.git
+        GIT_TAG        v2.0.6
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_GetProperties(glad)
+    if(NOT glad_POPULATED)
+        FetchContent_Populate(glad)
+        add_subdirectory(${glad_SOURCE_DIR}/cmake ${glad_BINARY_DIR})
+    endif()
+    glad_add_library(glad_gl45_core REPRODUCIBLE API gl:core=4.5)
+endif()
+
+# ── Dear ImGui ────────────────────────────────────────────────────────────────
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -69,32 +83,51 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-# Create ImGui library with GLFW+OpenGL backends
-add_library(imgui_impl STATIC
+# Common ImGui sources (always needed)
+set(IMGUI_COMMON_SOURCES
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
-target_include_directories(imgui_impl PUBLIC
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
+
+if(USE_METAL)
+    # Metal backend — .mm (Objective-C++) required
+    list(APPEND IMGUI_COMMON_SOURCES
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm
+    )
+else()
+    # OpenGL3 backend
+    list(APPEND IMGUI_COMMON_SOURCES
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    )
+endif()
+
+add_library(imgui_impl STATIC ${IMGUI_COMMON_SOURCES})
+
+target_include_directories(imgui_impl
+    PUBLIC
+        ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
 )
+
 target_link_libraries(imgui_impl PUBLIC glfw)
 
-# pybind11 (will be added in Phase 7)
-# FetchContent_Declare(
-#     pybind11
-#     GIT_REPOSITORY https://github.com/pybind/pybind11.git
-#     GIT_TAG        v2.12.0
-# )
+if(USE_METAL)
+    find_library(METAL_FW_DEP      Metal      REQUIRED)
+    find_library(QUARTZCORE_FW_DEP QuartzCore REQUIRED)
+    target_link_libraries(imgui_impl PUBLIC ${METAL_FW_DEP} ${QUARTZCORE_FW_DEP})
+    # Ensure Objective-C++ is used for the .mm file
+    set_source_files_properties(
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc"
+    )
+endif()
 
-# Catch2 (will be added in Phase 8)
-# FetchContent_Declare(
-#     Catch2
-#     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-#     GIT_TAG        v3.5.2
-# )
+# pybind11 (Phase 7)
+# FetchContent_Declare(pybind11 ...)
+
+# Catch2 (Phase 8)
+# FetchContent_Declare(Catch2 ...)

@@ -1,11 +1,17 @@
 #include "ui/UIManager.hpp"
-#include "render/Renderer.hpp"
+#include "render/IRenderer.hpp"
 #include "core/Logger.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
-#include <imgui_impl_opengl3.h>
 #include <GLFW/glfw3.h>
+
+#ifdef ASTRO_METAL
+#  import <Metal/Metal.h>
+#  include <imgui_impl_metal.h>
+#else
+#  include <imgui_impl_opengl3.h>
+#endif
 
 namespace astrocore {
 
@@ -181,6 +187,47 @@ UIManager::~UIManager() {
     }
 }
 
+#ifdef ASTRO_METAL
+
+void UIManager::init(GLFWwindow* window, void* metalDevice) {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    ImGui_ImplGlfw_InitForOther(window, true);
+    ImGui_ImplMetal_Init((__bridge id<MTLDevice>)metalDevice);
+
+    setupStyle();
+    m_initialized = true;
+    LOG_INFO("ImGui initialized (Metal backend)");
+}
+
+void UIManager::shutdown() {
+    ImGui_ImplMetal_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+    m_initialized = false;
+}
+
+void UIManager::beginFrame(void* renderPassDescriptor) {
+    ImGui_ImplMetal_NewFrame((__bridge MTLRenderPassDescriptor*)renderPassDescriptor);
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+}
+
+void UIManager::endFrame(void* commandBuffer, void* commandEncoder) {
+    ImGui::Render();
+    ImGui_ImplMetal_RenderDrawData(
+        ImGui::GetDrawData(),
+        (__bridge id<MTLCommandBuffer>)commandBuffer,
+        (__bridge id<MTLRenderCommandEncoder>)commandEncoder);
+}
+
+#else  // OpenGL path
+
 void UIManager::init(GLFWwindow* window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -193,9 +240,8 @@ void UIManager::init(GLFWwindow* window) {
     ImGui_ImplOpenGL3_Init("#version 450");
 
     setupStyle();
-
     m_initialized = true;
-    LOG_INFO("ImGui initialized");
+    LOG_INFO("ImGui initialized (OpenGL backend)");
 }
 
 void UIManager::shutdown() {
@@ -204,6 +250,19 @@ void UIManager::shutdown() {
     ImGui::DestroyContext();
     m_initialized = false;
 }
+
+void UIManager::beginFrame() {
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+}
+
+void UIManager::endFrame() {
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+#endif  // ASTRO_METAL
 
 void UIManager::setupStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
@@ -228,17 +287,6 @@ void UIManager::setupStyle() {
     colors[ImGuiCol_Button] = ImVec4(0.20f, 0.40f, 0.60f, 1.00f);
     colors[ImGuiCol_ButtonHovered] = ImVec4(0.30f, 0.50f, 0.70f, 1.00f);
     colors[ImGuiCol_ButtonActive] = ImVec4(0.25f, 0.45f, 0.65f, 1.00f);
-}
-
-void UIManager::beginFrame() {
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-}
-
-void UIManager::endFrame() {
-    ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 void UIManager::render(PlanetParams& p) {
