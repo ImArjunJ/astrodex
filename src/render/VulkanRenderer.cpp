@@ -17,6 +17,9 @@
 #include <mach-o/dyld.h>
 #endif
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "../../external/stb_image.h"
+
 #include <fstream>
 #include <vector>
 #include <array>
@@ -149,6 +152,11 @@ struct VulkanRenderer::Impl {
     VkImageView   noiseImageView = VK_NULL_HANDLE;
     VkSampler     noiseSampler   = VK_NULL_HANDLE;
 
+    VkImage       starmapImage     = VK_NULL_HANDLE;
+    VmaAllocation starmapAlloc     = VK_NULL_HANDLE;
+    VkImageView   starmapImageView = VK_NULL_HANDLE;
+    VkSampler     starmapSampler   = VK_NULL_HANDLE;
+
     // State
     PlanetParams params;
     float        time   = 0.0f;
@@ -254,6 +262,10 @@ VulkanRenderer::~VulkanRenderer() {
     vkDestroyRenderPass(m_impl->device,      m_impl->renderPass,    nullptr);
 
     // Resources
+    vkDestroySampler(m_impl->device, m_impl->starmapSampler,   nullptr);
+    vkDestroyImageView(m_impl->device, m_impl->starmapImageView, nullptr);
+    vmaDestroyImage(m_impl->allocator, m_impl->starmapImage, m_impl->starmapAlloc);
+
     vkDestroySampler(m_impl->device, m_impl->noiseSampler,   nullptr);
     vkDestroyImageView(m_impl->device, m_impl->noiseImageView, nullptr);
     vmaDestroyImage(m_impl->allocator, m_impl->noiseImage, m_impl->noiseAlloc);
@@ -410,7 +422,7 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
 
     // 8. Descriptor set layout
     {
-        VkDescriptorSetLayoutBinding bindings[2]{};
+        VkDescriptorSetLayoutBinding bindings[3]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
@@ -421,9 +433,14 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        bindings[2].binding         = 2;
+        bindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
         VkDescriptorSetLayoutCreateInfo ci{};
         ci.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        ci.bindingCount = 2;
+        ci.bindingCount = 3;
         ci.pBindings    = bindings;
         VK_CHECK(vkCreateDescriptorSetLayout(m_impl->device, &ci, nullptr, &m_impl->descriptorSetLayout));
     }
@@ -741,11 +758,160 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
         VK_CHECK(vkCreateSampler(m_impl->device, &sampCI, nullptr, &m_impl->noiseSampler));
     }
 
+    // 13b. Star cubemap texture (6 faces loaded from PNG)
+    {
+        const char* faceFiles[] = {
+            "assets/starmap/starmap_posX.png",
+            "assets/starmap/starmap_negX.png",
+            "assets/starmap/starmap_posY.png",
+            "assets/starmap/starmap_negY.png",
+            "assets/starmap/starmap_posZ.png",
+            "assets/starmap/starmap_negZ.png",
+        };
+
+        int faceW = 0, faceH = 0, faceChannels = 0;
+        stbi_uc* facePixels[6]{};
+
+        for (int f = 0; f < 6; f++) {
+            std::string path = resolveAssetPath(faceFiles[f]);
+            facePixels[f] = stbi_load(path.c_str(), &faceW, &faceH, &faceChannels, 4);
+            if (!facePixels[f]) {
+                LOG_WARN("Failed to load starmap face: {} — using black", faceFiles[f]);
+                // Create a 1x1 black fallback
+                if (f == 0) { faceW = 1; faceH = 1; }
+                facePixels[f] = static_cast<stbi_uc*>(calloc(faceW * faceH * 4, 1));
+            }
+        }
+
+        uint32_t fw = uint32_t(faceW), fh = uint32_t(faceH);
+        size_t faceBytes = size_t(faceW) * faceH * 4;
+
+        // Create cubemap image
+        VkImageCreateInfo imgCI{};
+        imgCI.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imgCI.flags         = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        imgCI.imageType     = VK_IMAGE_TYPE_2D;
+        imgCI.format        = VK_FORMAT_R8G8B8A8_UNORM;
+        imgCI.extent        = {fw, fh, 1};
+        imgCI.mipLevels     = 1;
+        imgCI.arrayLayers   = 6;
+        imgCI.samples       = VK_SAMPLE_COUNT_1_BIT;
+        imgCI.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        imgCI.usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        VmaAllocationCreateInfo imgAllocCI{};
+        imgAllocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        VK_CHECK(vmaCreateImage(m_impl->allocator, &imgCI, &imgAllocCI,
+                                &m_impl->starmapImage, &m_impl->starmapAlloc, nullptr));
+
+        // Staging buffer for all 6 faces
+        VkBuffer staging; VmaAllocation stagingAlloc;
+        VkBufferCreateInfo stageBufCI{};
+        stageBufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stageBufCI.size  = faceBytes * 6;
+        stageBufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        VmaAllocationCreateInfo stageAllocCI{};
+        stageAllocCI.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        VK_CHECK(vmaCreateBuffer(m_impl->allocator, &stageBufCI, &stageAllocCI, &staging, &stagingAlloc, nullptr));
+
+        void* mapped;
+        vmaMapMemory(m_impl->allocator, stagingAlloc, &mapped);
+        for (int f = 0; f < 6; f++) {
+            memcpy(static_cast<char*>(mapped) + f * faceBytes, facePixels[f], faceBytes);
+            stbi_image_free(facePixels[f]);
+        }
+        vmaUnmapMemory(m_impl->allocator, stagingAlloc);
+
+        // Upload via one-shot command buffer
+        VkCommandPool tmpPool;
+        VkCommandPoolCreateInfo poolCI{};
+        poolCI.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolCI.queueFamilyIndex = m_impl->graphicsQueueFamily;
+        poolCI.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+        VK_CHECK(vkCreateCommandPool(m_impl->device, &poolCI, nullptr, &tmpPool));
+
+        VkCommandBuffer cmd;
+        VkCommandBufferAllocateInfo cmdAI{};
+        cmdAI.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cmdAI.commandPool        = tmpPool;
+        cmdAI.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmdAI.commandBufferCount = 1;
+        VK_CHECK(vkAllocateCommandBuffers(m_impl->device, &cmdAI, &cmd));
+
+        VkCommandBufferBeginInfo beginI{};
+        beginI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &beginI);
+
+        // Transition all 6 layers UNDEFINED → TRANSFER_DST
+        VkImageMemoryBarrier barrier{};
+        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcAccessMask       = 0;
+        barrier.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.image               = m_impl->starmapImage;
+        barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        // Copy each face from staging buffer
+        std::array<VkBufferImageCopy, 6> regions{};
+        for (uint32_t f = 0; f < 6; f++) {
+            regions[f].bufferOffset      = f * faceBytes;
+            regions[f].imageSubresource  = {VK_IMAGE_ASPECT_COLOR_BIT, 0, f, 1};
+            regions[f].imageExtent       = {fw, fh, 1};
+        }
+        vkCmdCopyBufferToImage(cmd, staging, m_impl->starmapImage,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6, regions.data());
+
+        // Transition TRANSFER_DST → SHADER_READ
+        barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        vkEndCommandBuffer(cmd);
+        VkSubmitInfo submit{};
+        submit.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers    = &cmd;
+        vkQueueSubmit(m_impl->graphicsQueue, 1, &submit, VK_NULL_HANDLE);
+        vkQueueWaitIdle(m_impl->graphicsQueue);
+
+        vkDestroyCommandPool(m_impl->device, tmpPool, nullptr);
+        vmaDestroyBuffer(m_impl->allocator, staging, stagingAlloc);
+
+        // Image view (cubemap)
+        VkImageViewCreateInfo viewCI{};
+        viewCI.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewCI.image            = m_impl->starmapImage;
+        viewCI.viewType         = VK_IMAGE_VIEW_TYPE_CUBE;
+        viewCI.format           = VK_FORMAT_R8G8B8A8_UNORM;
+        viewCI.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
+        VK_CHECK(vkCreateImageView(m_impl->device, &viewCI, nullptr, &m_impl->starmapImageView));
+
+        // Sampler — nearest filtering to keep stars as sharp points
+        VkSamplerCreateInfo sampCI{};
+        sampCI.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampCI.magFilter    = VK_FILTER_NEAREST;
+        sampCI.minFilter    = VK_FILTER_NEAREST;
+        sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        VK_CHECK(vkCreateSampler(m_impl->device, &sampCI, nullptr, &m_impl->starmapSampler));
+
+        LOG_INFO("Star cubemap loaded ({}x{}, 6 faces)", faceW, faceH);
+    }
+
     // 14. Descriptor pool + sets
     {
         VkDescriptorPoolSize poolSizes[] = {
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         FRAMES_IN_FLIGHT},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  FRAMES_IN_FLIGHT},
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  FRAMES_IN_FLIGHT * 2}, // noise + starmap
         };
         VkDescriptorPoolCreateInfo poolCI{};
         poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -768,12 +934,17 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
             bufInfo.offset = 0;
             bufInfo.range  = sizeof(PlanetUniformsVk);
 
-            VkDescriptorImageInfo imgInfo{};
-            imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imgInfo.imageView   = m_impl->noiseImageView;
-            imgInfo.sampler     = m_impl->noiseSampler;
+            VkDescriptorImageInfo noiseInfo{};
+            noiseInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            noiseInfo.imageView   = m_impl->noiseImageView;
+            noiseInfo.sampler     = m_impl->noiseSampler;
 
-            VkWriteDescriptorSet writes[2]{};
+            VkDescriptorImageInfo starmapInfo{};
+            starmapInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            starmapInfo.imageView   = m_impl->starmapImageView;
+            starmapInfo.sampler     = m_impl->starmapSampler;
+
+            VkWriteDescriptorSet writes[3]{};
             writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[0].dstSet          = m_impl->descriptorSets[i];
             writes[0].dstBinding      = 0;
@@ -786,9 +957,16 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
             writes[1].dstBinding      = 1;
             writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[1].descriptorCount = 1;
-            writes[1].pImageInfo      = &imgInfo;
+            writes[1].pImageInfo      = &noiseInfo;
 
-            vkUpdateDescriptorSets(m_impl->device, 2, writes, 0, nullptr);
+            writes[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[2].dstSet          = m_impl->descriptorSets[i];
+            writes[2].dstBinding      = 2;
+            writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[2].descriptorCount = 1;
+            writes[2].pImageInfo      = &starmapInfo;
+
+            vkUpdateDescriptorSets(m_impl->device, 3, writes, 0, nullptr);
         }
     }
 

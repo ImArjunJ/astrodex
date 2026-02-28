@@ -30,3 +30,8 @@ imgui.ini
 
 # Compiled shaders
 *.spv
+
+# Python
+scripts/venv/
+__pycache__/
+*.pyc
