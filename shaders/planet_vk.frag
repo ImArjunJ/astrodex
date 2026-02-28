@@ -43,8 +43,9 @@ layout(set = 0, binding = 0) uniform PlanetUniforms {
     vec4  bhDiskTintPad;        // xyz = tint
 } u;
 
-// ── Texture (set=0, binding=1) ──────────────────────────────────────────────
+// ── Textures ────────────────────────────────────────────────────────────────
 layout(set = 0, binding = 1) uniform sampler3D uNoiseTexture;
+layout(set = 0, binding = 2) uniform samplerCube uStarmap;
 
 // ── Accessor macros — map old uniform names to UBO fields ───────────────────
 #define uTime              u.cameraPos_time.w
@@ -357,26 +358,12 @@ vec3 planetNormal(vec3 hitPos) {
 
 // ── Stars & space ────────────────────────────────────────────────────────────
 
-vec3 stars(in vec3 p) {
-    vec3 c = vec3(0.);
-    float res = uResolution.x * uQuality * 0.8;
-    for (float i = 0.; i < 3.; i++) {
-        vec3 q = fract(p * (.15 * res)) - 0.5;
-        vec3 id = floor(p * (.15 * res));
-        vec2 rn = vec2(noise(id / 2.), noise(id.zyx * 2.)) * .03;
-        float c2 = 1. - smoothstep(0., .6, length(q));
-        c2 *= step(rn.x, .003 + i * 0.0005);
-        c += c2 * (mix(vec3(1.0, 0.49, 0.1), vec3(0.75, 0.9, 1.), rn.y) * 0.25 + 1.2);
-        p *= 1.8;
-    }
-    return c * c;
-}
-
 vec3 spaceColor(vec3 direction) {
-    mat3 backgroundRotation = rotateY(uTime * uRotationSpeed / 4.);
-    vec3 backgroundCoord = direction * backgroundRotation;
-    float spaceNoise = fbm(backgroundCoord * 3., 4, .5, 2., 6.);
-    return stars(backgroundCoord) + mix(uDeepSpaceColor, uAtmosphereColor / 12., spaceNoise);
+    // Sample real star positions from cubemap
+    vec3 starColor = texture(uStarmap, direction).rgb;
+    starColor *= 3.0;
+
+    return starColor + uDeepSpaceColor;
 }
 
 // ── Black Hole ───────────────────────────────────────────────────────────────
@@ -755,7 +742,6 @@ void main() {
     vec3 color = radiance(ro, rd);
 
     color = simpleReinhardToneMapping(color);
-    color *= 1. - 0.5 * pow(length(screenUV), 3.);
 
     fragColor = vec4(color, 1.0);
 }
