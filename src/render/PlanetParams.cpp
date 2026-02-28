@@ -529,12 +529,355 @@ CelestialBodyParams CelestialBodyParams::fromObservations(
 }
 
 // ============================================================================
-// Generate params from enriched ExoplanetData (physics-based) - STUB
+// Helper functions for physics-based ExoplanetData mapping
+// ============================================================================
+
+// Map atmosphere composition JSON to Rayleigh scattering coefficients.
+// Reference: Earth N2/O2 -> {5.5e-6, 13.0e-6, 22.4e-6}
+static glm::vec3 computeRayleighFromComposition(const std::string& atmosphereJson) {
+    glm::vec3 earthCoeff = {5.5e-6f, 13.0e-6f, 22.4e-6f};
+
+    try {
+        auto comp = nlohmann::json::parse(atmosphereJson);
+
+        float n2_frac = comp.value("N2", 0.0f);
+        float o2_frac = comp.value("O2", 0.0f);
+        float co2_frac = comp.value("CO2", 0.0f);
+        float h2_frac = comp.value("H2", 0.0f);
+        float he_frac = comp.value("He", 0.0f);
+
+        // CO2-thick atmosphere: orange-tinted (Venus analog)
+        if (co2_frac > 50.0f) {
+            return {10.0e-6f, 6.0e-6f, 3.0e-6f};
+        }
+
+        // H2/He dominant: pale blue (Neptune/Uranus)
+        if (h2_frac + he_frac > 50.0f) {
+            return {3.0e-6f, 8.0e-6f, 15.0e-6f};
+        }
+
+        // N2/O2 dominant: Earth-like blue
+        if (n2_frac + o2_frac > 50.0f) {
+            return earthCoeff;
+        }
+
+        // Default: Earth-like
+        return earthCoeff;
+    } catch (...) {
+        return earthCoeff;  // Fallback to Earth-like on parse error
+    }
+}
+
+// Multi-factor terrestrial surface mapping using temperature, atmosphere, pressure
+static void mapTerrestrialSurface(CelestialBodyParams& params, const ExoplanetData& data) {
+    float T = data.equilibrium_temp_k.hasValue()
+        ? static_cast<float>(data.equilibrium_temp_k.value) : 288.0f;
+    float pressure = data.surface_pressure_atm.hasValue()
+        ? static_cast<float>(data.surface_pressure_atm.value) : 1.0f;
+
+    // Greenhouse effect: thick CO2 atmosphere raises effective temperature
+    float effectiveT = T;
+    if (data.atmosphere_composition.hasValue()) {
+        try {
+            auto comp = nlohmann::json::parse(data.atmosphere_composition.value);
+            float co2 = comp.value("CO2", 0.0f);
+            if (co2 > 90.0f && pressure > 50.0f) {
+                effectiveT = T * 1.8f;  // Venus-like greenhouse
+            } else if (co2 > 10.0f) {
+                effectiveT = T * (1.0f + co2 / 500.0f);  // Moderate greenhouse
+            }
+        } catch (...) {}
+    }
+
+    // Surface classification based on effective temperature
+    if (effectiveT > 700.0f) {
+        // Venus/lava world
+        params.terrain.seaLevel = 0.0f;
+        params.terrain.volcanicActivity = 0.6f;
+        params.biome.vegetationDensity = 0.0f;
+        params.biome.globalMoisture = 0.0f;
+        params.atmosphere.density = pressure;
+        params.atmosphere.hazeStrength = 0.9f;
+        params.atmosphere.hazeColor = {0.9f, 0.8f, 0.5f};
+        params.colors.lava = {1.0f, 0.4f, 0.1f};
+        params.colors.volcanic = {0.2f, 0.15f, 0.1f};
+
+        // Venus-like cloud layer: thick, high coverage
+        CloudLayer sulfuricClouds;
+        sulfuricClouds.altitude = 0.05f;
+        sulfuricClouds.thickness = 0.04f;
+        sulfuricClouds.coverage = 0.9f;
+        sulfuricClouds.density = 0.95f;
+        sulfuricClouds.color = {0.95f, 0.9f, 0.7f};
+        params.atmosphere.cloudLayers.push_back(sulfuricClouds);
+
+        // Hot lava ocean colors (dark, reddish)
+        params.ocean.deepColor = {0.1f, 0.02f, 0.01f};
+        params.ocean.shallowColor = {0.3f, 0.05f, 0.02f};
+        params.ocean.coastColor = {0.5f, 0.1f, 0.03f};
+
+    } else if (effectiveT > 350.0f) {
+        // Hot desert
+        params.terrain.seaLevel = 0.1f;
+        params.biome.globalMoisture = 0.1f;
+        params.biome.vegetationDensity = 0.05f;
+        params.colors.desert = {0.85f, 0.65f, 0.4f};
+        params.colors.lowlandGrass = {0.7f, 0.55f, 0.35f};
+
+        // Sparse clouds
+        CloudLayer thinClouds;
+        thinClouds.altitude = 0.02f;
+        thinClouds.coverage = 0.2f;
+        thinClouds.density = 0.4f;
+        params.atmosphere.cloudLayers.push_back(thinClouds);
+
+        // Warm desert ocean colors
+        params.ocean.deepColor = {0.02f, 0.04f, 0.12f};
+        params.ocean.shallowColor = {0.04f, 0.10f, 0.22f};
+        params.ocean.coastColor = {0.08f, 0.18f, 0.30f};
+
+    } else if (effectiveT > 250.0f) {
+        // Habitable zone -- consider ocean coverage from AI
+        float ocean = data.ocean_coverage_fraction.hasValue()
+            ? static_cast<float>(data.ocean_coverage_fraction.value) : 0.5f;
+        params.terrain.seaLevel = ocean * 0.8f;
+        params.biome.globalMoisture = ocean * 0.8f;
+        params.biome.vegetationDensity = std::max(0.0f, (effectiveT - 250.0f) / 100.0f * 0.7f);
+
+        // Habitable cloud layer
+        float cloudCov = data.cloud_coverage_fraction.hasValue()
+            ? static_cast<float>(data.cloud_coverage_fraction.value) : 0.4f;
+        CloudLayer cumulus;
+        cumulus.altitude = 0.02f;
+        cumulus.coverage = cloudCov;
+        cumulus.density = 0.7f;
+        cumulus.noise.frequency = 4.0f;
+        cumulus.noise.octaves = 5;
+        params.atmosphere.cloudLayers.push_back(cumulus);
+
+        // Warm habitable: green-blue ocean
+        params.ocean.deepColor = {0.01f, 0.04f, 0.14f};
+        params.ocean.shallowColor = {0.03f, 0.12f, 0.28f};
+        params.ocean.coastColor = {0.06f, 0.20f, 0.34f};
+
+    } else if (effectiveT > 150.0f) {
+        // Cold but possibly habitable (Mars-like)
+        params.terrain.seaLevel = 0.0f;
+        params.biome.polarIceExtent = 0.3f;
+        params.biome.vegetationDensity = 0.0f;
+        params.terrain.craterDensity = 0.3f;
+        params.atmosphere.hazeStrength = 0.4f;
+        params.atmosphere.hazeColor = {0.8f, 0.6f, 0.4f};
+
+        // Thin dust clouds
+        CloudLayer dust;
+        dust.altitude = 0.02f;
+        dust.coverage = 0.15f;
+        dust.density = 0.3f;
+        dust.color = {0.85f, 0.7f, 0.55f};
+        params.atmosphere.cloudLayers.push_back(dust);
+
+        // Cold ocean colors (darker blue)
+        params.ocean.deepColor = {0.01f, 0.02f, 0.10f};
+        params.ocean.shallowColor = {0.02f, 0.06f, 0.18f};
+        params.ocean.coastColor = {0.04f, 0.10f, 0.22f};
+
+    } else {
+        // Frozen world
+        params.terrain.seaLevel = 0.0f;
+        params.biome.polarIceExtent = 1.0f;
+        params.biome.vegetationDensity = 0.0f;
+        params.colors.lowlandGrass = {0.8f, 0.85f, 0.9f};
+        params.colors.ice = {0.85f, 0.9f, 0.95f};
+
+        // Thin wispy clouds
+        CloudLayer wisps;
+        wisps.altitude = 0.03f;
+        wisps.coverage = 0.1f;
+        wisps.density = 0.2f;
+        wisps.color = {0.9f, 0.92f, 0.95f};
+        params.atmosphere.cloudLayers.push_back(wisps);
+
+        // Frozen: gray-blue ocean colors
+        params.ocean.deepColor = {0.03f, 0.04f, 0.08f};
+        params.ocean.shallowColor = {0.05f, 0.08f, 0.14f};
+        params.ocean.coastColor = {0.08f, 0.12f, 0.18f};
+    }
+}
+
+// Gas giant parameter mapping based on temperature, radius, mass
+static void mapGasGiantParams(CelestialBodyParams& params, const ExoplanetData& data) {
+    float T = data.equilibrium_temp_k.hasValue()
+        ? static_cast<float>(data.equilibrium_temp_k.value) : 165.0f;
+    float R = data.radius_earth.hasValue()
+        ? static_cast<float>(data.radius_earth.value) : 11.2f;
+    float M = data.mass_earth.hasValue()
+        ? static_cast<float>(data.mass_earth.value) : 317.8f;
+
+    // Band count scales with radius (larger planets = more bands)
+    params.gasGiant.bandCount = std::clamp(R / 11.2f * 12.0f, 4.0f, 20.0f);
+
+    // Hot Jupiters: muted bands, intense storms
+    if (T > 1000.0f) {
+        params.gasGiant.bandContrast = 0.15f;
+        params.gasGiant.stormFrequency = 0.3f;
+        params.gasGiant.bandColor1 = {0.4f, 0.35f, 0.3f};    // Dark
+        params.gasGiant.bandColor2 = {0.3f, 0.25f, 0.2f};
+        params.gasGiant.stormColor = {0.6f, 0.5f, 0.45f};
+    } else {
+        // Cold gas giants: Jupiter-like high contrast
+        params.gasGiant.bandContrast = 0.35f;
+        params.gasGiant.stormFrequency = 0.15f;
+        params.gasGiant.bandColor1 = {0.85f, 0.75f, 0.65f};  // Light tan
+        params.gasGiant.bandColor2 = {0.65f, 0.5f, 0.4f};    // Dark brown
+        params.gasGiant.stormColor = {0.95f, 0.9f, 0.85f};
+    }
+
+    // Great spot probability scales with mass
+    float massRatio = M / 317.8f;
+    params.gasGiant.greatSpotSize = (massRatio > 0.5f) ? 0.12f * massRatio : 0.0f;
+
+    // Cloud layers for gas giant: 2 layers at different altitudes
+    CloudLayer upperClouds;
+    upperClouds.altitude = 0.05f;
+    upperClouds.coverage = 0.7f;
+    upperClouds.density = 0.6f;
+    upperClouds.noise.frequency = 8.0f;
+    params.atmosphere.cloudLayers.push_back(upperClouds);
+
+    CloudLayer lowerClouds;
+    lowerClouds.altitude = 0.02f;
+    lowerClouds.coverage = 0.9f;
+    lowerClouds.density = 0.8f;
+    lowerClouds.noise.frequency = 4.0f;
+    params.atmosphere.cloudLayers.push_back(lowerClouds);
+}
+
+// Ice giant mapping: similar to gas giant but with bluer tint, fewer bands
+static void mapIceGiantParams(CelestialBodyParams& params, const ExoplanetData& data) {
+    float R = data.radius_earth.hasValue()
+        ? static_cast<float>(data.radius_earth.value) : 3.88f;
+    float M = data.mass_earth.hasValue()
+        ? static_cast<float>(data.mass_earth.value) : 17.15f;
+
+    // Fewer bands than gas giant (clamped 4-10)
+    params.gasGiant.bandCount = std::clamp(R / 3.88f * 5.0f, 4.0f, 10.0f);
+
+    // Ice giants: bluer tint, moderate contrast
+    params.gasGiant.bandContrast = 0.2f;
+    params.gasGiant.stormFrequency = 0.1f;
+    params.gasGiant.bandColor1 = {0.3f, 0.45f, 0.7f};    // Light blue
+    params.gasGiant.bandColor2 = {0.2f, 0.35f, 0.6f};    // Deep blue
+    params.gasGiant.stormColor = {0.9f, 0.9f, 0.95f};
+    params.gasGiant.jetStreamStrength = 0.9f;  // Extreme winds
+
+    // Great spot: smaller for ice giants
+    float massRatio = M / 317.8f;
+    params.gasGiant.greatSpotSize = (massRatio > 0.5f) ? 0.06f * massRatio : 0.0f;
+
+    // Cloud layers for ice giant
+    CloudLayer upperClouds;
+    upperClouds.altitude = 0.04f;
+    upperClouds.coverage = 0.5f;
+    upperClouds.density = 0.5f;
+    upperClouds.noise.frequency = 6.0f;
+    params.atmosphere.cloudLayers.push_back(upperClouds);
+
+    CloudLayer lowerClouds;
+    lowerClouds.altitude = 0.02f;
+    lowerClouds.coverage = 0.7f;
+    lowerClouds.density = 0.7f;
+    lowerClouds.noise.frequency = 3.0f;
+    params.atmosphere.cloudLayers.push_back(lowerClouds);
+}
+
+// ============================================================================
+// Generate params from enriched ExoplanetData (physics-based)
 // ============================================================================
 CelestialBodyParams CelestialBodyParams::fromObservations(const ExoplanetData& data) {
     CelestialBodyParams p;
+
+    // 1. Set name
     p.name = data.name;
-    // Stub: returns defaults -- tests should fail
+
+    // 2. Physical properties (with defaults)
+    float R = data.radius_earth.hasValue()
+        ? static_cast<float>(data.radius_earth.value) : 1.0f;
+    float M = data.mass_earth.hasValue()
+        ? static_cast<float>(data.mass_earth.value) : 1.0f;
+
+    p.radius = R;
+    p.mass = M;
+
+    // Surface temperature from equilibrium temperature
+    p.surfaceTemp = data.equilibrium_temp_k.hasValue()
+        ? static_cast<float>(data.equilibrium_temp_k.value) : 288.0f;
+
+    // Surface gravity: from data, or calculated from mass/radius^2
+    if (data.surface_gravity_g.hasValue()) {
+        p.surfaceGravity = static_cast<float>(data.surface_gravity_g.value);
+    } else if (data.mass_earth.hasValue() && data.radius_earth.hasValue() && R > 0.0f) {
+        p.surfaceGravity = M / (R * R);
+    }
+
+    // 3. Body type classification (user's locked thresholds)
+    if (data.radius_earth.hasValue()) {
+        float radius = static_cast<float>(data.radius_earth.value);
+        if (radius < 2.0f) {
+            p.bodyType = CelestialBodyType::Terrestrial;
+        } else if (radius <= 6.0f) {
+            p.bodyType = CelestialBodyType::IceGiant;
+        } else {
+            p.bodyType = CelestialBodyType::GasGiant;
+        }
+    } else if (data.mass_earth.hasValue()) {
+        // Mass fallback when radius unavailable
+        float mass = static_cast<float>(data.mass_earth.value);
+        if (mass > 50.0f) {
+            p.bodyType = CelestialBodyType::GasGiant;
+        } else if (mass > 10.0f) {
+            p.bodyType = CelestialBodyType::IceGiant;
+        } else {
+            p.bodyType = CelestialBodyType::Terrestrial;
+        }
+    } else {
+        // Neither available: default to Terrestrial
+        p.bodyType = CelestialBodyType::Terrestrial;
+    }
+
+    // 4. Rayleigh scattering from atmosphere composition
+    if (data.atmosphere_composition.hasValue() && !data.atmosphere_composition.value.empty()) {
+        p.atmosphere.rayleighCoeff = computeRayleighFromComposition(
+            data.atmosphere_composition.value);
+    }
+    // else: keep default Earth-like rayleighCoeff from struct defaults
+
+    // 5. Atmosphere density and height from surface pressure
+    if (data.surface_pressure_atm.hasValue()) {
+        float pressure = static_cast<float>(data.surface_pressure_atm.value);
+        p.atmosphere.density = pressure;
+        // Height scales with pressure (thicker atmosphere = taller)
+        p.atmosphere.height = std::clamp(0.08f * std::sqrt(pressure), 0.01f, 0.3f);
+    }
+
+    // 6. Branch on body type for surface/band mapping
+    switch (p.bodyType) {
+        case CelestialBodyType::Terrestrial:
+            mapTerrestrialSurface(p, data);
+            break;
+        case CelestialBodyType::GasGiant:
+            mapGasGiantParams(p, data);
+            break;
+        case CelestialBodyType::IceGiant:
+            mapIceGiantParams(p, data);
+            break;
+        default:
+            break;
+    }
+
+    // 7. Seed from name hash (reproducible)
+    p.seed = static_cast<uint32_t>(std::hash<std::string>{}(data.name));
+
     return p;
 }
 
