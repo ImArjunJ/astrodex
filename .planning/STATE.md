@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: Not started
+current_plan: Complete
 status: unknown
-stopped_at: Completed 04-03-PLAN.md -- Milestone 1 complete
-last_updated: "2026-03-01T04:06:09.787Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-01T04:32:00.883Z"
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 12
-  completed_plans: 13
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 13
+  completed_plans: 14
 ---
 
 # Astrodex — Project State
 
 ## Current Status
 - **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline) -- COMPLETE
-- **Phase:** 4 -- COMPLETE (3/3 plans done)
-- **Current Plan:** Not started
-- **Next Action:** Milestone 1 complete. All 4 phases (12 plans) executed.
-- **Last Session:** 2026-03-01T03:18:34.810Z
-- **Stopped At:** Completed 04-03-PLAN.md -- Milestone 1 complete
+- **Phase:** 5 -- COMPLETE (1/1 plans done)
+- **Current Plan:** Complete
+- **Next Action:** Phase 5 gap closure complete. Info panel provenance display ported to tejui.
+- **Last Session:** 2026-03-01T04:32:00.881Z
+- **Stopped At:** Completed 05-01-PLAN.md
 - **Phase 01 Summary:** Multi-source data fusion with NASA, OEC, Gaia, CDS clients. Uncertainty-based selection, JSON cache, haversine coordinate matching.
 - **Phase 02 Plan 03 Summary:** Python ML benchmark harness with BERT, BART, TabTransformer, MaskedAutoencoder model wrappers and comparison document generator.
 - **Phase 02 Plan 01 Summary:** InferenceEngine wired into DataFusionEngine with complete JSON serialization, deterministic fallback, and 17 integration tests (409 assertions).
@@ -31,6 +31,7 @@ progress:
 - **Phase 04 Plan 01 Summary:** CatalogueView card grid with type/HZ filtering, multi-criteria sorting, prefix search, offline-first prefetch integration into Application lifecycle.
 - **Phase 04 Plan 02 Summary:** Vulkan offscreen FBO with reusable 128px framebuffer, GPU-to-CPU readback via staging buffer, PNG serialization via stb_image_write, ImGui texture registration.
 - **Phase 04 Plan 03 Summary:** Progressive background thumbnail generation with PNG disk cache, ImGui::Image display in catalogue cards, hover-to-animate rotation, 128px resolution approved.
+- **Phase 05 Plan 01 Summary:** Provenance-colored info panel with Physical/Orbital/Host Star subsections ported from master into tejui UIManager.
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
@@ -50,6 +51,7 @@ progress:
 - [x] Phase 04 Plan 01: CatalogueView card grid with filtering/sorting/search, Application prefetch integration (6 min, 2 tasks, 2 commits)
 - [x] Phase 04 Plan 02: ThumbnailRenderer with offscreen Vulkan FBO, PNG serialization, ImGui texture registration (5 min, 2 tasks, 2 commits, 129 assertions passing)
 - [x] Phase 04 Plan 03: Progressive thumbnail generation with PNG disk cache, hover animation, 128px approved (8 min, 3 tasks, 2 commits)
+- [x] Phase 05 Plan 01: Port info panel provenance display into tejui UIManager (2 min, 1 task, 1 commit)
 
 ## Key Decisions
 1. **Platform:** Desktop (C++/Vulkan) first, WebGPU later — active branches (feat-render, Tej) have migrated from OpenGL to Vulkan/Metal with IRenderer.hpp abstraction
@@ -95,6 +97,8 @@ progress:
 41. **One-per-frame progressive rendering:** std::async dispatch of one thumbnail per frame to avoid blocking catalogue interaction — Phase 04 Plan 03
 42. **Synchronous hover animation:** Single planet re-rendered in main thread each frame; negligible cost for 128px offscreen render — Phase 04 Plan 03
 43. **VulkanRenderer getter methods:** getDevice/getAllocator/getGraphicsQueue/getCommandPool exposed for ThumbnailRenderer construction — Phase 04 Plan 03
+44. **Info panel placement:** Between back button and tab bar for visibility before detailed tabs — Phase 05 Plan 01
+45. **fmt::format via spdlog bundled fmt (consistent):** Reused existing pattern from Phase 02 decision #18 — Phase 05 Plan 01
 
 ## Research Artifacts
 - `.firecrawl/nasa-tap.md` — NASA TAP API docs
