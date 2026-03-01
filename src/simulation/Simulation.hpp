@@ -2,7 +2,8 @@
 
 #include "physics/PhysicsWorld.hpp"
 #include "physics/CelestialBody.hpp"
-#include "render/Renderer.hpp"
+#include "render/IRenderer.hpp"
+#include "render/RingParams.hpp"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <functional>
@@ -26,8 +27,8 @@ public:
     // realDeltaTime: actual time since last frame (seconds)
     void update(float realDeltaTime);
 
-    // Render orbit trails only (detailed body rendering done separately)
-    void renderOrbits(Renderer& renderer, const Camera& camera);
+    // Render orbit trails (stubbed — OrbitRenderer not yet ported to Vulkan)
+    void renderOrbits();
 
     // Physics world access
     PhysicsWorld& world() { return m_world; }

@@ -40,32 +40,11 @@ void Simulation::update(float realDeltaTime) {
     }
 }
 
-void Simulation::renderOrbits(Renderer& renderer, const Camera& camera) {
-    // Clear trails if requested (e.g., after loading new simulation)
+void Simulation::renderOrbits() {
+    // Stubbed — OrbitRenderer not yet ported to Vulkan
     if (m_orbitTrailsNeedClear) {
-        renderer.orbitRenderer().clear();
         m_orbitTrailsNeedClear = false;
     }
-
-    // Get focus position for rendering
-    glm::dvec3 focusPos = m_focusBody ? m_focusBody->position() : glm::dvec3(0.0);
-
-    // Record orbit trail positions in PHYSICS coordinates
-    for (const auto& body : m_world.bodies()) {
-        if (body->isEmissive()) continue;  // Skip sun/stars
-
-        // Get body color for trail
-        glm::vec3 color(0.5f, 0.5f, 0.5f);
-        if (hasAppearance(body->id())) {
-            color = m_appearances.at(body->id()).sandColor;
-        }
-
-        // Record physics position - converted to render coords at draw time
-        renderer.orbitRenderer().recordPosition(body->id(), body->position(), color * 0.7f);
-    }
-
-    // Render orbit trails - pass focus and scale for coordinate conversion
-    renderer.orbitRenderer().render(camera.getViewProjectionMatrix(), focusPos, m_scaleFactor);
 }
 
 glm::vec3 Simulation::physicsToRender(const glm::dvec3& physPos) const {

@@ -5,7 +5,7 @@
 #include <vector>
 #include <memory>
 #include <functional>
-#include "render/RingRenderer.hpp"
+#include "render/RingParams.hpp"
 #include "render/ExoplanetConverter.hpp"
 #include "data/ExoplanetData.hpp"
 #include "ai/InferenceEngine.hpp"
@@ -20,6 +20,7 @@ namespace astrocore {
 
 struct PlanetParams;
 class PresetManager;
+class VulkanRenderer;
 
 enum class Theme { Dark, Light };
 
@@ -28,9 +29,9 @@ public:
     UIManager();
     ~UIManager();
 
-    void init(GLFWwindow* window);
+    void init(GLFWwindow* window, VulkanRenderer* renderer);
     void beginFrame();
-    void endFrame();
+    void endFrame(VulkanRenderer* renderer);
 
     void shutdown();
 

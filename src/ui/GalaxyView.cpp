@@ -1,6 +1,7 @@
 #include "ui/GalaxyView.hpp"
 #include "render/ExoplanetConverter.hpp"
-#include "render/PlanetThumbnailRenderer.hpp"
+// PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+// #include "render/PlanetThumbnailRenderer.hpp"
 
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -30,9 +31,10 @@ static ImU32 col32f(float r, float g, float b, float a) {
 GalaxyView::GalaxyView() = default;
 
 GalaxyView::~GalaxyView() {
-    if (m_thumbnailRenderer) {
-        m_thumbnailRenderer->shutdown();
-    }
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    // if (m_thumbnailRenderer) {
+    //     m_thumbnailRenderer->shutdown();
+    // }
 }
 
 float GalaxyView::galaxyCX(float W) const { return W * 0.5f; }
@@ -62,9 +64,9 @@ void GalaxyView::init(float W, float H) {
     m_searchMatches.clear();
     updateSearch();
 
-    // Initialize thumbnail renderer for catalog
-    m_thumbnailRenderer = std::make_unique<PlanetThumbnailRenderer>();
-    m_thumbnailRenderer->init(128);
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    // m_thumbnailRenderer = std::make_unique<PlanetThumbnailRenderer>();
+    // m_thumbnailRenderer->init(128);
     m_catalogOpen = false;
     m_catalogSlideAnim = 0.0f;
 }
@@ -361,6 +363,8 @@ void GalaxyView::updateSearch() {
 void GalaxyView::update(float dt, float W, float H) {
     m_time += dt;
 
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+#if 0
     // Update thumbnail renderer
     if (m_thumbnailRenderer) {
         m_thumbnailRenderer->update(dt);
@@ -374,6 +378,7 @@ void GalaxyView::update(float dt, float W, float H) {
             clearTimer = 0.0f;
         }
     }
+#endif
 
     // Animate catalog slide
     float targetSlide = m_catalogOpen ? 1.0f : 0.0f;
@@ -1051,6 +1056,8 @@ bool GalaxyView::planetPassesFilter(int planetIdx) const {
         }
     }
 
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+#if 0
     // Atmosphere filter
     if (m_filterAtmosphereEnabled && m_thumbnailRenderer) {
         const auto* info = m_thumbnailRenderer->getThumbnailInfo(planet.name);
@@ -1081,6 +1088,7 @@ bool GalaxyView::planetPassesFilter(int planetIdx) const {
             }
         }
     }
+#endif
 
     return true;
 }
@@ -1223,11 +1231,14 @@ void GalaxyView::renderCatalogPanel(float W, float H) {
                            static_cast<int>(visiblePlanets.size()),
                            static_cast<int>(std::count_if(m_planets.begin(), m_planets.end(),
                                [](const GalaxyPlanet& p) { return p.isCached; })));
+        // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+#if 0
         if (m_thumbnailRenderer) {
             ImGui::TextDisabled("Cache: %d | Queue: %d",
                                m_thumbnailRenderer->getCacheSize(),
                                m_thumbnailRenderer->getQueueSize());
         }
+#endif
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -1274,11 +1285,11 @@ void GalaxyView::renderCatalogTile(int planetIdx, float /*x*/, float /*y*/, floa
         return;
     }
 
-    // Request thumbnail render
-    GLuint texId = 0;
-    if (m_thumbnailRenderer) {
-        texId = m_thumbnailRenderer->getThumbnail(planet.name, *cachedParams);
-    }
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    unsigned int texId = 0;
+    // if (m_thumbnailRenderer) {
+    //     texId = m_thumbnailRenderer->getThumbnail(planet.name, *cachedParams);
+    // }
 
     ImGui::BeginGroup();
 

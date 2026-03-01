@@ -15,7 +15,7 @@
 
 namespace astrocore {
 
-class Renderer;
+class VulkanRenderer;
 class Camera;
 
 enum class AppScreen { Intro, Galaxy, PlanetDetail, SolarSystem };
@@ -44,7 +44,7 @@ private:
     void loadPlanet(const std::string& name);
 
     std::unique_ptr<Window> m_window;
-    std::unique_ptr<Renderer> m_renderer;
+    std::unique_ptr<VulkanRenderer> m_renderer;
     std::unique_ptr<Camera> m_camera;
     std::unique_ptr<UIManager> m_ui;
     std::unique_ptr<GalaxyView> m_galaxy;

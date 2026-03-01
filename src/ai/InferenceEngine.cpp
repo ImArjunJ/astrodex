@@ -3,7 +3,7 @@
 #include "ai/JimmyClient.hpp"
 #include "ai/GroqClient.hpp"
 #include "ai/PromptTemplates.hpp"
-#include "render/Renderer.hpp"
+#include "render/IRenderer.hpp"
 #include "core/Logger.hpp"
 #include <cstdlib>
 

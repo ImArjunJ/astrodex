@@ -13,16 +13,8 @@ Window::Window(const WindowConfig& config) {
         throw std::runtime_error("Failed to initialize GLFW");
     }
 
-    // OpenGL 4.5 Core Profile
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-
-    // MSAA
-    if (config.samples > 0) {
-        glfwWindowHint(GLFW_SAMPLES, config.samples);
-    }
+    // No OpenGL context — Vulkan handles rendering
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
     // Create window
     GLFWmonitor* monitor = config.fullscreen ? glfwGetPrimaryMonitor() : nullptr;
@@ -33,26 +25,10 @@ Window::Window(const WindowConfig& config) {
         throw std::runtime_error("Failed to create GLFW window");
     }
 
-    // Make context current
-    glfwMakeContextCurrent(m_window);
-
-    // Load OpenGL functions via GLAD
-    int version = gladLoadGL(glfwGetProcAddress);
-    if (version == 0) {
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
-        throw std::runtime_error("Failed to initialize GLAD");
-    }
-
-    LOG_INFO("OpenGL {}.{} loaded", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
-    LOG_INFO("Renderer: {}", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
-    LOG_INFO("Vendor: {}", reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
+    LOG_INFO("Vulkan window created (no GL context)");
 
     // Store dimensions
     glfwGetFramebufferSize(m_window, &m_width, &m_height);
-
-    // VSync
-    glfwSwapInterval(config.vsync ? 1 : 0);
 
     // Store this pointer for callbacks
     glfwSetWindowUserPointer(m_window, this);
@@ -63,15 +39,6 @@ Window::Window(const WindowConfig& config) {
     glfwSetMouseButtonCallback(m_window, mouseButtonCallback);
     glfwSetCursorPosCallback(m_window, cursorPosCallback);
     glfwSetScrollCallback(m_window, scrollCallback);
-
-    // Enable MSAA if requested
-    if (config.samples > 0) {
-        glEnable(GL_MULTISAMPLE);
-    }
-
-    // Enable depth testing
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
 
     LOG_INFO("Window created: {}x{}", m_width, m_height);
 }
@@ -89,7 +56,7 @@ void Window::pollEvents() {
 }
 
 void Window::swapBuffers() {
-    glfwSwapBuffers(m_window);
+    // No-op: Vulkan handles presentation via vkQueuePresentKHR
 }
 
 bool Window::shouldClose() const {
@@ -122,7 +89,6 @@ void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) 
     auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
     self->m_width = width;
     self->m_height = height;
-    glViewport(0, 0, width, height);
 
     if (self->m_resizeCallback) {
         self->m_resizeCallback(width, height);

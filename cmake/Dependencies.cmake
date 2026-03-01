@@ -1,8 +1,8 @@
-# Dependencies.cmake - FetchContent declarations for dependencies
+# Dependencies.cmake — FetchContent declarations (Vulkan backend)
 
 include(FetchContent)
 
-# GLM - OpenGL Mathematics
+# ── GLM ───────────────────────────────────────────────────────────────────────
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
@@ -10,7 +10,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# nlohmann/json - JSON parsing
+# ── nlohmann/json ─────────────────────────────────────────────────────────────
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -18,7 +18,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# spdlog - Fast logging
+# ── spdlog ────────────────────────────────────────────────────────────────────
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -26,41 +26,55 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# GLFW - Window and input
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
-    GIT_SHALLOW    TRUE
-)
-
-# Disable GLFW extras we don't need
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-
-# Make dependencies available (without glad for now)
-FetchContent_MakeAvailable(glm nlohmann_json spdlog glfw)
-
-# GLAD - OpenGL loader (using glad2)
-# We need to fetch it and include its cmake module before using glad_add_library
-FetchContent_Declare(
-    glad
-    GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-    GIT_TAG        v2.0.6
-    GIT_SHALLOW    TRUE
-)
-FetchContent_GetProperties(glad)
-if(NOT glad_POPULATED)
-    FetchContent_Populate(glad)
-    add_subdirectory(${glad_SOURCE_DIR}/cmake ${glad_BINARY_DIR})
+# ── GLFW ──────────────────────────────────────────────────────────────────────
+# Prefer Homebrew-installed GLFW on macOS to skip source compilation.
+if(APPLE)
+    find_package(glfw3 3.3 QUIET CONFIG
+        HINTS /opt/homebrew/lib/cmake/glfw3
+              /usr/local/lib/cmake/glfw3)
 endif()
 
-# Generate GLAD for OpenGL 4.5 Core
-glad_add_library(glad_gl45_core REPRODUCIBLE API gl:core=4.5)
+if(NOT glfw3_FOUND)
+    FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.4
+        GIT_SHALLOW    TRUE
+    )
+    set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
+    list(APPEND _FETCH_TARGETS glfw)
+endif()
 
-# Dear ImGui for UI
+# ── vk-bootstrap ──────────────────────────────────────────────────────────────
+FetchContent_Declare(
+    vk_bootstrap
+    GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap.git
+    GIT_TAG        v1.3.290
+    GIT_SHALLOW    TRUE
+)
+list(APPEND _FETCH_TARGETS vk_bootstrap)
+
+# ── VulkanMemoryAllocator ─────────────────────────────────────────────────────
+set(VMA_VULKAN_VERSION 1002000)    # Vulkan 1.2
+FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.1.0
+    GIT_SHALLOW    TRUE
+)
+list(APPEND _FETCH_TARGETS VulkanMemoryAllocator)
+
+FetchContent_MakeAvailable(glm nlohmann_json spdlog ${_FETCH_TARGETS})
+
+# Normalize GLFW target name
+if(glfw3_FOUND AND NOT TARGET glfw)
+    add_library(glfw ALIAS glfw3::glfw)
+endif()
+
+# ── Dear ImGui (Vulkan backend) ──────────────────────────────────────────────
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -69,23 +83,25 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-# Create ImGui library with GLFW+OpenGL backends
-add_library(imgui_impl STATIC
+set(IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
-target_include_directories(imgui_impl PUBLIC
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-)
-target_link_libraries(imgui_impl PUBLIC glfw)
 
-# ImPlot - Plotting library for Dear ImGui
+add_library(imgui_impl STATIC ${IMGUI_SOURCES})
+target_include_directories(imgui_impl
+    PUBLIC
+        ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
+)
+target_link_libraries(imgui_impl PUBLIC glfw Vulkan::Vulkan)
+
+# ── ImPlot ────────────────────────────────────────────────────────────────────
 FetchContent_Declare(
     implot
     GIT_REPOSITORY https://github.com/epezent/implot.git
@@ -100,17 +116,3 @@ add_library(implot_impl STATIC
 )
 target_include_directories(implot_impl PUBLIC ${implot_SOURCE_DIR})
 target_link_libraries(implot_impl PUBLIC imgui_impl)
-
-# pybind11 (will be added in Phase 7)
-# FetchContent_Declare(
-#     pybind11
-#     GIT_REPOSITORY https://github.com/pybind/pybind11.git
-#     GIT_TAG        v2.12.0
-# )
-
-# Catch2 (will be added in Phase 8)
-# FetchContent_Declare(
-#     Catch2
-#     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-#     GIT_TAG        v3.5.2
-# )

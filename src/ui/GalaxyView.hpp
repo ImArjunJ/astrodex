@@ -9,7 +9,6 @@
 namespace astrocore {
 
 struct PlanetParams;
-class PlanetThumbnailRenderer;
 
 // GalaxyView - Galaxy navigation screen with cached exoplanet browser
 class GalaxyView {
@@ -156,7 +155,9 @@ private:
     bool m_solarSystemRequested = false;
 
     // Catalog panel state
-    std::unique_ptr<PlanetThumbnailRenderer> m_thumbnailRenderer;
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    // std::unique_ptr<PlanetThumbnailRenderer> m_thumbnailRenderer;
+    void* m_thumbnailRenderer = nullptr;  // stub placeholder
     bool m_catalogOpen = false;
     float m_catalogSlideAnim = 0.0f;  // 0 = closed, 1 = fully open
     float m_catalogScrollY = 0.0f;

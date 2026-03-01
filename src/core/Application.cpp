@@ -1,7 +1,7 @@
 #include "core/Application.hpp"
 #include "core/Logger.hpp"
 #include "config/SystemConfig.hpp"
-#include "render/Renderer.hpp"
+#include "render/VulkanRenderer.hpp"
 #include "render/Camera.hpp"
 #include "render/ExoplanetConverter.hpp"
 #include "intro/IntroAnimation.hpp"
@@ -46,11 +46,13 @@ void Application::init() {
         m_camera->setAspectRatio(static_cast<float>(width) / static_cast<float>(height));
     });
 
-    m_renderer = std::make_unique<Renderer>();
-    m_renderer->init(m_window->getWidth(), m_window->getHeight());
+    m_renderer = std::make_unique<VulkanRenderer>();
+    LOG_INFO("Using Vulkan rendering backend");
+    m_renderer->init(m_window->getWidth(), m_window->getHeight(),
+                     m_window->getHandle());
 
     m_ui = std::make_unique<UIManager>();
-    m_ui->init(m_window->getHandle());
+    m_ui->init(m_window->getHandle(), m_renderer.get());
 
     // Preset manager
     m_presetManager.setPresetsDirectory("configs");
@@ -79,14 +81,12 @@ void Application::init() {
         loadPlanet(name);
     });
     m_galaxy->setFetchMetadataCallback([this](const std::string& name) {
-        // Fetch metadata from NASA in background
         m_galaxy->setFetchingMetadata(true);
         std::thread([this, name]() {
             try {
                 auto result = m_dataAggregator->queryPlanetSync(name);
                 const auto& d = result.data;
 
-                // Calculate distance in light years from parsecs
                 float distLY = 0.f;
                 if (d.distance_ly.hasValue()) {
                     distLY = static_cast<float>(d.distance_ly.value);
@@ -205,7 +205,7 @@ void Application::runIntro() {
         }
         ImGui::End();
 
-        m_ui->endFrame();
+        m_ui->endFrame(m_renderer.get());
         m_renderer->endFrame();
         m_window->swapBuffers();
     }
@@ -255,9 +255,8 @@ void Application::renderGalaxy(float dt) {
     static bool sWasPressed = false;
     bool sPressed = glfwGetKey(w, GLFW_KEY_S) == GLFW_PRESS;
     if (sPressed && !sWasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
-        // Reload the solar system (it may have been replaced by loadFromConfig)
         m_simulation.loadSolarSystem();
-        m_simulation.resume();  // Unpause when entering
+        m_simulation.resume();
         m_camera->setPosition(glm::vec3(0.0f, 50.0f, 100.0f));
         m_camera->setTarget(glm::vec3(0.0f));
         m_screen = AppScreen::SolarSystem;
@@ -319,7 +318,7 @@ void Application::renderGalaxy(float dt) {
             IM_COL32(0, 0, 0, blackAlpha));
     }
 
-    m_ui->endFrame();
+    m_ui->endFrame(m_renderer.get());
     m_renderer->endFrame();
 
     // Check for solar system button click
@@ -360,7 +359,6 @@ void Application::renderGalaxy(float dt) {
 
         // Clear simulation state from solar system mode
         m_simulation.clear();
-        m_renderer->clearRings();
 
         m_screen = AppScreen::PlanetDetail;
         LOG_INFO("Switching to PlanetDetail for: {}", name);
@@ -473,8 +471,8 @@ void Application::renderSolarSystem(float dt) {
 
     m_renderer->beginFrame();
 
-    // Render starfield background
-    m_renderer->renderStarfield(*m_camera);
+    // Starfield is now part of the main shader (cubemap background)
+    // m_renderer->renderStarfield(*m_camera);  -- no-op in Vulkan
 
     // Get focus position for coordinate conversion
     glm::dvec3 focusPos = m_simulation.focusBody() ?
@@ -482,29 +480,21 @@ void Application::renderSolarSystem(float dt) {
 
     // Render all bodies
     for (const auto& body : m_simulation.world().bodies()) {
-        // Convert physics position to render position (relative to focus)
         glm::dvec3 relPos = body->position() - focusPos;
         glm::vec3 renderPos = m_simulation.physicsToRender(relPos);
 
-        // Set planet position for rendering
         m_renderer->setPlanetPosition(renderPos);
-
-        // Get appearance params for this body (always set to avoid stale params)
         m_renderer->params() = m_simulation.getBodyAppearance(body->id());
 
-        // Render the body
-        m_renderer->render(*m_camera, body->isEmissive());
+        // Set emissive flag for stars
+        m_renderer->setEmissive(body->isEmissive());
+        m_renderer->render(*m_camera);
 
-        // Render ring if present
-        if (m_renderer->hasRing(body->id())) {
-            m_renderer->renderRing(body->id(), *m_camera, renderPos);
-        }
+        // Ring rendering stubbed — needs Vulkan particle pipeline
     }
 
-    // Render orbit trails
-    m_simulation.renderOrbits(*m_renderer, *m_camera);
-
-    m_renderer->updateRings(dt);
+    // Orbit trails stubbed — OrbitRenderer not yet ported
+    m_simulation.renderOrbits();
 
     // UI
     m_ui->beginFrame();
@@ -558,7 +548,7 @@ void Application::renderSolarSystem(float dt) {
     ImGui::End();
 
     m_ui->renderThemeToggle();
-    m_ui->endFrame();
+    m_ui->endFrame(m_renderer.get());
 
     m_renderer->endFrame();
 }
@@ -575,13 +565,11 @@ void Application::loadPlanet(const std::string& name) {
         m_ui->setExoplanetStatus(m_currentStatus);
         LOG_INFO("Loaded cached params for {}", name);
 
-        // Also fetch metadata in background for DATA tab
         std::thread([this, name]() {
             try {
                 auto result = m_dataAggregator->queryPlanetSync(name);
                 m_ui->setCurrentExoplanetData(result.data);
             } catch (...) {
-                // Ignore - metadata is optional
             }
         }).detach();
         return;
@@ -597,7 +585,6 @@ void Application::loadPlanet(const std::string& name) {
             LoadResult result;
             result.hasExoData = false;
 
-            // Query NASA
             auto results = m_dataAggregator->getNasaClient().queryByNameSync(name);
             if (results.empty()) {
                 result.status = "Not found: \"" + name + "\"";
@@ -607,12 +594,10 @@ void Application::loadPlanet(const std::string& name) {
             auto data = results[0];
             data.calculateDerivedValues();
 
-            // AI fills missing parameters
             if (m_inferenceEngine->isAvailable()) {
                 data = m_inferenceEngine->fillMissingParametersSync(std::move(data));
             }
 
-            // Convert to render params
             PlanetParams params = ExoplanetConverter::toPlanetParams(data, m_inferenceEngine.get());
 
             result.params = params;
@@ -682,7 +667,6 @@ void Application::handleInput() {
 }
 
 void Application::update(float deltaTime) {
-    // Update simulation physics
     m_simulation.update(deltaTime);
 
     // FPS mouse look
@@ -719,8 +703,6 @@ void Application::update(float deltaTime) {
 void Application::render(float dt) {
     m_renderer->beginFrame();
     m_renderer->render(*m_camera);
-
-    // Note: Don't render orbit trails in single planet view - that's only for solar system mode
 
     m_ui->beginFrame();
 
@@ -778,7 +760,7 @@ void Application::render(float dt) {
     auto simResult = m_ui->renderSimulationControls(
         m_renderer->isPaused(),
         static_cast<double>(m_renderer->timeScale()),
-        false,  // No lock feature in single planet view
+        false,
         "");
 
     if (simResult.pauseToggled) {
@@ -788,7 +770,7 @@ void Application::render(float dt) {
         m_renderer->setTimeScale(static_cast<float>(simResult.newTimeScale));
     }
 
-    m_ui->endFrame();
+    m_ui->endFrame(m_renderer.get());
     m_renderer->endFrame();
 
     // Back button returns to galaxy
@@ -867,7 +849,6 @@ void Application::loadExoplanetIntoSimulation(const ExoplanetData& exo) {
     }
 
     m_simulation.pause();
-    m_renderer->clearRings();
 }
 
 }  // namespace astrocore

@@ -1,13 +1,15 @@
 #include "ui/UIManager.hpp"
 #include "ui/DataVisualization.hpp"
-#include "render/Renderer.hpp"
+#include "render/IRenderer.hpp"
+#include "render/VulkanRenderer.hpp"
 #include "config/PresetManager.hpp"
 #include "core/Logger.hpp"
 
+#include <vulkan/vulkan.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
-#include <imgui_impl_opengl3.h>
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -453,7 +455,7 @@ UIManager::~UIManager() {
     }
 }
 
-void UIManager::init(GLFWwindow* window) {
+void UIManager::init(GLFWwindow* window, VulkanRenderer* renderer) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
@@ -461,8 +463,22 @@ void UIManager::init(GLFWwindow* window) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 450");
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.Instance       = static_cast<VkInstance>(renderer->getInstance());
+    initInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(renderer->getPhysicalDevice());
+    initInfo.Device         = static_cast<VkDevice>(renderer->getDevice());
+    initInfo.QueueFamily    = renderer->getGraphicsQueueFamily();
+    initInfo.Queue          = static_cast<VkQueue>(renderer->getGraphicsQueue());
+    initInfo.DescriptorPool = static_cast<VkDescriptorPool>(renderer->getDescriptorPool());
+    initInfo.RenderPass     = static_cast<VkRenderPass>(renderer->getRenderPass());
+    initInfo.MinImageCount  = 2;
+    initInfo.ImageCount     = renderer->getSwapchainImageCount();
+    initInfo.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
+
+    ImGui_ImplVulkan_Init(&initInfo);
+    ImGui_ImplVulkan_CreateFontsTexture();
 
     setupStyle();
     refreshCachedPlanets();
@@ -473,7 +489,7 @@ void UIManager::init(GLFWwindow* window) {
     m_dataViz->applyTheme(m_theme == Theme::Dark);
 
     m_initialized = true;
-    LOG_INFO("ImGui initialized (OpenGL backend)");
+    LOG_INFO("ImGui initialized (Vulkan backend)");
 }
 
 void UIManager::shutdown() {
@@ -481,21 +497,23 @@ void UIManager::shutdown() {
         m_dataViz->shutdown();
         m_dataViz.reset();
     }
-    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     m_initialized = false;
 }
 
 void UIManager::beginFrame() {
-    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 }
 
-void UIManager::endFrame() {
+void UIManager::endFrame(VulkanRenderer* renderer) {
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplVulkan_RenderDrawData(
+        ImGui::GetDrawData(),
+        static_cast<VkCommandBuffer>(renderer->getCurrentCommandBuffer()));
 }
 
 void UIManager::refreshCachedPlanets() {

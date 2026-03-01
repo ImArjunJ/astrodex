@@ -1,6 +1,6 @@
 #pragma once
 
-#include "render/Renderer.hpp"
+#include "render/IRenderer.hpp"
 #include "data/ExoplanetData.hpp"
 #include <optional>
 #include <string>
