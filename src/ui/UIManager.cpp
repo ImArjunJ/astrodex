@@ -8,6 +8,8 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
+#include <algorithm>
+#include <cstring>
 
 namespace astrocore {
 
@@ -334,17 +336,38 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
     }
 
     // ── Exoplanet Search ─────────────────────────────────────────────────
+    // Track autocomplete state across frames (need to render popup after Planet Editor window ends)
+    bool showAutocomplete = false;
+    ImVec2 acInputPos, acInputSize;
+
     if (ImGui::CollapsingHeader("Exoplanet Lookup", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextDisabled("Search NASA Exoplanet Archive");
+
+        // Disable input and button during loading
+        if (m_isLoading) ImGui::BeginDisabled();
+
         ImGui::SetNextItemWidth(-80);
         bool hitEnter = ImGui::InputText("##planet", m_searchBuf, sizeof(m_searchBuf),
                                          ImGuiInputTextFlags_EnterReturnsTrue);
+
+        // Capture input rect for autocomplete positioning
+        bool inputActive = ImGui::IsItemActive();
+        acInputPos  = ImGui::GetItemRectMin();
+        acInputSize = ImGui::GetItemRectSize();
+
         ImGui::SameLine();
         bool clicked = ImGui::Button("Load");
+
+        if (m_isLoading) ImGui::EndDisabled();
+
         if ((hitEnter || clicked) && m_exoCallback && m_searchBuf[0] != '\0') {
             m_exoStatus = "Loading...";
             m_exoCallback(std::string(m_searchBuf));
         }
+
+        // Determine if autocomplete should show
+        showAutocomplete = inputActive && m_searchBuf[0] != '\0' && !m_isLoading;
+
         ImGui::TextDisabled("%s", m_exoStatus.c_str());
         ImGui::Spacing();
     }
@@ -474,6 +497,53 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
     if (outPos)  *outPos  = ImGui::GetWindowPos();
     if (outSize) *outSize = ImGui::GetWindowSize();
     ImGui::End();
+
+    // ── Autocomplete Popup (rendered after Planet Editor for z-order) ────
+    if (showAutocomplete && !m_cachedNames.empty()) {
+        // Case-insensitive prefix matcher
+        auto matchesPrefix = [](const std::string& name, const char* prefix) -> bool {
+            std::string lowerName = name;
+            std::string lowerPrefix = prefix;
+            std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
+            std::transform(lowerPrefix.begin(), lowerPrefix.end(), lowerPrefix.begin(), ::tolower);
+            return lowerName.find(lowerPrefix) == 0;
+        };
+
+        // Count matches first to avoid showing an empty window
+        int matchCount = 0;
+        for (const auto& name : m_cachedNames) {
+            if (matchesPrefix(name, m_searchBuf)) matchCount++;
+        }
+
+        if (matchCount > 0) {
+            ImGui::SetNextWindowPos(ImVec2(acInputPos.x, acInputPos.y + acInputSize.y));
+            ImGui::SetNextWindowSize(ImVec2(acInputSize.x, 0));  // auto-height
+            ImGui::SetNextWindowFocus();
+
+            if (ImGui::Begin("##autocomplete", nullptr,
+                    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
+                    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
+                    ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing)) {
+                int shown = 0;
+                for (const auto& name : m_cachedNames) {
+                    if (!matchesPrefix(name, m_searchBuf)) continue;
+                    if (shown >= 8) break;
+
+                    if (ImGui::Selectable(name.c_str())) {
+                        std::strncpy(m_searchBuf, name.c_str(), sizeof(m_searchBuf) - 1);
+                        m_searchBuf[sizeof(m_searchBuf) - 1] = '\0';
+                        // Trigger load on selection
+                        if (m_exoCallback) {
+                            m_exoStatus = "Loading...";
+                            m_exoCallback(name);
+                        }
+                    }
+                    shown++;
+                }
+            }
+            ImGui::End();
+        }
+    }
 }
 
 void UIManager::setExoplanetCallback(std::function<void(const std::string&)> onLoad) {
@@ -482,6 +552,14 @@ void UIManager::setExoplanetCallback(std::function<void(const std::string&)> onL
 
 void UIManager::setExoplanetStatus(const std::string& status) {
     m_exoStatus = status;
+}
+
+void UIManager::setCachedNames(const std::vector<std::string>& names) {
+    m_cachedNames = names;
+}
+
+void UIManager::setLoading(bool loading) {
+    m_isLoading = loading;
 }
 
 }  // namespace astrocore

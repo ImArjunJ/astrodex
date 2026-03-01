@@ -3,13 +3,25 @@
 #include "render/Camera.hpp"
 #include "intro/IntroAnimation.hpp"
 #include "render/VulkanRenderer.hpp"
+#include "data/SolarSystemDatabase.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <chrono>
 #include <spdlog/fmt/fmt.h>
 #include <set>
+#include <algorithm>
 
 namespace astrocore {
+
+// Pipeline stage display messages (indexed by PipelineStage enum)
+static constexpr const char* kStageMessages[] = {
+    "",                          // Idle
+    "Querying NASA...",          // QueryingNasa
+    "Running AI inference...",   // RunningAI
+    "Mapping parameters...",     // MappingParams
+    "Done",                      // Done
+    "Error"                      // Failed
+};
 
 Application::Application() { init(); }
 Application::~Application() { shutdown(); }
@@ -51,13 +63,44 @@ void Application::init() {
     // ML pipeline
     m_nasa      = std::make_unique<NasaApiClient>();
     m_inference = std::make_unique<InferenceEngine>();
+    m_cacheManager = std::make_unique<CacheManager>();
 
     m_ui->setExoplanetCallback([this](const std::string& name) {
         loadPlanet(name);
     });
 
+    // Seed autocomplete name list from solar system database + cache
+    buildPlanetNameList();
+
     m_lastFrameTime = m_window->getTime();
     LOG_INFO("Ready");
+}
+
+void Application::buildPlanetNameList() {
+    m_knownNames.clear();
+
+    // Seed from solar system database
+    for (const auto& entry : SolarSystemDatabase::instance().entries()) {
+        m_knownNames.insert(entry.name);
+    }
+
+    // Add cached exoplanet names — retrieve proper casing from cached JSON
+    auto cached = m_cacheManager->listCached();
+    for (const auto& cachedName : cached) {
+        auto data = m_cacheManager->retrieve(cachedName);
+        if (data && !data->name.empty()) {
+            m_knownNames.insert(data->name);
+        } else {
+            m_knownNames.insert(cachedName);
+        }
+    }
+
+    // Convert to sorted vector and pass to UI
+    std::vector<std::string> sortedNames(m_knownNames.begin(), m_knownNames.end());
+    std::sort(sortedNames.begin(), sortedNames.end());
+    m_ui->setCachedNames(sortedNames);
+
+    LOG_INFO("Autocomplete: {} planet names loaded", sortedNames.size());
 }
 
 void Application::runIntro() {
@@ -173,6 +216,9 @@ void Application::loadPlanet(const std::string& name) {
         m_ui->setExoplanetStatus(m_currentStatus);
         m_renderer->params() = solarEntry->visualParams;
 
+        // Store ExoplanetData for the info panel (Plan 02)
+        m_loadedExoData = solarEntry->physicalData;
+
         // ── Background validation: run AI pipeline on known physical data ──
         // Compares AI output to our hand-tuned visual params → accuracy score.
         if (m_inference->isAvailable() && !m_validationRunning) {
@@ -224,14 +270,18 @@ void Application::loadPlanet(const std::string& name) {
 
     // ── Steps 2-6: Unknown exoplanet — async pipeline ─────────────────────────
     m_planetLoading = true;
+    m_ui->setLoading(true);
     m_ui->setExoplanetStatus("Searching...");
+    m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingNasa));
 
     m_planetFuture = std::async(std::launch::async,
         [this, name]() -> LoadResult {
 
             // ── Step 2: NASA Exoplanet Archive query ───────────────────────
+            m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingNasa));
             auto results = m_nasa->queryByNameSync(name);
             if (results.empty()) {
+                m_pipelineStage.store(static_cast<int>(PipelineStage::Failed));
                 return {std::nullopt, "Not found: \"" + name + "\"", std::nullopt};
             }
 
@@ -239,11 +289,13 @@ void Application::loadPlanet(const std::string& name) {
             data.calculateDerivedValues();
 
             // ── Step 3: AI fills missing atmosphere / physical fields ───────
+            m_pipelineStage.store(static_cast<int>(PipelineStage::RunningAI));
             if (m_inference->isAvailable()) {
                 data = m_inference->fillMissingParametersSync(std::move(data));
             }
 
             // ── Step 4: Find closest solar-system analog for context ────────
+            m_pipelineStage.store(static_cast<int>(PipelineStage::MappingParams));
             std::string           analogContext;
             std::set<std::string> physicsFields;
             ExoplanetMapper::toPlanetParams(data, &physicsFields, nullptr);
@@ -279,6 +331,7 @@ void Application::loadPlanet(const std::string& name) {
                                      usedAnalog.entry->name, usedAnalog.score * 100.0f);
             }
 
+            m_pipelineStage.store(static_cast<int>(PipelineStage::Done));
             return {params, label, data};
         });
 }
@@ -307,17 +360,35 @@ void Application::update(float deltaTime) {
 
     m_camera->update(deltaTime);
 
-    // Apply planet load result if ready
+    // Poll pipeline stage and update status text while loading
     if (m_planetLoading && m_planetFuture.valid()) {
         if (m_planetFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            // Pipeline complete — extract results
             auto [params, status, exoData] = m_planetFuture.get();
             if (params.has_value()) {
                 m_renderer->params() = *params;
             }
+            // Store ExoplanetData for info panel (Plan 02)
+            if (exoData.has_value()) {
+                m_loadedExoData = std::move(*exoData);
+                // Add the loaded planet name to known names and refresh autocomplete
+                m_knownNames.insert(m_loadedExoData->name);
+                std::vector<std::string> sortedNames(m_knownNames.begin(), m_knownNames.end());
+                std::sort(sortedNames.begin(), sortedNames.end());
+                m_ui->setCachedNames(sortedNames);
+            }
             m_currentStatus = status;
             m_ui->setExoplanetStatus(m_currentStatus);
+            m_ui->setLoading(false);
             m_planetLoading = false;
+            m_pipelineStage.store(static_cast<int>(PipelineStage::Idle));
             LOG_INFO("Planet loaded: {}", m_currentStatus);
+        } else {
+            // Still loading — update status text from pipeline stage
+            int stage = m_pipelineStage.load();
+            if (stage >= 0 && stage < static_cast<int>(sizeof(kStageMessages) / sizeof(kStageMessages[0]))) {
+                m_ui->setExoplanetStatus(kStageMessages[stage]);
+            }
         }
     }
 
