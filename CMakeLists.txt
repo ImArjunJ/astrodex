@@ -66,7 +66,7 @@ target_include_directories(astrocore_lib
 
 target_link_libraries(astrocore_lib
     PUBLIC
-        glad_gl45_core
+        glad_gl41_core
         glfw
         OpenGL::GL
         glm::glm

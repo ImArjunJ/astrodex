@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 // Procedural Planet Renderer — based on Julien Sulpis "Procedural Blue Planet"
 // Extended with ridged noise, craters, continents, and volumetric clouds

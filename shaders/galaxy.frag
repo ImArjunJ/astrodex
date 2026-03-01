@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 in vec4 vColor;
 in float vType;

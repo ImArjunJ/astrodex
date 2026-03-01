@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 layout(location = 0) in vec2 a_position;
 layout(location = 1) in vec2 a_uv;

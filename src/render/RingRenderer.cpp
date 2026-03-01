@@ -13,7 +13,7 @@ void RingRenderer::init() {
     // Simple point/billboard shader for ring particles
     // Per-particle colors passed via instance data for multi-band support
     const char* vertSrc = R"(
-        #version 450 core
+        #version 410 core
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec3 aInstancePos;
         layout(location = 2) in float aSize;
@@ -38,7 +38,7 @@ void RingRenderer::init() {
     )";
 
     const char* fragSrc = R"(
-        #version 450 core
+        #version 410 core
         in vec3 vColor;
         in float vOpacity;
 

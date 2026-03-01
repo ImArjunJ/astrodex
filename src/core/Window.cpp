@@ -13,9 +13,9 @@ Window::Window(const WindowConfig& config) {
         throw std::runtime_error("Failed to initialize GLFW");
     }
 
-    // OpenGL 4.5 Core Profile
+    // OpenGL 4.1 Core Profile (max supported on macOS)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
