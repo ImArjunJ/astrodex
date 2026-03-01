@@ -4,7 +4,7 @@
 
 namespace astrocore {
 
-enum class IntroPhase { Assemble, Idle, Scatter, BorderAssemble, BorderFade, Done };
+enum class IntroPhase { Assemble, Idle, Scatter, ExplodeOut, BorderAssemble, BorderFade, Done };
 
 struct Particle {
     float x, y;          // current position

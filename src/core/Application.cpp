@@ -2,6 +2,7 @@
 #include "core/Logger.hpp"
 #include "render/Camera.hpp"
 #include "intro/IntroAnimation.hpp"
+#include "data/SolarSystemDatabase.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <chrono>
@@ -70,6 +71,12 @@ void Application::init() {
     m_inference = std::make_unique<InferenceEngine>();
 
     m_ui->setExoplanetCallback([this](const std::string& name) {
+        loadPlanet(name);
+    });
+
+    // Galaxy view setup
+    m_galaxy = std::make_unique<GalaxyView>();
+    m_galaxy->setExoplanetCallback([this](const std::string& name) {
         loadPlanet(name);
     });
 
@@ -156,6 +163,7 @@ void Application::runIntro() {
                 ImGuiWindowFlags_NoMove              |
                 ImGuiWindowFlags_NoScrollbar         |
                 ImGuiWindowFlags_NoSavedSettings     |
+                ImGuiWindowFlags_NoMouseInputs       |
                 ImGuiWindowFlags_NoBringToFrontOnFocus)) {
             ImGui::PopStyleVar();
             intro.render(ImGui::GetWindowDrawList(),
@@ -180,15 +188,135 @@ void Application::runIntro() {
 
 void Application::run() {
     runIntro();
+
+    // Galaxy is initialised lazily inside renderGalaxy() using io.DisplaySize
+    // (logical pixels) to avoid a 2× mismatch on Retina / HiDPI displays.
+
+    // Hide the planet for the galaxy screen
+    m_savedParams           = m_renderer->params();
+    m_renderer->params().radius            = 0.001f;
+    m_renderer->params().atmosphereDensity = 0.0f;
+    m_renderer->params().cloudsDensity     = 0.0f;
+    m_screen = AppScreen::Galaxy;
+    m_galaxyFadeTimer = 0.f;   // start fade-in from black
+
     while (!m_window->shouldClose() && m_running) {
         double currentTime = m_window->getTime();
-        float  deltaTime   = static_cast<float>(currentTime - m_lastFrameTime);
-        m_lastFrameTime    = currentTime;
+        float  deltaTime   = std::min(
+            static_cast<float>(currentTime - m_lastFrameTime), 0.05f);
+        m_lastFrameTime = currentTime;
 
         m_window->pollEvents();
-        update(deltaTime);
-        render();
+
+        if (m_screen == AppScreen::Galaxy) {
+            renderGalaxy(deltaTime);
+        } else {
+            update(deltaTime);
+            render(deltaTime);
+        }
+
         m_window->swapBuffers();
+    }
+}
+
+void Application::renderGalaxy(float dt) {
+    m_renderer->beginFrame();
+    m_renderer->render(*m_camera);
+
+#ifdef ASTRO_METAL
+    MetalFrameContext ctx = m_renderer->getMetalContext();
+    if (!ctx.renderPassDescriptor) {
+        m_renderer->endFrame();
+        return;
+    }
+    m_ui->beginFrame(ctx.renderPassDescriptor);
+#else
+    m_ui->beginFrame();
+#endif
+
+    // Galaxy update runs AFTER NewFrame so ImGui input queries are valid.
+    // We also lazily init here so io.DisplaySize (logical px) is already set —
+    // avoids the 2× coordinate mismatch on Retina / HiDPI displays.
+    ImGuiIO& io = ImGui::GetIO();
+    if (!m_galaxy->isInitialized())
+        m_galaxy->init(io.DisplaySize.x, io.DisplaySize.y);
+
+    m_galaxy->update(dt, io.DisplaySize.x, io.DisplaySize.y);
+
+    // Advance and clamp fade-in (only on first entry from intro)
+    m_galaxyFadeTimer += dt;
+    const float kFadeDur  = 1.5f;
+    const float fadeAlpha = std::min(m_galaxyFadeTimer / kFadeDur, 1.f);
+
+    // Explosion complete — finish this frame cleanly, then switch screen
+    bool switching = m_galaxy->isExplosionDone();
+
+    if (!switching) {
+        // Full-screen transparent overlay for the draw-list star field
+        ImGui::SetNextWindowPos({ 0.f, 0.f });
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::SetNextWindowBgAlpha(0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 0.f, 0.f });
+        if (ImGui::Begin("##galaxy_bg", nullptr,
+                ImGuiWindowFlags_NoDecoration        |
+                ImGuiWindowFlags_NoMove              |
+                ImGuiWindowFlags_NoScrollbar         |
+                ImGuiWindowFlags_NoSavedSettings     |
+                ImGuiWindowFlags_NoMouseInputs       |
+                ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+            ImGui::PopStyleVar();
+            m_galaxy->renderBackground(ImGui::GetWindowDrawList(),
+                                       io.DisplaySize.x, io.DisplaySize.y);
+        } else {
+            ImGui::PopStyleVar();
+        }
+        ImGui::End();
+
+        m_galaxy->renderUI(io.DisplaySize.x, io.DisplaySize.y);
+    }
+
+    // Theme toggle — always visible in top-right
+    if (!switching)
+        m_ui->renderThemeToggle();
+
+    // Fade-in overlay: drawn on top of everything while galaxy is fading in.
+    if (fadeAlpha < 1.f) {
+        int blackAlpha = static_cast<int>((1.f - fadeAlpha) * 255);
+        ImGui::GetForegroundDrawList()->AddRectFilled(
+            { 0.f, 0.f }, io.DisplaySize,
+            IM_COL32(0, 0, 0, blackAlpha));
+    }
+
+#ifdef ASTRO_METAL
+    m_ui->endFrame(ctx.commandBuffer, ctx.commandEncoder);
+#else
+    m_ui->endFrame();
+#endif
+    m_renderer->endFrame();
+
+    if (switching) {
+        const std::string name   = m_galaxy->selectedName();
+        const int         preset = m_galaxy->selectedPreset();
+
+        if (preset >= 0) {
+            m_renderer->params() = UIManager::getPreset(preset);
+            m_currentStatus      = name + "  |  Preset";
+            m_ui->setExoplanetStatus(m_currentStatus);
+            LOG_INFO("Galaxy expand (preset): {}", name);
+        } else {
+            m_renderer->params() = m_savedParams;
+            loadPlanet(name);
+        }
+
+        // Start border-overlay + planet-UI fade-in instead of immediately resetting.
+        // GalaxyView keeps its explosion/transition state alive so we can render
+        // the assembled border particles on top of the incoming planet detail screen.
+        m_borderFadeTimer    = 0.f;
+        m_borderReleased     = false;
+        m_planetDetailFadeIn = 0.f;
+        m_screen             = AppScreen::PlanetDetail;
+        // NOTE: m_galaxy->reset() is deferred to render() once the border has faded.
+        LOG_INFO("Switching to PlanetDetail for: {}", name);
     }
 }
 
@@ -368,24 +496,94 @@ void Application::update(float deltaTime) {
     }
 }
 
-void Application::render() {
+void Application::render(float dt) {
     m_renderer->beginFrame();
     m_renderer->render(*m_camera);
 
 #ifdef ASTRO_METAL
-    // For Metal, ImGui renders into the active command encoder.
-    // We hand UIManager the current Metal frame context.
     MetalFrameContext ctx = m_renderer->getMetalContext();
     m_ui->beginFrame(ctx.renderPassDescriptor);
-    m_ui->render(m_renderer->params());
-    m_ui->endFrame(ctx.commandBuffer, ctx.commandEncoder);
 #else
     m_ui->beginFrame();
-    m_ui->render(m_renderer->params());
+#endif
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    // ── Border overlay: galaxy transition particles lingering during fade-in ──
+    // The GalaxyView keeps its assembled border particles alive until we call
+    // reset().  We render them in a transparent background window so they appear
+    // beneath the incoming planet-detail panel.
+    if (m_borderFadeTimer >= 0.f) {
+        m_borderFadeTimer += dt;
+        m_galaxy->update(dt, io.DisplaySize.x, io.DisplaySize.y);
+
+        ImGui::SetNextWindowPos({ 0.f, 0.f });
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::SetNextWindowBgAlpha(0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 0.f, 0.f });
+        if (ImGui::Begin("##border_overlay", nullptr,
+                ImGuiWindowFlags_NoDecoration        |
+                ImGuiWindowFlags_NoMove              |
+                ImGuiWindowFlags_NoSavedSettings     |
+                ImGuiWindowFlags_NoMouseInputs       |
+                ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+            ImGui::PopStyleVar();
+            m_galaxy->renderBackground(ImGui::GetWindowDrawList(),
+                                       io.DisplaySize.x, io.DisplaySize.y);
+        } else {
+            ImGui::PopStyleVar();
+        }
+        ImGui::End();
+
+        // Once the planet UI is fully visible (~0.5 s), begin fading the border
+        if (m_borderFadeTimer > 0.50f && !m_borderReleased) {
+            m_galaxy->releaseBorder();
+            m_borderReleased = true;
+        }
+        // Reset galaxy after border has had time to fully fade (~0.85 s total)
+        if (m_borderFadeTimer > 0.85f) {
+            m_galaxy->reset();
+            m_borderFadeTimer = -1.f;
+            m_borderReleased  = false;
+        }
+    }
+
+    // ── Planet detail UI (fades in from transparent) ──────────────────────────
+    if (m_planetDetailFadeIn < 1.f)
+        m_planetDetailFadeIn = std::min(m_planetDetailFadeIn + dt / 0.5f, 1.f);
+
+    if (m_planetDetailFadeIn < 1.f) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, m_planetDetailFadeIn);
+        m_ui->render(m_renderer->params());
+        ImGui::PopStyleVar();
+    } else {
+        m_ui->render(m_renderer->params());
+    }
+
+    m_ui->renderThemeToggle();
+
+#ifdef ASTRO_METAL
+    m_ui->endFrame(ctx.commandBuffer, ctx.commandEncoder);
+#else
     m_ui->endFrame();
 #endif
 
     m_renderer->endFrame();
+
+    // Back button: return to galaxy screen.
+    if (m_ui->wasBackPressed()) {
+        m_savedParams = m_renderer->params();
+        m_renderer->params().radius            = 0.001f;
+        m_renderer->params().atmosphereDensity = 0.0f;
+        m_renderer->params().cloudsDensity     = 0.0f;
+        // If a border transition was still running, force-reset it cleanly
+        m_galaxy->reset();
+        m_borderFadeTimer    = -1.f;
+        m_borderReleased     = false;
+        m_planetDetailFadeIn = 1.f;  // no fade-in when manually going back
+        m_screen             = AppScreen::Galaxy;
+        LOG_INFO("Back to Galaxy screen");
+    }
 }
 
 void Application::shutdown() {

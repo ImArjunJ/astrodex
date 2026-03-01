@@ -17,12 +17,6 @@ namespace astrocore {
 
 // ── Presets ──────────────────────────────────────────────────────────────────
 
-static const char* presetNames[] = {
-    "Earth", "Mars", "Lava World", "Ice World",
-    "Gas Giant", "Ocean World", "Desert", "Alien"
-};
-static constexpr int presetCount = sizeof(presetNames) / sizeof(presetNames[0]);
-
 static PlanetParams makePreset(int index) {
     PlanetParams p{}; // Earth defaults
     switch (index) {
@@ -276,7 +270,7 @@ void UIManager::setupStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
     ImGui::StyleColorsDark();
 
-    // ── Shape ────────────────────────────────────────────────────────────────
+    // ── Shape (shared) ───────────────────────────────────────────────────────
     style.WindowRounding    = 10.0f;
     style.ChildRounding     =  8.0f;
     style.FrameRounding     =  6.0f;
@@ -293,54 +287,104 @@ void UIManager::setupStyle() {
 
     ImVec4* c = style.Colors;
 
-    // ── Glass window background — very low alpha so stars bleed through ──────
-    c[ImGuiCol_WindowBg]          = ImVec4(0.04f, 0.07f, 0.12f, 0.18f);
-    c[ImGuiCol_ChildBg]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    c[ImGuiCol_PopupBg]           = ImVec4(0.05f, 0.08f, 0.14f, 0.88f);
+    if (m_theme == Theme::Dark) {
+        // ── Space grey dark — semi-transparent so the starfield shows through ─────
+        c[ImGuiCol_WindowBg]             = ImVec4(0.14f, 0.14f, 0.17f, 0.68f);
+        c[ImGuiCol_ChildBg]              = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[ImGuiCol_PopupBg]              = ImVec4(0.15f, 0.15f, 0.18f, 0.94f);
 
-    // ── Glassy frost border ──────────────────────────────────────────────────
-    c[ImGuiCol_Border]            = ImVec4(0.55f, 0.80f, 1.00f, 0.32f);
-    c[ImGuiCol_BorderShadow]      = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[ImGuiCol_Border]               = ImVec4(0.36f, 0.38f, 0.46f, 0.50f);
+        c[ImGuiCol_BorderShadow]         = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-    // ── Title bar — slightly more opaque for legibility ──────────────────────
-    c[ImGuiCol_TitleBg]           = ImVec4(0.04f, 0.10f, 0.18f, 0.72f);
-    c[ImGuiCol_TitleBgActive]     = ImVec4(0.06f, 0.15f, 0.26f, 0.80f);
-    c[ImGuiCol_TitleBgCollapsed]  = ImVec4(0.02f, 0.05f, 0.10f, 0.55f);
+        c[ImGuiCol_TitleBg]              = ImVec4(0.12f, 0.12f, 0.15f, 0.80f);
+        c[ImGuiCol_TitleBgActive]        = ImVec4(0.15f, 0.15f, 0.18f, 0.88f);
+        c[ImGuiCol_TitleBgCollapsed]     = ImVec4(0.10f, 0.10f, 0.12f, 0.60f);
 
-    // ── Frame / input backgrounds ────────────────────────────────────────────
-    c[ImGuiCol_FrameBg]           = ImVec4(0.10f, 0.18f, 0.28f, 0.42f);
-    c[ImGuiCol_FrameBgHovered]    = ImVec4(0.16f, 0.26f, 0.40f, 0.55f);
-    c[ImGuiCol_FrameBgActive]     = ImVec4(0.20f, 0.32f, 0.48f, 0.65f);
+        c[ImGuiCol_FrameBg]              = ImVec4(0.18f, 0.18f, 0.22f, 0.55f);
+        c[ImGuiCol_FrameBgHovered]       = ImVec4(0.24f, 0.24f, 0.29f, 0.68f);
+        c[ImGuiCol_FrameBgActive]        = ImVec4(0.28f, 0.28f, 0.34f, 0.80f);
 
-    // ── Collapsing headers ───────────────────────────────────────────────────
-    c[ImGuiCol_Header]            = ImVec4(0.20f, 0.38f, 0.60f, 0.32f);
-    c[ImGuiCol_HeaderHovered]     = ImVec4(0.28f, 0.50f, 0.76f, 0.42f);
-    c[ImGuiCol_HeaderActive]      = ImVec4(0.32f, 0.56f, 0.82f, 0.52f);
+        c[ImGuiCol_Header]               = ImVec4(0.22f, 0.24f, 0.30f, 0.50f);
+        c[ImGuiCol_HeaderHovered]        = ImVec4(0.28f, 0.30f, 0.38f, 0.62f);
+        c[ImGuiCol_HeaderActive]         = ImVec4(0.32f, 0.34f, 0.44f, 0.72f);
 
-    // ── Slider ───────────────────────────────────────────────────────────────
-    c[ImGuiCol_SliderGrab]        = ImVec4(0.35f, 0.78f, 1.00f, 0.85f);
-    c[ImGuiCol_SliderGrabActive]  = ImVec4(0.50f, 0.90f, 1.00f, 1.00f);
+        c[ImGuiCol_Tab]                  = ImVec4(0.14f, 0.14f, 0.17f, 0.55f);
+        c[ImGuiCol_TabHovered]           = ImVec4(0.24f, 0.26f, 0.34f, 0.70f);
+        c[ImGuiCol_TabActive]            = ImVec4(0.30f, 0.32f, 0.42f, 0.88f);
+        c[ImGuiCol_TabUnfocused]         = ImVec4(0.10f, 0.10f, 0.13f, 0.40f);
+        c[ImGuiCol_TabUnfocusedActive]   = ImVec4(0.18f, 0.18f, 0.23f, 0.60f);
 
-    // ── Scrollbar ────────────────────────────────────────────────────────────
-    c[ImGuiCol_ScrollbarBg]       = ImVec4(0.00f, 0.00f, 0.00f, 0.10f);
-    c[ImGuiCol_ScrollbarGrab]     = ImVec4(0.30f, 0.60f, 0.90f, 0.40f);
-    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.72f, 1.00f, 0.55f);
-    c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.50f, 0.82f, 1.00f, 0.70f);
+        c[ImGuiCol_SliderGrab]           = ImVec4(0.42f, 0.52f, 0.74f, 0.90f);
+        c[ImGuiCol_SliderGrabActive]     = ImVec4(0.54f, 0.66f, 0.90f, 1.00f);
 
-    // ── Buttons ──────────────────────────────────────────────────────────────
-    c[ImGuiCol_Button]            = ImVec4(0.16f, 0.36f, 0.58f, 0.68f);
-    c[ImGuiCol_ButtonHovered]     = ImVec4(0.24f, 0.50f, 0.76f, 0.78f);
-    c[ImGuiCol_ButtonActive]      = ImVec4(0.20f, 0.44f, 0.70f, 0.90f);
+        c[ImGuiCol_ScrollbarBg]          = ImVec4(0.00f, 0.00f, 0.00f, 0.15f);
+        c[ImGuiCol_ScrollbarGrab]        = ImVec4(0.30f, 0.32f, 0.40f, 0.50f);
+        c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.38f, 0.40f, 0.50f, 0.65f);
+        c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.46f, 0.48f, 0.60f, 0.80f);
 
-    // ── Text — bright white for legibility against transparent background ─────
-    c[ImGuiCol_Text]              = ImVec4(0.96f, 0.97f, 1.00f, 1.00f);
-    c[ImGuiCol_TextDisabled]      = ImVec4(0.55f, 0.68f, 0.82f, 0.80f);
+        c[ImGuiCol_Button]               = ImVec4(0.20f, 0.22f, 0.30f, 0.65f);
+        c[ImGuiCol_ButtonHovered]        = ImVec4(0.26f, 0.28f, 0.38f, 0.78f);
+        c[ImGuiCol_ButtonActive]         = ImVec4(0.22f, 0.24f, 0.34f, 0.88f);
 
-    // ── Check / combo ────────────────────────────────────────────────────────
-    c[ImGuiCol_CheckMark]         = ImVec4(0.45f, 0.85f, 1.00f, 1.00f);
-    c[ImGuiCol_Separator]         = ImVec4(0.45f, 0.70f, 1.00f, 0.25f);
-    c[ImGuiCol_SeparatorHovered]  = ImVec4(0.55f, 0.80f, 1.00f, 0.45f);
-    c[ImGuiCol_SeparatorActive]   = ImVec4(0.60f, 0.88f, 1.00f, 0.60f);
+        c[ImGuiCol_Text]                 = ImVec4(0.90f, 0.90f, 0.94f, 1.00f);
+        c[ImGuiCol_TextDisabled]         = ImVec4(0.52f, 0.54f, 0.62f, 0.85f);
+
+        c[ImGuiCol_CheckMark]            = ImVec4(0.52f, 0.66f, 0.92f, 1.00f);
+        c[ImGuiCol_Separator]            = ImVec4(0.28f, 0.30f, 0.38f, 0.38f);
+        c[ImGuiCol_SeparatorHovered]     = ImVec4(0.38f, 0.40f, 0.50f, 0.55f);
+        c[ImGuiCol_SeparatorActive]      = ImVec4(0.48f, 0.50f, 0.62f, 0.72f);
+
+    } else { // Theme::Light
+        // ── Subtle atmosphere glass — mirrors the galaxy sidebar look:
+        //    very low alpha so the starfield bleeds through uniformly.
+        //    Title bar alpha almost matches WindowBg so there's no heavy
+        //    coloured band at the top of the planet editor.
+        c[ImGuiCol_WindowBg]             = ImVec4(0.52f, 0.78f, 1.00f, 0.12f);
+        c[ImGuiCol_ChildBg]              = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[ImGuiCol_PopupBg]              = ImVec4(0.18f, 0.25f, 0.38f, 0.94f);
+
+        c[ImGuiCol_Border]               = ImVec4(0.60f, 0.82f, 1.00f, 0.28f);
+        c[ImGuiCol_BorderShadow]         = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+
+        // Title bar blends into window — same alpha as WindowBg so it doesn't pop
+        c[ImGuiCol_TitleBg]              = ImVec4(0.50f, 0.76f, 1.00f, 0.10f);
+        c[ImGuiCol_TitleBgActive]        = ImVec4(0.52f, 0.78f, 1.00f, 0.13f);
+        c[ImGuiCol_TitleBgCollapsed]     = ImVec4(0.46f, 0.70f, 0.96f, 0.08f);
+
+        c[ImGuiCol_FrameBg]              = ImVec4(0.55f, 0.80f, 1.00f, 0.14f);
+        c[ImGuiCol_FrameBgHovered]       = ImVec4(0.60f, 0.85f, 1.00f, 0.24f);
+        c[ImGuiCol_FrameBgActive]        = ImVec4(0.64f, 0.88f, 1.00f, 0.34f);
+
+        c[ImGuiCol_Header]               = ImVec4(0.52f, 0.78f, 1.00f, 0.18f);
+        c[ImGuiCol_HeaderHovered]        = ImVec4(0.58f, 0.84f, 1.00f, 0.28f);
+        c[ImGuiCol_HeaderActive]         = ImVec4(0.64f, 0.90f, 1.00f, 0.38f);
+
+        c[ImGuiCol_Tab]                  = ImVec4(0.48f, 0.74f, 1.00f, 0.14f);
+        c[ImGuiCol_TabHovered]           = ImVec4(0.55f, 0.82f, 1.00f, 0.28f);
+        c[ImGuiCol_TabActive]            = ImVec4(0.60f, 0.86f, 1.00f, 0.48f);
+        c[ImGuiCol_TabUnfocused]         = ImVec4(0.42f, 0.68f, 0.94f, 0.08f);
+        c[ImGuiCol_TabUnfocusedActive]   = ImVec4(0.50f, 0.78f, 1.00f, 0.26f);
+
+        c[ImGuiCol_SliderGrab]           = ImVec4(0.58f, 0.84f, 1.00f, 0.85f);
+        c[ImGuiCol_SliderGrabActive]     = ImVec4(0.72f, 0.92f, 1.00f, 1.00f);
+
+        c[ImGuiCol_ScrollbarBg]          = ImVec4(0.48f, 0.74f, 1.00f, 0.06f);
+        c[ImGuiCol_ScrollbarGrab]        = ImVec4(0.52f, 0.80f, 1.00f, 0.28f);
+        c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.60f, 0.86f, 1.00f, 0.42f);
+        c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.70f, 0.92f, 1.00f, 0.58f);
+
+        c[ImGuiCol_Button]               = ImVec4(0.50f, 0.78f, 1.00f, 0.18f);
+        c[ImGuiCol_ButtonHovered]        = ImVec4(0.58f, 0.84f, 1.00f, 0.30f);
+        c[ImGuiCol_ButtonActive]         = ImVec4(0.64f, 0.90f, 1.00f, 0.40f);
+
+        c[ImGuiCol_Text]                 = ImVec4(0.92f, 0.96f, 1.00f, 1.00f);
+        c[ImGuiCol_TextDisabled]         = ImVec4(0.68f, 0.84f, 1.00f, 0.78f);
+
+        c[ImGuiCol_CheckMark]            = ImVec4(0.78f, 0.94f, 1.00f, 1.00f);
+        c[ImGuiCol_Separator]            = ImVec4(0.56f, 0.82f, 1.00f, 0.22f);
+        c[ImGuiCol_SeparatorHovered]     = ImVec4(0.66f, 0.88f, 1.00f, 0.38f);
+        c[ImGuiCol_SeparatorActive]      = ImVec4(0.76f, 0.94f, 1.00f, 0.55f);
+    }
 }
 
 void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
@@ -354,117 +398,192 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
         return;
     }
 
-    // ── Exoplanet Search ─────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Exoplanet Lookup", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::TextDisabled("Search NASA Exoplanet Archive");
-        ImGui::SetNextItemWidth(-80);
-        bool hitEnter = ImGui::InputText("##planet", m_searchBuf, sizeof(m_searchBuf),
-                                         ImGuiInputTextFlags_EnterReturnsTrue);
-        ImGui::SameLine();
-        bool clicked = ImGui::Button("Load");
-        if ((hitEnter || clicked) && m_exoCallback && m_searchBuf[0] != '\0') {
-            m_exoStatus = "Loading...";
-            m_exoCallback(std::string(m_searchBuf));
-        }
-        ImGui::TextDisabled("%s", m_exoStatus.c_str());
-        ImGui::Spacing();
+    // ── Back to Galaxy button ────────────────────────────────────────────
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button,
+            ImVec4(0.08f, 0.20f, 0.40f, 0.70f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+            ImVec4(0.14f, 0.32f, 0.60f, 0.85f));
+        if (ImGui::SmallButton("  Back to Galaxy  "))
+            m_backPressed = true;
+        ImGui::PopStyleColor(2);
     }
 
-    // ── Presets ──────────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Presets", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SetNextItemWidth(-70);
-        ImGui::Combo("##preset", &m_presetIndex, presetNames, presetCount);
-        ImGui::SameLine();
-        if (ImGui::Button("Apply")) {
-            p = makePreset(m_presetIndex);
-        }
-    }
-
-    // ── Planet ───────────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Planet", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SliderFloat("Radius", &p.radius, 0.5f, 5.0f);
-        ImGui::SliderFloat("Rotation Offset", &p.rotationOffset, 0.0f, 6.28f);
-        ImGui::SliderFloat("Quality", &p.quality, 0.0f, 2.0f);
-        ImGui::SliderFloat("Rotation Speed", &p.rotationSpeed, 0.0f, 1.0f);
-    }
-
-    // ── Terrain ──────────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Terrain", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SliderFloat("Noise Strength", &p.noiseStrength, 0.0f, 0.5f);
-        ImGui::SliderFloat("Terrain Scale", &p.terrainScale, 0.1f, 3.0f);
-        ImGui::SliderFloat("Water Level", &p.waterLevel, -0.2f, 0.3f);
-        ImGui::Separator();
-        ImGui::TextDisabled("Noise Shape");
-        ImGui::SliderInt("Octaves", &p.fbmOctaves, 1, 8);
-        ImGui::SliderFloat("Persistence", &p.fbmPersistence, 0.1f, 0.9f, "%.2f");
-        ImGui::SliderFloat("Lacunarity", &p.fbmLacunarity, 1.0f, 4.0f, "%.2f");
-        ImGui::SliderFloat("Exponentiation", &p.fbmExponentiation, 0.5f, 10.0f, "%.1f");
-        ImGui::SliderFloat("Domain Warp", &p.domainWarpStrength, 0.0f, 2.0f, "%.2f");
-        ImGui::Separator();
-        ImGui::TextDisabled("Terrain Features");
-        ImGui::SliderFloat("Ridged Strength", &p.ridgedStrength, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Crater Strength", &p.craterStrength, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Continent Scale", &p.continentScale, 0.0f, 3.0f, "%.2f");
-    }
-
-    // ── Latitude Effects ────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Latitude Effects")) {
-        ImGui::SliderFloat("Polar Cap Size", &p.polarCapSize, 0.0f, 1.0f);
-        ImGui::SliderFloat("Banding Strength", &p.bandingStrength, 0.0f, 1.0f);
-        ImGui::SliderFloat("Banding Frequency", &p.bandingFrequency, 5.0f, 50.0f, "%.0f");
-    }
-
-    // ── Surface Colors ──────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Surface Colors")) {
-        ImGui::ColorEdit3("Water Deep", &p.waterColorDeep.x);
-        ImGui::ColorEdit3("Water Surface", &p.waterColorSurface.x);
-        ImGui::ColorEdit3("Sand", &p.sandColor.x);
-        ImGui::ColorEdit3("Trees", &p.treeColor.x);
-        ImGui::ColorEdit3("Rock", &p.rockColor.x);
-        ImGui::ColorEdit3("Ice", &p.iceColor.x);
-    }
-
-    // ── Biome Levels ────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Biome Levels")) {
-        ImGui::SliderFloat("Sand Level", &p.sandLevel, 0.0f, 0.2f);
-        ImGui::SliderFloat("Tree Level", &p.treeLevel, 0.0f, 0.2f);
-        ImGui::SliderFloat("Rock Level", &p.rockLevel, 0.0f, 0.3f);
-        ImGui::SliderFloat("Ice Level", &p.iceLevel, 0.0f, 0.4f);
-        ImGui::SliderFloat("Transition", &p.transition, 0.001f, 0.1f);
-    }
-
-    // ── Clouds ──────────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Clouds")) {
-        ImGui::SliderFloat("Density##clouds", &p.cloudsDensity, 0.0f, 1.0f);
-        ImGui::SliderFloat("Scale##clouds", &p.cloudsScale, 0.1f, 4.0f);
-        ImGui::SliderFloat("Speed##clouds", &p.cloudsSpeed, 0.0f, 5.0f);
-        ImGui::SliderFloat("Altitude##clouds", &p.cloudAltitude, 0.02f, 0.5f, "%.3f");
-        ImGui::SliderFloat("Thickness##clouds", &p.cloudThickness, 0.02f, 0.3f, "%.3f");
-        ImGui::ColorEdit3("Cloud Color", &p.cloudColor.x);
-    }
-
-    // ── Atmosphere ──────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Atmosphere")) {
-        ImGui::ColorEdit3("Atmo Color", &p.atmosphereColor.x);
-        ImGui::SliderFloat("Density##atmo", &p.atmosphereDensity, 0.0f, 1.0f);
-    }
-
-    // ── Lighting ────────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SliderFloat("Sun X", &p.sunDirection.x, -2.0f, 2.0f);
-        ImGui::SliderFloat("Sun Y", &p.sunDirection.y, -2.0f, 2.0f);
-        ImGui::SliderFloat("Sun Z", &p.sunDirection.z, -2.0f, 2.0f);
-        ImGui::SliderFloat("Intensity", &p.sunIntensity, 0.0f, 6.0f);
-        ImGui::SliderFloat("Ambient", &p.ambientLight, 0.0f, 0.2f);
-        ImGui::ColorEdit3("Sun Color", &p.sunColor.x);
-        ImGui::ColorEdit3("Deep Space", &p.deepSpaceColor.x);
-    }
-
-    // ── Reset ───────────────────────────────────────────────────────────
+    ImGui::Spacing();
     ImGui::Separator();
-    if (ImGui::Button("Reset to Defaults")) {
-        p = PlanetParams{};
-        m_presetIndex = 0;
+    ImGui::Spacing();
+
+    // ── Pokédex-style liquid glass tab bar ───────────────────────────────
+    if (ImGui::BeginTabBar("##tabs")) {
+
+        // ━━ DATA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (ImGui::BeginTabItem("  DATA  ")) {
+            ImGui::Spacing();
+
+            // Current planet / load status line
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.88f, 1.0f, 1.0f));
+            ImGui::TextWrapped("%s", m_exoStatus.c_str());
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Helper: two-column data row.
+            // AI-predicted fields get a small blue badge.
+            auto row = [](const char* label, const char* value, bool ai) {
+                ImGui::TextDisabled("%s", label);
+                ImGui::SameLine(110.f);
+                ImGui::Text("%s", value);
+                if (ai) {
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.75f, 1.0f, 0.90f));
+                    ImGui::Text(" \xe2\x97\x86 AI");   // ◆ AI
+                    ImGui::PopStyleColor();
+                }
+            };
+
+            // ── Classification ──────────────────────────────────────────
+            ImGui::TextDisabled("CLASSIFICATION");
+            ImGui::Spacing();
+            row("Type",         "number",     false);
+            row("Sub-type",     "number",     true);
+            row("Distance",     "number ly",  false);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ── Physical ────────────────────────────────────────────────
+            ImGui::TextDisabled("PHYSICAL");
+            ImGui::Spacing();
+            row("Mass",         "number M\xe2\x8a\x95",     true);   // M⊕
+            row("Radius",       "number R\xe2\x8a\x95",     true);   // R⊕
+            row("Gravity",      "number g",   true);
+            row("Density",      "number g/cm\xc2\xb3", true); // g/cm³
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ── Orbit ───────────────────────────────────────────────────
+            ImGui::TextDisabled("ORBIT");
+            ImGui::Spacing();
+            row("Period",       "number days", true);
+            row("Semi-major",   "number AU",   false);
+            row("Eccentricity", "number",      true);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ── Environment ─────────────────────────────────────────────
+            ImGui::TextDisabled("ENVIRONMENT");
+            ImGui::Spacing();
+            row("Surf. Temp",   "number K",   true);
+            row("Atmosphere",   "number",     true);
+            row("Water",        "number %",   true);
+            row("Habitability", "number",     true);
+
+            ImGui::EndTabItem();
+        }
+
+        // ━━ WORLD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (ImGui::BeginTabItem(" WORLD  ")) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("Planet");
+            ImGui::SliderFloat("Radius",        &p.radius,        0.5f,  5.0f);
+            ImGui::SliderFloat("Rot Offset",    &p.rotationOffset, 0.0f, 6.28f);
+            ImGui::SliderFloat("Quality",       &p.quality,       0.0f,  2.0f);
+            ImGui::SliderFloat("Rot Speed",     &p.rotationSpeed, 0.0f,  1.0f);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextDisabled("Terrain");
+            ImGui::SliderFloat("Noise",         &p.noiseStrength,     0.0f, 0.5f);
+            ImGui::SliderFloat("Scale",         &p.terrainScale,      0.1f, 3.0f);
+            ImGui::SliderFloat("Water Level",   &p.waterLevel,       -0.2f, 0.3f);
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Noise Shape");
+            ImGui::SliderInt  ("Octaves",       &p.fbmOctaves,         1,    8);
+            ImGui::SliderFloat("Persistence",   &p.fbmPersistence,    0.1f, 0.9f, "%.2f");
+            ImGui::SliderFloat("Lacunarity",    &p.fbmLacunarity,     1.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Exponent",      &p.fbmExponentiation, 0.5f,10.0f, "%.1f");
+            ImGui::SliderFloat("Domain Warp",   &p.domainWarpStrength,0.0f, 2.0f, "%.2f");
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Features");
+            ImGui::SliderFloat("Ridged",        &p.ridgedStrength,  0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Craters",       &p.craterStrength,  0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Continents",    &p.continentScale,  0.0f, 3.0f, "%.2f");
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Latitude");
+            ImGui::SliderFloat("Polar Cap",     &p.polarCapSize,    0.0f, 1.0f);
+            ImGui::SliderFloat("Banding",       &p.bandingStrength, 0.0f, 1.0f);
+            ImGui::SliderFloat("Band Freq",     &p.bandingFrequency,5.0f,50.0f,"%.0f");
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Biome Levels");
+            ImGui::SliderFloat("Sand",          &p.sandLevel,  0.0f, 0.2f);
+            ImGui::SliderFloat("Trees",         &p.treeLevel,  0.0f, 0.2f);
+            ImGui::SliderFloat("Rock",          &p.rockLevel,  0.0f, 0.3f);
+            ImGui::SliderFloat("Ice",           &p.iceLevel,   0.0f, 0.4f);
+            ImGui::SliderFloat("Transition",    &p.transition, 0.001f, 0.1f);
+            ImGui::EndTabItem();
+        }
+
+        // ━━ VISUAL ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (ImGui::BeginTabItem(" VISUAL ")) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("Surface");
+            ImGui::ColorEdit3("Water Deep",    &p.waterColorDeep.x);
+            ImGui::ColorEdit3("Water Surface", &p.waterColorSurface.x);
+            ImGui::ColorEdit3("Sand",          &p.sandColor.x);
+            ImGui::ColorEdit3("Trees",         &p.treeColor.x);
+            ImGui::ColorEdit3("Rock",          &p.rockColor.x);
+            ImGui::ColorEdit3("Ice",           &p.iceColor.x);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextDisabled("Clouds");
+            ImGui::SliderFloat("Density##c",   &p.cloudsDensity,  0.0f, 1.0f);
+            ImGui::SliderFloat("Scale##c",     &p.cloudsScale,    0.1f, 4.0f);
+            ImGui::SliderFloat("Speed##c",     &p.cloudsSpeed,    0.0f, 5.0f);
+            ImGui::SliderFloat("Altitude##c",  &p.cloudAltitude,  0.02f,0.5f,"%.3f");
+            ImGui::SliderFloat("Thickness##c", &p.cloudThickness, 0.02f,0.3f,"%.3f");
+            ImGui::ColorEdit3("Cloud Color",   &p.cloudColor.x);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextDisabled("Atmosphere");
+            ImGui::ColorEdit3("Atmo Color",    &p.atmosphereColor.x);
+            ImGui::SliderFloat("Density##a",   &p.atmosphereDensity, 0.0f, 1.0f);
+            ImGui::EndTabItem();
+        }
+
+        // ━━ LIGHT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (ImGui::BeginTabItem(" LIGHT  ")) {
+            ImGui::Spacing();
+            ImGui::SliderFloat("Sun X",      &p.sunDirection.x, -2.0f, 2.0f);
+            ImGui::SliderFloat("Sun Y",      &p.sunDirection.y, -2.0f, 2.0f);
+            ImGui::SliderFloat("Sun Z",      &p.sunDirection.z, -2.0f, 2.0f);
+            ImGui::SliderFloat("Intensity",  &p.sunIntensity,    0.0f, 6.0f);
+            ImGui::SliderFloat("Ambient",    &p.ambientLight,    0.0f, 0.2f);
+            ImGui::ColorEdit3("Sun Color",   &p.sunColor.x);
+            ImGui::ColorEdit3("Deep Space",  &p.deepSpaceColor.x);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            if (ImGui::Button("Reset to Defaults", ImVec2(-1, 0))) {
+                p = PlanetParams{};
+                m_presetIndex = 0;
+            }
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
     }
 
     if (outPos)  *outPos  = ImGui::GetWindowPos();
@@ -478,6 +597,112 @@ void UIManager::setExoplanetCallback(std::function<void(const std::string&)> onL
 
 void UIManager::setExoplanetStatus(const std::string& status) {
     m_exoStatus = status;
+}
+
+PlanetParams UIManager::getPreset(int index) {
+    return makePreset(index);
+}
+
+bool UIManager::wasBackPressed() {
+    bool v = m_backPressed;
+    m_backPressed = false;
+    return v;
+}
+
+void UIManager::applyThemeTo(Theme t) {
+    m_theme = t;
+    setupStyle();
+}
+
+void UIManager::renderThemeToggle() {
+    const float kW   = 54.f;
+    const float kH   = 22.f;
+    const float kPad =  9.f;
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    // ── Smooth knob animation ────────────────────────────────────────────────
+    // Animate toward the current theme target every frame using DeltaTime.
+    float target = (m_theme == Theme::Light) ? 1.f : 0.f;
+    float speed  = io.DeltaTime * 10.f;  // ~0.1 s to slide across
+    if (m_toggleAnimT < target)
+        m_toggleAnimT = std::min(m_toggleAnimT + speed, target);
+    else
+        m_toggleAnimT = std::max(m_toggleAnimT - speed, target);
+
+    // ── Screen position ──────────────────────────────────────────────────────
+    const float x = io.DisplaySize.x - kW - kPad;
+    const float y = kPad;
+    const bool  dk = (m_theme == Theme::Dark);
+
+    // ── Draw on foreground draw list — always renders on top of every window ──
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+
+    // Pill background colours match the two UI modes shown in-app:
+    //   Dark  → space grey  (matches WindowBg #242428 family)
+    //   Light → atmosphere blue (matches WindowBg #8CCCFF family)
+    ImU32 bg = dk ? IM_COL32(36, 37, 44, 230) : IM_COL32(120, 190, 255, 220);
+    dl->AddRectFilled({ x, y }, { x + kW, y + kH }, bg, kH * 0.5f);
+
+    // Pill border
+    ImU32 bd = dk ? IM_COL32(90, 95, 118, 180) : IM_COL32(100, 175, 255, 180);
+    dl->AddRect({ x, y }, { x + kW, y + kH }, bd, kH * 0.5f, 0, 1.5f);
+
+    // Knob: slides smoothly between left (dark) and right (light)
+    const float r   = kH * 0.5f - 3.f;
+    const float kxL = x + 3.f + r;            // fully-dark position
+    const float kxR = x + kW - 3.f - r;       // fully-light position
+    const float kx  = kxL + (kxR - kxL) * m_toggleAnimT;
+    const float ky  = y + kH * 0.5f;
+
+    // Glow behind knob (dark = cool blue-grey, light = sky glow)
+    ImU32 glow = dk ? IM_COL32(80, 90, 130, 55) : IM_COL32(160, 220, 255, 65);
+    dl->AddCircleFilled({ kx, ky }, r + 3.f, glow);
+
+    // Knob fill: dark = cool grey-white  /  light = bright sky white
+    ImU32 knob = dk ? IM_COL32(170, 175, 195, 248) : IM_COL32(230, 245, 255, 248);
+    dl->AddCircleFilled({ kx, ky }, r, knob);
+
+    // Specular highlight
+    dl->AddCircleFilled({ kx - r * 0.28f, ky - r * 0.30f },
+        r * 0.25f, IM_COL32(255, 255, 255, 110));
+
+    // Inactive-side micro-label
+    const char* lbl = dk ? "L" : "D";
+    ImVec2 tsz = ImGui::CalcTextSize(lbl);
+    float  lx  = dk ? x + kW - 3.f - r - tsz.x - 2.f : x + 3.f + r + 2.f;
+    float  ly  = y + (kH - tsz.y) * 0.5f;
+    ImU32  tc  = dk ? IM_COL32(190, 195, 215, 120) : IM_COL32(60, 120, 200, 120);
+    dl->AddText({ lx, ly }, tc, lbl);
+
+    // ── Hit-test window — always the last window created → always front-most ──
+    // Zero background + no decoration; invisible to the user but handles input.
+    ImGui::SetNextWindowPos({ x - 2.f, y - 2.f }, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({ kW + 4.f, kH + 4.f }, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 2.f, 2.f });
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+
+    constexpr ImGuiWindowFlags kHitFlags =
+        ImGuiWindowFlags_NoDecoration    |
+        ImGuiWindowFlags_NoMove          |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoNav           |
+        ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    if (ImGui::Begin("##theme_hit", nullptr, kHitFlags)) {
+        ImGui::PopStyleVar(2);
+        ImGui::InvisibleButton("##tog", { kW, kH });
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(dk ? "Switch to Light mode" : "Switch to Dark mode");
+        if (ImGui::IsItemClicked()) {
+            m_theme = dk ? Theme::Light : Theme::Dark;
+            setupStyle();
+        }
+    } else {
+        ImGui::PopStyleVar(2);
+    }
+    ImGui::End();
 }
 
 }  // namespace astrocore
