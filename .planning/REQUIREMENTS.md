@@ -101,16 +101,16 @@ Wire real exoplanet data from 4 astronomical databases through an AI inference p
 ## R4: Exoplanet Catalogue Browser
 **Priority: Medium**
 
-### R4.1: Local Exoplanet Database
-- Pre-fetch and cache top N exoplanets (configurable, default 500)
-- Store fused records locally for instant browsing
-- Background refresh on app start
+### R4.1: Local Exoplanet Database ✅
+- [x] Pre-fetch and cache top N exoplanets (configurable, default 500)
+- [x] Store fused records locally for instant browsing
+- [x] Background refresh on app start
 
-### R4.2: Catalogue UI
-- Scrollable list panel in ImGui
-- Default sort: most recently discovered first
-- Columns: name, type, mass, radius, temperature, discovery year
-- Click to select → triggers render pipeline
+### R4.2: Catalogue UI ✅
+- [x] Scrollable list panel in ImGui
+- [x] Default sort: most recently discovered first
+- [x] Columns: name, type, mass, radius, temperature, discovery year
+- [x] Click to select → triggers render pipeline
 
 ### R4.3: Mini Render Previews
 - Small thumbnail renders for each catalogue entry
