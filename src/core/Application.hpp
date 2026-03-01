@@ -3,9 +3,8 @@
 #include "core/Window.hpp"
 #include "render/IRenderer.hpp"
 #include "ui/UIManager.hpp"
-#include "data/NasaApiClient.hpp"
+#include "data/DataFusionEngine.hpp"
 #include "data/CacheManager.hpp"
-#include "data/ExoplanetData.hpp"
 #include "ai/InferenceEngine.hpp"
 #include "render/ExoplanetMapper.hpp"
 #include <memory>
@@ -22,9 +21,9 @@ class Camera;
 // Pipeline stage for thread-safe status communication
 enum class PipelineStage : int {
     Idle = 0,
-    QueryingNasa,
-    RunningAI,
-    MappingParams,
+    QueryingSources,    // Multi-source: NASA + OEC + Gaia + CDS + AI data fill
+    InferringVisuals,   // AI render parameter inference
+    MappingParams,      // Physics + AI → final PlanetParams
     Done,
     Failed
 };
@@ -58,9 +57,9 @@ private:
     std::unique_ptr<UIManager>       m_ui;
 
     // ML pipeline
-    std::unique_ptr<NasaApiClient>   m_nasa;
-    std::unique_ptr<InferenceEngine> m_inference;
-    std::unique_ptr<CacheManager>    m_cacheManager;
+    std::unique_ptr<DataFusionEngine> m_dataFusion;
+    std::unique_ptr<InferenceEngine>  m_inference;   // for render param inference
+    std::unique_ptr<CacheManager>     m_cacheManager;
 
     using LoadResult = std::tuple<std::optional<PlanetParams>, std::string, std::optional<ExoplanetData>>;
     std::future<LoadResult> m_planetFuture;

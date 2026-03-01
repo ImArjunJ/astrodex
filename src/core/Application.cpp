@@ -16,8 +16,8 @@ namespace astrocore {
 // Pipeline stage display messages (indexed by PipelineStage enum)
 static constexpr const char* kStageMessages[] = {
     "",                          // Idle
-    "Querying NASA...",          // QueryingNasa
-    "Running AI inference...",   // RunningAI
+    "Querying catalogs...",      // QueryingSources (NASA + OEC + Gaia + CDS)
+    "Inferring visuals...",      // InferringVisuals
     "Mapping parameters...",     // MappingParams
     "Done",                      // Done
     "Error"                      // Failed
@@ -61,8 +61,8 @@ void Application::init() {
                static_cast<VulkanRenderer*>(m_renderer.get()));
 
     // ML pipeline
-    m_nasa      = std::make_unique<NasaApiClient>();
-    m_inference = std::make_unique<InferenceEngine>();
+    m_dataFusion   = std::make_unique<DataFusionEngine>();
+    m_inference    = std::make_unique<InferenceEngine>();
     m_cacheManager = std::make_unique<CacheManager>();
 
     m_ui->setExoplanetCallback([this](const std::string& name) {
@@ -275,33 +275,27 @@ void Application::loadPlanet(const std::string& name) {
         return;
     }
 
-    // ── Steps 2-6: Unknown exoplanet — async pipeline ─────────────────────────
+    // ── Multi-source exoplanet pipeline (NASA + OEC + Gaia + CDS + AI) ────────
     m_planetLoading = true;
     m_ui->setLoading(true);
     m_ui->setExoplanetStatus("Searching...");
-    m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingNasa));
+    m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingSources));
 
     m_planetFuture = std::async(std::launch::async,
         [this, name]() -> LoadResult {
 
-            // ── Step 2: NASA Exoplanet Archive query ───────────────────────
-            m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingNasa));
-            auto results = m_nasa->queryByNameSync(name);
-            if (results.empty()) {
+            // ── Step 1: Multi-source data fusion ────────────────────────────
+            // Queries NASA, OEC, resolves host star via CDS/SIMBAD,
+            // enriches with Gaia DR3 + VizieR, merges by priority,
+            // then AI-fills missing physical fields.
+            m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingSources));
+            auto data = m_dataFusion->fetchAndFuseSync(name);
+            if (data.name.empty()) {
                 m_pipelineStage.store(static_cast<int>(PipelineStage::Failed));
                 return {std::nullopt, "Not found: \"" + name + "\"", std::nullopt};
             }
 
-            auto data = results[0];
-            data.calculateDerivedValues();
-
-            // ── Step 3: AI fills missing atmosphere / physical fields ───────
-            m_pipelineStage.store(static_cast<int>(PipelineStage::RunningAI));
-            if (m_inference->isAvailable()) {
-                data = m_inference->fillMissingParametersSync(std::move(data));
-            }
-
-            // ── Step 4: Find closest solar-system analog for context ────────
+            // ── Step 2: Find closest solar-system analog for context ────────
             m_pipelineStage.store(static_cast<int>(PipelineStage::MappingParams));
             std::string           analogContext;
             std::set<std::string> physicsFields;
@@ -320,13 +314,15 @@ void Application::loadPlanet(const std::string& name) {
                 }
             }
 
-            // ── Step 5: AI fills remaining unknown render fields ────────────
+            // ── Step 3: AI infers visual render parameters ──────────────────
+            m_pipelineStage.store(static_cast<int>(PipelineStage::InferringVisuals));
             nlohmann::json aiJson;
             if (m_inference->isAvailable()) {
                 aiJson = m_inference->inferRenderParamsSync(data, analogContext, physicsFields);
             }
 
-            // ── Step 6: Physics base + AI fill → final PlanetParams ─────────
+            // ── Step 4: Physics base + AI → final PlanetParams ──────────────
+            m_pipelineStage.store(static_cast<int>(PipelineStage::MappingParams));
             AnalogMatch usedAnalog;
             PlanetParams params = ExoplanetMapper::toRenderParams(data, aiJson, &usedAnalog);
 

@@ -643,7 +643,6 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
         if (matchCount > 0) {
             ImGui::SetNextWindowPos(ImVec2(acInputPos.x, acInputPos.y + acInputSize.y));
             ImGui::SetNextWindowSize(ImVec2(acInputSize.x, 0));  // auto-height
-            ImGui::SetNextWindowFocus();
 
             if (ImGui::Begin("##autocomplete", nullptr,
                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
