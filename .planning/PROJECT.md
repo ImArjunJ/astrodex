@@ -1,67 +1,83 @@
 # Astrodex — Project Context
 
-## Vision
-A procedural exoplanet renderer that uses **real observational data** from multiple astronomical databases and **LLM inference** to fill data gaps, producing scientifically-grounded 3D visualizations of known exoplanets.
+## What This Is
 
-## Project Type
-Desktop application (C++23 / Vulkan). Active development branches (`feat-render`, `Tej`) have migrated from OpenGL 4.5 to Vulkan/Metal with an `IRenderer.hpp` abstraction layer for cross-platform support (Windows, macOS, Linux, Apple Silicon, x64). WebGPU browser target is a future milestone.
+A procedural exoplanet renderer that pulls **real observational data** from 4 astronomical databases (NASA TAP, OEC, Gaia DR3, CDS/VizieR), uses **AI inference** to fill data gaps, and produces scientifically-grounded 3D visualizations of any known exoplanet. Ships with a Pokedex-style catalogue of 500+ planets with mini-render previews.
 
-## What Exists
-- Procedural planet renderer with ~100 tunable parameters (terrain, biome, ocean, atmosphere, gas giant, rings, lighting)
-- Manual presets for Solar System bodies (Earth, Mars, Jupiter, etc.)
-- ImGui UI with sliders and preset selection
-- Orbit camera, shader-based rendering pipeline
-- **Built but not wired in:**
-  - `NasaApiClient` — queries NASA Exoplanet Archive TAP endpoint
-  - `ExoplanetData` — rich data model with `MeasuredValue<T>` provenance tracking (NASA vs AI-inferred)
-  - `InferenceEngine` — AWS Bedrock/Claude integration for gap-filling
-  - `PromptTemplates` — structured scientific prompts for atmosphere/render inference
-  - `CelestialBodyParams::fromObservations()` — factory to convert observational data to render params
+## Core Value
 
-## What We're Building (Milestone 1)
-1. **Data Aggregation Layer** — unified pipeline pulling from 4 canonical datasets:
-   - NASA Exoplanet Archive (TAP) — primary catalog, confirmed exoplanets
-   - Open Exoplanet Catalogue (OEC) — XML/GitHub-based, includes binary system hierarchies
-   - CDS/VizieR (Strasbourg) — cross-match host star properties, large catalog access
-   - Gaia DR3 (ESA) — precise stellar distances, temperatures, luminosities, metallicities
+Type any exoplanet name → see it rendered with real data, AI-inferred where needed, with full provenance transparency.
 
-2. **AI Inference Pipeline** — multi-model approach:
-   - **Primary (production)**: Claude via AWS Bedrock (already integrated) for structured JSON inference
-   - **Experimental**: BERT, BART, TabTransformer, ReMasker for benchmarking
-   - Goal: given known params, infer missing atmosphere, surface, rendering properties
+## Current State (after v1.0)
 
-3. **Search + Render** — type an exoplanet name → fetch data → LLM fills gaps → render in viewport
-4. **Catalogue Browser** — scrollable list with mini-render previews, sorted by discovery date
+- **Codebase:** 97 C++ source files, ~21,000 LOC | 9 test files, 538 assertions
+- **Tech stack:** C++23, Vulkan 1.2, GLFW, ImGui 1.91.6-docking, GLM, spdlog, nlohmann/json, VMA, VkBootstrap, pugixml, stb_image_write, libcurl, AWS SDK (Bedrock)
+- **Python:** Experimental ML harness (BERT, BART, TabTransformer, MaskedAutoencoder benchmarks)
+- **Branch:** `refactor/ai` (Vulkan-only, tejui UI merged)
 
-## Key Data Sources
-| Source | What It Provides | Access |
-|--------|-----------------|--------|
-| NASA TAP | Planet mass, radius, orbital params, equilibrium temp, discovery info | HTTP ADQL queries, JSON output |
-| Open Exoplanet Catalogue | Same + binary system hierarchies, community-maintained | GitHub XML files, also CSV tables |
-| CDS/VizieR | 27,200+ astronomical catalogs, host star enrichment | TAP/ADQL, astroquery Python |
-| Gaia DR3 | Stellar parallax/distance, Teff, luminosity, metallicity, age | ESA Archive TAP, ADQL queries |
+### What's Shipped
+- 4-source data pipeline with uncertainty-based fusion and provenance tracking
+- AI inference via AWS Bedrock/Claude with confidence scores and reasoning
+- Physics-based ExoplanetData → PlanetParams mapping
+- Search with autocomplete, real-time pipeline status display
+- Catalogue browser: card grid, sorting, filtering, search, progressive thumbnails
+- Offscreen Vulkan FBO renderer for catalogue mini-previews with PNG disk cache
+- Dark/light theme toggle, tab-based planet editor (DATA/WORLD/VISUAL/LIGHT)
 
-## LLM Architecture Notes
-- **Claude/Bedrock** (primary): Best for structured scientific inference from partial data. Returns JSON with confidence levels.
-- **BERT**: Encoder-only. Useful for classification (planet type, habitability tier). NOT for generation.
-- **BART**: Encoder-decoder. Can generate structured output but weaker than Claude for scientific reasoning.
-- **TabTransformer**: Purpose-built for tabular data. Strong candidate for numerical imputation (missing mass, radius, temperature).
-- **ReMasker**: Masked autoencoding for tabular imputation. Research-grade, promising for this domain.
-- **T5/Flan-T5**: Text-to-text, decent at structured prediction. Lighter-weight alternative to Claude.
+### Known Tech Debt
+- Info panel provenance display (R3.2/R3.3) needs porting into tejui-merged UIManager
+- Catalogue thumbnails are colored placeholders, not full procedural renders
+- CoordinateMatcher unused (cone searches used instead)
+
+## Requirements
+
+### Validated
+
+- ✓ NASA TAP Integration — v1.0
+- ✓ Open Exoplanet Catalogue Integration — v1.0
+- ✓ CDS/VizieR Cross-Matching — v1.0
+- ✓ Gaia DR3 Host Star Enrichment — v1.0
+- ✓ Data Fusion & Conflict Resolution — v1.0
+- ✓ Bedrock/Claude AI Gap-Filling — v1.0
+- ✓ ExoplanetData → PlanetParams Conversion — v1.0
+- ✓ ML Benchmarking Framework — v1.0
+- ✓ Search Interface with Autocomplete — v1.0
+- ✓ Data Provenance Display — v1.0
+- ✓ Planet Info Panel — v1.0
+- ✓ Local Exoplanet Database (500+ prefetched) — v1.0
+- ✓ Catalogue UI with Sorting/Filtering — v1.0
+- ✓ Mini Render Previews — v1.0
+
+### Active
+
+(None — next milestone not yet planned)
+
+### Out of Scope
+
+- WebGPU/WASM browser port (future milestone)
+- Side-by-side planet comparison view
+- Real-time orbit animation
+- Multi-planet system visualization
+- User accounts or cloud sync
+- Mobile app
+
+## Key Decisions
+
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| Vulkan-only (drop Metal/OpenGL) | Unified codebase, modern GPU features | ✓ Good |
+| NASA > Gaia > CDS > OEC priority | NASA has highest quality measured data | ✓ Good |
+| Claude/Bedrock for production AI | Structured JSON, scientific reasoning | ✓ Good |
+| OEC CSV bulk + NASA TAP merge for catalogue | Single HTTP call for 5000 planets | ✓ Good |
+| Deferred full procedural thumbnails | Colored placeholders ship faster | ⚠️ Revisit |
+| tejui UI merge (tab bar, theme, galaxy view) | Modern UI, but overwrote info panel | ⚠️ Revisit |
 
 ## User (Keanu)
-- Wants real exoplanet data driving the renderer, not just manual presets
-- Wants to experiment with multiple LLM/ML architectures
-- Prioritizes the data+inference pipeline over UI polish
-- Future: WebGPU port, side-by-side comparison, more data sources
 
-## Tech Stack
-C++23, Vulkan (feat-render branch) / Metal (Tej branch), GLFW, ImGui, GLM, spdlog, nlohmann/json, CMake, AWS SDK (Bedrock)
-Python (for experimental ML models: transformers, torch, PEFT/LoRA)
+- Wants real exoplanet data driving the renderer
+- Experiments with multiple LLM/ML architectures
+- Prioritizes data+inference pipeline over UI polish
+- Future goals: WebGPU port, side-by-side comparison
 
-## Renderer Architecture Notes
-- **master branch**: Original OpenGL 4.5 renderer with elaborate `CelestialBodyParams` (~100 params)
-- **feat-render branch**: Vulkan implementation (`VulkanRenderer.cpp`, 1040 lines) with `IRenderer.hpp` abstraction and simplified `PlanetParams` struct
-- **Tej branch**: Metal implementation (`MetalRenderer.mm`, 430 lines) with `IRenderer.hpp` abstraction and simplified `PlanetParams` struct
-- Phase 1 (Data Aggregation) works against `ExoplanetData` model which is shared across all branches — renderer-specific mapping happens in Phase 2/3
-- The `IRenderer.hpp` `PlanetParams` on active branches is simpler than master's `CelestialBodyParams` — the ExoplanetData→PlanetParams mapping (R2.2) must target the new interface
+---
+*Last updated: 2026-03-01 after v1.0 milestone*
