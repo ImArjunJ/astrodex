@@ -48,8 +48,10 @@ set(ASTROCORE_SOURCES
     src/render/VulkanRenderer.cpp
     src/render/PlanetParams.cpp
     src/render/ExoplanetMapper.cpp
+    src/render/ThumbnailRenderer.cpp
     src/ui/UIManager.cpp
     src/ui/GalaxyView.cpp
+    src/ui/CatalogueView.cpp
     src/intro/IntroAnimation.cpp
     # Data layer
     src/data/NasaApiClient.cpp
