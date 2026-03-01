@@ -103,8 +103,28 @@ static constexpr int presetCount = sizeof(presetNames) / sizeof(presetNames[0]);
 static PlanetParams makePreset(int index) {
     PlanetParams p{}; // Earth defaults
     switch (index) {
-    case 0: // Earth — use defaults
-        p.continentScale = 1.0f;
+    case 0: // Earth — match SolarSystemDatabase::makeEarth()
+        p.radius            = 2.0f;
+        p.waterLevel        = 0.22f;
+        p.waterColorDeep    = {0.01f, 0.05f, 0.15f};
+        p.waterColorSurface = {0.02f, 0.12f, 0.27f};
+        p.treeColor         = {0.02f, 0.10f, 0.04f};
+        p.sandColor         = {0.85f, 0.75f, 0.50f};
+        p.rockColor         = {0.25f, 0.22f, 0.18f};
+        p.iceColor          = {0.88f, 0.93f, 0.98f};
+        p.cloudsDensity     = 0.50f;
+        p.cloudAltitude     = 0.12f;
+        p.cloudThickness    = 0.08f;
+        p.atmosphereColor   = {0.05f, 0.30f, 0.90f};
+        p.atmosphereDensity = 0.30f;
+        p.polarCapSize      = 0.15f;
+        p.continentScale    = 0.60f;
+        p.noiseStrength     = 0.20f;
+        p.craterStrength    = 0.02f;
+        p.sunIntensity      = 3.0f;
+        p.sunColor          = {1.0f, 1.0f, 0.90f};
+        p.fbmExponentiation = 5.0f;
+        p.fbmPersistence    = 0.50f;
         break;
     case 1: // Mars — cratered, dry, thin atmosphere
         p.waterColorDeep    = {0.15f, 0.05f, 0.02f};
@@ -417,6 +437,7 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
     // ── Exoplanet Search ─────────────────────────────────────────────────
     // Track autocomplete state across frames (need to render popup after Planet Editor window ends)
     bool showAutocomplete = false;
+    bool inputActive = false;
     ImVec2 acInputPos, acInputSize;
 
     if (ImGui::CollapsingHeader("Exoplanet Lookup", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -430,7 +451,7 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                                          ImGuiInputTextFlags_EnterReturnsTrue);
 
         // Capture input rect for autocomplete positioning
-        bool inputActive = ImGui::IsItemActive();
+        inputActive = ImGui::IsItemActive();
         acInputPos  = ImGui::GetItemRectMin();
         acInputSize = ImGui::GetItemRectSize();
 
@@ -440,12 +461,19 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
         if (m_isLoading) ImGui::EndDisabled();
 
         if ((hitEnter || clicked) && m_exoCallback && m_searchBuf[0] != '\0') {
+            m_acOpen = false;  // close autocomplete on manual load
             m_exoStatus = "Loading...";
             m_exoCallback(std::string(m_searchBuf));
         }
 
-        // Determine if autocomplete should show (keep open while hovered so clicks land)
-        showAutocomplete = (inputActive || m_acHovered) && m_searchBuf[0] != '\0' && !m_isLoading;
+        // Open autocomplete when input is active and has text
+        if (inputActive && m_searchBuf[0] != '\0' && !m_isLoading)
+            m_acOpen = true;
+        // Close when buffer is empty or loading started
+        if (m_searchBuf[0] == '\0' || m_isLoading)
+            m_acOpen = false;
+
+        showAutocomplete = m_acOpen;
 
         ImGui::TextDisabled("%s", m_exoStatus.c_str());
         ImGui::Spacing();
@@ -643,13 +671,18 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
         if (matchCount > 0) {
             ImGui::SetNextWindowPos(ImVec2(acInputPos.x, acInputPos.y + acInputSize.y));
             ImGui::SetNextWindowSize(ImVec2(acInputSize.x, 0));  // auto-height
+            ImGui::SetNextWindowBgAlpha(0.95f);
 
             if (ImGui::Begin("##autocomplete", nullptr,
                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing)) {
-                // Track hover so dropdown stays open while mouse is over it
-                m_acHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
+                // Bring window to front when mouse is over it so clicks reach Selectables
+                bool acHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+                if (acHovered) {
+                    ImGui::SetWindowFocus();
+                }
 
                 int shown = 0;
                 for (const auto& name : m_cachedNames) {
@@ -659,8 +692,7 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                     if (ImGui::Selectable(name.c_str())) {
                         std::strncpy(m_searchBuf, name.c_str(), sizeof(m_searchBuf) - 1);
                         m_searchBuf[sizeof(m_searchBuf) - 1] = '\0';
-                        // Close autocomplete after selection
-                        m_acHovered = false;
+                        m_acOpen = false;  // close after selection
                         // Trigger load on selection
                         if (m_exoCallback) {
                             m_exoStatus = "Loading...";
@@ -669,13 +701,16 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                     }
                     shown++;
                 }
+
+                // Close if user clicked outside both InputText and autocomplete
+                if (ImGui::IsMouseClicked(0) && !acHovered && !inputActive) {
+                    m_acOpen = false;
+                }
             }
             ImGui::End();
         } else {
-            m_acHovered = false;
+            m_acOpen = false;  // no matches, close
         }
-    } else {
-        m_acHovered = false;
     }
 }
 

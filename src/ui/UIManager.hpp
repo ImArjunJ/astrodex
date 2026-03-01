@@ -60,8 +60,8 @@ private:
     // Loading state
     bool m_isLoading = false;  // disables search input and Load button when true
 
-    // Autocomplete hover tracking (keeps dropdown open while mouse is over it)
-    bool m_acHovered = false;
+    // Autocomplete open state (persistent across frames, not tied to InputText focus)
+    bool m_acOpen = false;
 
     // Exoplanet data for info panel (owned by Application)
     const ExoplanetData* m_exoData = nullptr;
