@@ -12,6 +12,7 @@ include(CompilerOptions)
 include(Dependencies)
 
 find_package(OpenGL REQUIRED)
+find_package(CURL REQUIRED)
 
 # Core sources
 set(ASTROCORE_SOURCES
@@ -32,6 +33,22 @@ set(ASTROCORE_SOURCES
     src/physics/PhysicsWorld.cpp
     # Simulation
     src/simulation/Simulation.cpp
+    # Configuration
+    src/config/SystemConfig.cpp
+    src/config/PresetManager.cpp
+    # Data / API
+    src/data/ExoplanetData.cpp
+    src/data/NasaApiClient.cpp
+    src/data/ExoMastClient.cpp
+    src/data/ExoplanetEuClient.cpp
+    src/data/ExoplanetDataAggregator.cpp
+    # Exoplanet rendering
+    src/render/ExoplanetConverter.cpp
+    # AI inference
+    src/ai/InferenceEngine.cpp
+    src/ai/BedrockClient.cpp
+    src/ai/JimmyClient.cpp
+    src/ai/GroqClient.cpp
 )
 
 add_library(astrocore_lib STATIC ${ASTROCORE_SOURCES})
@@ -49,15 +66,19 @@ target_link_libraries(astrocore_lib
         glm::glm
         spdlog::spdlog
         imgui_impl
+        nlohmann_json::nlohmann_json
+        CURL::libcurl
 )
 
 add_executable(astrosplat src/main.cpp)
 target_link_libraries(astrosplat PRIVATE astrocore_lib)
 
-# Copy shaders and assets
+# Copy shaders, assets, and configs
 add_custom_command(TARGET astrosplat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:astrosplat>/shaders
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrosplat>/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/configs $<TARGET_FILE_DIR:astrosplat>/configs
 )

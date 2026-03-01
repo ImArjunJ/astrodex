@@ -200,38 +200,98 @@ float craterNoise(vec3 p) {
     return bowl + rim;
 }
 
-// Cloud-specific FBM — low base frequency, smooth
-float cloudFBM(vec3 p) {
-    float amplitude = 0.5;
-    float frequency = 1.0;
+// ── Improved Cloud System ────────────────────────────────────────────────────
+
+// Worley/cellular noise for puffy cloud base shapes
+float worleyNoise(vec3 p) {
+    vec3 cell = floor(p);
+    vec3 frac = fract(p);
+    float minDist = 1.0;
+
+    for (int x = -1; x <= 1; x++)
+    for (int y = -1; y <= 1; y++)
+    for (int z = -1; z <= 1; z++) {
+        vec3 neighbor = vec3(x, y, z);
+        vec3 cellId = cell + neighbor;
+        // Hash for random point in cell
+        vec3 randomOffset = vec3(
+            noise(cellId * 0.31),
+            noise(cellId * 0.31 + vec3(127.1, 0.0, 0.0)),
+            noise(cellId * 0.31 + vec3(0.0, 269.5, 0.0))
+        );
+        vec3 point = neighbor + randomOffset;
+        float dist = length(frac - point);
+        minDist = min(minDist, dist);
+    }
+    return 1.0 - minDist;  // Invert: high value = inside cloud cell
+}
+
+// Smooth low-frequency noise for large cloud shapes
+float cloudBaseFBM(vec3 p) {
     float total = 0.0;
+    float amplitude = 0.6;
+    float frequency = 0.4;  // MUCH lower base frequency for large shapes
     float normalization = 0.0;
     int octaves = 2 + int(floor(uQuality));
 
     for (int i = 0; i < octaves; ++i) {
         total += noise(p * frequency) * amplitude;
         normalization += amplitude;
-        amplitude *= 0.5;
+        amplitude *= 0.45;  // Faster falloff for smoother shapes
         frequency *= 2.0;
     }
-
-    total /= normalization;
-    return total;
+    return total / normalization;
 }
 
-// Single-pass domain warping for billowy cloud shapes
+// High-frequency detail for cloud edges
+float cloudDetailFBM(vec3 p) {
+    float total = 0.0;
+    float amplitude = 0.5;
+    float frequency = 2.0;
+    float normalization = 0.0;
+
+    for (int i = 0; i < 3; ++i) {
+        total += noise(p * frequency) * amplitude;
+        normalization += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2.2;
+    }
+    return total / normalization;
+}
+
+// Main cloud density function - creates billowy cumulus shapes
 float cloudNoise(vec3 p) {
-    vec3 warp = vec3(
-        cloudFBM(p),
-        cloudFBM(p + vec3(5.2, 1.3, 3.7)),
-        cloudFBM(p + vec3(1.7, 9.2, 4.1)));
+    // Scale down for larger cloud formations
+    vec3 cloudP = p * 0.3;
 
-    return cloudFBM(p + 2.5 * warp);
+    // 1. Base shape from Worley noise (puffy cellular structure)
+    float worley = worleyNoise(cloudP * 1.5);
+
+    // 2. Large-scale variation from low-freq FBM
+    float baseShape = cloudBaseFBM(cloudP);
+
+    // 3. Domain warping for billowing effect
+    vec3 warpOffset = vec3(
+        cloudBaseFBM(cloudP + vec3(0.0)),
+        cloudBaseFBM(cloudP + vec3(43.2, 17.8, 0.0)),
+        cloudBaseFBM(cloudP + vec3(0.0, 93.1, 27.3))
+    );
+    float warped = cloudBaseFBM(cloudP + warpOffset * 0.8);
+
+    // 4. Combine: Worley for structure, FBM for shape, warping for billows
+    float density = worley * 0.4 + baseShape * 0.35 + warped * 0.25;
+
+    // 5. Add fine detail at edges (not throughout)
+    float detail = cloudDetailFBM(p * 0.8);
+    density += detail * 0.15 * smoothstep(0.3, 0.6, density);
+
+    return density;
 }
 
-// Cheap cloud density for shadow estimation (skip domain warping)
+// Cheap version for shadow rays (skip Worley and warping)
 float cloudNoiseCheap(vec3 p) {
-    return cloudFBM(p);
+    vec3 cloudP = p * 0.3;
+    return cloudBaseFBM(cloudP);
 }
 
 // ── Additional Noise Types ──────────────────────────────────────────────────
@@ -550,6 +610,10 @@ void marchCloudSegment(vec3 ro, vec3 rd, float tStart, float tEnd, int numSteps,
     if (tStart >= tEnd || transmittance < 0.01) return;
     float stepSize = (tEnd - tStart) / float(numSteps);
 
+    // Coverage threshold: higher coverage = lower threshold = more clouds
+    // Map coverage 0-1 to threshold 0.7-0.2 (inverted and shifted)
+    float coverageThreshold = 0.7 - uCloudsDensity * 0.5;
+
     for (int i = 0; i < numSteps; ++i) {
         if (transmittance < 0.01) break;
 
@@ -557,21 +621,26 @@ void marchCloudSegment(vec3 ro, vec3 rd, float tStart, float tEnd, int numSteps,
         vec3 pos = ro + rd * t;
         vec3 localPos = pos - uPlanetPosition;
 
-        // Height within cloud layer
+        // Height within cloud layer (0 = bottom, 1 = top)
         float alt = length(localPos) - uPlanetRadius;
-        float heightFrac = (alt - uCloudAltitude) / uCloudThickness;
+        float heightFrac = clamp((alt - uCloudAltitude) / uCloudThickness, 0.0, 1.0);
 
         // Sample cloud density in rotated planet space
+        // Use lower scale multiplier for larger cloud shapes
         vec3 rotatedPos = PLANET_ROTATION * localPos + uPlanetPosition;
-        vec3 cloudCoord = (rotatedPos + vec3(uTime * .008 * uCloudsSpeed)) * uCloudsScale;
-        float density = cloudNoise(cloudCoord);
+        vec3 cloudCoord = (rotatedPos + vec3(uTime * 0.005 * uCloudsSpeed)) * uCloudsScale * 0.5;
+        float rawDensity = cloudNoise(cloudCoord);
 
-        // Height-based shape: less dense at top and bottom of layer
-        density *= smoothstep(0.0, 0.25, heightFrac) * smoothstep(1.0, 0.75, heightFrac);
+        // Height-based shape: cumulus clouds are flat-bottomed, rounded on top
+        // Flat bottom (sharp cutoff), rounded top (gradual falloff)
+        float bottomFalloff = smoothstep(0.0, 0.15, heightFrac);  // Sharp bottom
+        float topFalloff = 1.0 - pow(heightFrac, 2.0);            // Rounded top (quadratic)
+        float heightShape = bottomFalloff * topFalloff;
 
-        // Threshold
-        float threshold = 1.0 - uCloudsDensity * 0.5;
-        density = smoothstep(threshold, threshold + 0.1, density);
+        // Apply coverage threshold with soft edge
+        float softEdge = 0.15 + 0.1 * (1.0 - uCloudsDensity);  // Softer edges at low coverage
+        float density = smoothstep(coverageThreshold, coverageThreshold + softEdge, rawDensity);
+        density *= heightShape;
 
         if (density < 0.001) continue;
 
@@ -579,40 +648,55 @@ void marchCloudSegment(vec3 ro, vec3 rd, float tStart, float tEnd, int numSteps,
         vec3 normal = normalize(localPos);
         float NdotL = clamp(dot(normal, uSunDirection), 0.0, 1.0);
 
-        // Forward scattering phase — bright when looking toward sun
+        // Henyey-Greenstein phase function for realistic cloud scattering
         float cosTheta = dot(rd, uSunDirection);
-        float phase = mix(0.5, 2.5, pow(clamp(cosTheta * 0.5 + 0.5, 0.0, 1.0), 3.0));
+        float g = 0.7;  // Forward scattering bias
+        float hg = (1.0 - g*g) / pow(1.0 + g*g - 2.0*g*cosTheta, 1.5) / (4.0 * PI);
+        float phase = mix(0.25, hg * 3.0, 0.8);  // Blend with isotropic
 
-        // Single shadow step toward sun using cheap noise
+        // Multi-step shadow sampling for softer self-shadowing
         float shadowDensity = 0.0;
         if (uQuality >= 1.0) {
-            vec3 sp = pos + uSunDirection * uCloudThickness * 0.5;
-            vec3 sLocal = sp - uPlanetPosition;
-            float sAlt = length(sLocal) - uPlanetRadius;
-            float sH = (sAlt - uCloudAltitude) / uCloudThickness;
-            if (sH >= 0.0 && sH <= 1.0) {
-                vec3 sRot = PLANET_ROTATION * sLocal + uPlanetPosition;
-                vec3 sCoord = (sRot + vec3(uTime * .008 * uCloudsSpeed)) * uCloudsScale;
-                float sd = cloudNoiseCheap(sCoord);
-                sd *= smoothstep(0.0, 0.25, sH) * smoothstep(1.0, 0.75, sH);
-                sd = smoothstep(threshold, threshold + 0.1, sd);
-                shadowDensity = sd;
+            // Two shadow samples at different distances
+            for (int s = 1; s <= 2; s++) {
+                vec3 sp = pos + uSunDirection * uCloudThickness * float(s) * 0.4;
+                vec3 sLocal = sp - uPlanetPosition;
+                float sAlt = length(sLocal) - uPlanetRadius;
+                float sH = (sAlt - uCloudAltitude) / uCloudThickness;
+                if (sH >= 0.0 && sH <= 1.0) {
+                    vec3 sRot = PLANET_ROTATION * sLocal + uPlanetPosition;
+                    vec3 sCoord = (sRot + vec3(uTime * 0.005 * uCloudsSpeed)) * uCloudsScale * 0.5;
+                    float sd = cloudNoiseCheap(sCoord);
+                    float sBottom = smoothstep(0.0, 0.15, sH);
+                    float sTop = 1.0 - pow(sH, 2.0);
+                    sd = smoothstep(coverageThreshold, coverageThreshold + softEdge, sd) * sBottom * sTop;
+                    shadowDensity += sd * 0.5;
+                }
             }
         }
-        float sunTransmittance = exp(-shadowDensity * 3.0);
+        float sunTransmittance = exp(-shadowDensity * 4.0);
 
-        // Accumulate
-        float absorption = density * stepSize * 18.0;
+        // Beer-Lambert absorption (less aggressive for fluffier look)
+        float absorption = density * stepSize * 12.0;
 
+        // Lighting: direct sun + ambient + powder effect
         vec3 sunLight = uSunColor * uSunIntensity * NdotL * phase * sunTransmittance;
-        vec3 ambient = uAtmosphereColor * 0.08;
-        vec3 luminance = uCloudColor * (sunLight + ambient);
+        vec3 ambient = uAtmosphereColor * 0.15;  // More ambient for softer shadows
 
-        // Silver lining: bright edges where transmittance is still high but there's cloud
-        luminance += uSunColor * phase * 0.3 * uSunIntensity * sunTransmittance;
+        // Powder effect: light penetrating thin cloud edges
+        float powder = 1.0 - exp(-density * 4.0);
+        vec3 powderLight = uSunColor * powder * 0.2 * sunTransmittance;
 
-        scattered += luminance * transmittance * (1.0 - exp(-absorption));
-        transmittance *= exp(-absorption);
+        vec3 luminance = uCloudColor * (sunLight + ambient + powderLight);
+
+        // Silver lining: bright rim when looking toward sun through thin cloud
+        float silverLining = pow(1.0 - density, 2.0) * max(cosTheta, 0.0);
+        luminance += uSunColor * silverLining * 0.5 * uSunIntensity * sunTransmittance;
+
+        // Accumulate with energy-conserving blend
+        float alpha = 1.0 - exp(-absorption);
+        scattered += luminance * transmittance * alpha;
+        transmittance *= (1.0 - alpha);
     }
 }
 
@@ -632,14 +716,18 @@ vec4 volumetricClouds(vec3 ro, vec3 rd, float surfaceDist) {
     float frontEnd = (tInner.x > 0.0) ? tInner.x : tOuter.y;
     frontEnd = min(frontEnd, surfaceDist);
 
-    // Back segment: inner shell exit → outer shell exit (limb clouds behind planet)
+    // Back segment: only for limb clouds (when ray MISSES the planet surface)
+    // If we hit the planet, don't render clouds behind it
     float backStart = -1.0, backEnd = -1.0;
-    if (tInner.y > 0.0 && tInner.y < tOuter.y) {
-        backStart = max(tInner.y, surfaceDist);
+    bool hitPlanet = (surfaceDist < 1e9);  // Did we hit the solid surface?
+
+    if (!hitPlanet && tInner.y > 0.0 && tInner.y < tOuter.y) {
+        // Ray passed through cloud shell without hitting planet - render far side
+        backStart = tInner.y;
         backEnd = tOuter.y;
     }
 
-    int numSteps = 4 + int(uQuality) * 6; // 4-16 steps per segment
+    int numSteps = 8 + int(uQuality) * 12; // 8-32 steps per segment for better quality
     vec3 scattered = vec3(0.0);
     float transmittance = 1.0;
 
@@ -684,7 +772,6 @@ Hit intersectPlanet(vec3 ro, vec3 rd) {
 
     if (uBandingStrength > 0.0) {
         // Jupiter-style bands with turbulent flow
-        float lon = atan(localDir.z, localDir.x);
         float lat = localDir.y;
 
         // Warp latitude with flowing turbulence
@@ -701,8 +788,9 @@ Hit intersectPlanet(vec3 ro, vec3 rd) {
         // Combine for complex band structure
         float band = b1 * 0.5 + b2 * 0.3 + b3 * 0.2;
 
-        // Flowing streaks within bands (longitude variation)
-        float streak = noise(vec3(lon * 8.0, lat * uBandingFrequency * 2.0, uTime * 0.05));
+        // Flowing streaks within bands - use 3D position instead of atan to avoid seam
+        vec3 streakCoord = localDir * 8.0 + vec3(0.0, lat * uBandingFrequency, uTime * 0.05);
+        float streak = noise(streakCoord);
         band += (streak - 0.5) * 0.15;
 
         // Small turbulent eddies

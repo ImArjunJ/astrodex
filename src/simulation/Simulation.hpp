@@ -10,6 +10,7 @@
 namespace astrocore {
 
 class Camera;
+struct SystemConfig;
 
 // Bridges physics simulation with rendering
 // Handles coordinate scaling, body appearance, and camera focus
@@ -86,6 +87,9 @@ public:
     void loadSolarSystem();
     void loadBinaryStars();
     void loadRandomSystem(int numBodies);
+
+    // Load from a SystemConfig
+    void loadFromConfig(const SystemConfig& config);
 
     // Statistics
     struct Stats {

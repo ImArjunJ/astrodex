@@ -71,17 +71,29 @@ std::string NasaApiClient::buildADQL(const std::string& whereClause, int limit) 
         adql << "TOP " << limit << " ";
     }
     adql << "pl_name, hostname, "
+         // Orbital parameters
          << "pl_orbper, pl_orbpererr1, "
          << "pl_orbsmax, pl_orbsmaxerr1, "
          << "pl_orbeccen, pl_orbeccenerr1, "
+         << "pl_orbincl, pl_orbinclerr1, "       // Orbital inclination
+         // Physical parameters
          << "pl_bmasse, pl_bmasseerr1, "
          << "pl_rade, pl_radeerr1, "
          << "pl_dens, pl_denserr1, "
          << "pl_eqt, pl_eqterr1, "
+         << "pl_insol, pl_insolerr1, "           // Insolation flux (stellar energy received)
+         // Transit parameters (atmosphere indicators)
+         << "pl_trandep, pl_trandeperr1, "       // Transit depth
+         << "pl_trandur, "                        // Transit duration
+         // Host star parameters
          << "st_teff, st_tefferr1, "
          << "st_rad, st_raderr1, "
          << "st_mass, st_masserr1, "
          << "st_lum, "
+         << "st_met, st_meterr1, "               // Stellar metallicity [Fe/H]
+         << "st_age, st_ageerr1, "               // Stellar age (Gyr)
+         << "st_rotp, "                           // Stellar rotation period
+         << "st_logg, "                           // Stellar surface gravity
          << "st_spectype, "
          << "sy_dist, "
          << "disc_year, discoverymethod "
@@ -208,6 +220,9 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
         data.discovery_year = row["disc_year"].get<int>();
     }
 
+    // Planet type is derived from mass/radius data (NASA calculates this on their website)
+    // The classification will be done in ExoplanetConverter based on physical parameters
+
     // Host star
     data.host_star.name = getString("hostname");
     if (auto val = getValue("st_teff")) {
@@ -234,6 +249,32 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
         data.host_star.distance_pc.value = *val;
         data.host_star.distance_pc.source = DataSource::NASA_TAP;
     }
+    // NEW: Stellar metallicity (important for planet composition)
+    if (auto val = getValue("st_met")) {
+        data.host_star.metallicity.value = *val;
+        data.host_star.metallicity.source = DataSource::NASA_TAP;
+        if (auto err = getValue("st_meterr1")) {
+            data.host_star.metallicity.uncertainty = std::abs(*err);
+        }
+    }
+    // NEW: Stellar age (important for planet evolution)
+    if (auto val = getValue("st_age")) {
+        data.host_star.age_gyr.value = *val;
+        data.host_star.age_gyr.source = DataSource::NASA_TAP;
+        if (auto err = getValue("st_ageerr1")) {
+            data.host_star.age_gyr.uncertainty = std::abs(*err);
+        }
+    }
+    // NEW: Stellar rotation (activity indicator)
+    if (auto val = getValue("st_rotp")) {
+        data.host_star.rotation_period_days.value = *val;
+        data.host_star.rotation_period_days.source = DataSource::NASA_TAP;
+    }
+    // NEW: Stellar surface gravity
+    if (auto val = getValue("st_logg")) {
+        data.host_star.surface_gravity_logg.value = *val;
+        data.host_star.surface_gravity_logg.source = DataSource::NASA_TAP;
+    }
 
     // Orbital parameters
     if (auto val = getValue("pl_orbper")) {
@@ -250,6 +291,19 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
     if (auto val = getValue("pl_orbeccen")) {
         data.eccentricity.value = *val;
         data.eccentricity.source = DataSource::NASA_TAP;
+    }
+    // NEW: Orbital inclination
+    if (auto val = getValue("pl_orbincl")) {
+        data.inclination_deg.value = *val;
+        data.inclination_deg.source = DataSource::NASA_TAP;
+        if (auto err = getValue("pl_orbinclerr1")) {
+            data.inclination_deg.uncertainty = std::abs(*err);
+        }
+    }
+    // NEW: Argument of periastron
+    if (auto val = getValue("pl_orblper")) {
+        data.omega_deg.value = *val;
+        data.omega_deg.source = DataSource::NASA_TAP;
     }
 
     // Physical parameters
@@ -274,6 +328,39 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
     if (auto val = getValue("pl_eqt")) {
         data.equilibrium_temp_k.value = *val;
         data.equilibrium_temp_k.source = DataSource::NASA_TAP;
+        if (auto err = getValue("pl_eqterr1")) {
+            data.equilibrium_temp_k.uncertainty = std::abs(*err);
+        }
+    }
+    // NEW: Insolation flux (stellar energy received, Earth = 1.0)
+    if (auto val = getValue("pl_insol")) {
+        data.insolation_flux.value = *val;
+        data.insolation_flux.source = DataSource::NASA_TAP;
+        if (auto err = getValue("pl_insolerr1")) {
+            data.insolation_flux.uncertainty = std::abs(*err);
+        }
+    }
+    // NEW: Transit depth (indicates atmosphere)
+    if (auto val = getValue("pl_trandep")) {
+        data.transit_depth.value = *val;
+        data.transit_depth.source = DataSource::NASA_TAP;
+        if (auto err = getValue("pl_trandeperr1")) {
+            data.transit_depth.uncertainty = std::abs(*err);
+        }
+    }
+    // NEW: Transit duration
+    if (auto val = getValue("pl_trandur")) {
+        data.transit_duration_hr.value = *val;
+        data.transit_duration_hr.source = DataSource::NASA_TAP;
+    }
+    // NEW: Spectroscopy metrics (atmosphere observability)
+    if (auto val = getValue("pl_tsm")) {
+        data.tsm.value = *val;
+        data.tsm.source = DataSource::NASA_TAP;
+    }
+    if (auto val = getValue("pl_esm")) {
+        data.esm.value = *val;
+        data.esm.source = DataSource::NASA_TAP;
     }
 
     // Calculate derived values
@@ -284,19 +371,15 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
 
 std::future<std::vector<ExoplanetData>> NasaApiClient::queryByName(const std::string& name) {
     return std::async(std::launch::async, [this, name]() {
-        // Use LOWER() for case-insensitive search
-        std::string lowerName = name;
-        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-        std::string where = "LOWER(pl_name) LIKE '%" + lowerName + "%'";
+        // Case-insensitive search using wildcards (NASA names are consistent)
+        std::string where = "pl_name LIKE '%" + name + "%'";
         return executeQuery(buildADQL(where, 50));
     });
 }
 
 std::vector<ExoplanetData> NasaApiClient::queryByNameSync(const std::string& name) {
-    // Use LOWER() for case-insensitive search
-    std::string lowerName = name;
-    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-    std::string where = "LOWER(pl_name) LIKE '%" + lowerName + "%'";
+    // Case-insensitive search using wildcards (NASA names are consistent)
+    std::string where = "pl_name LIKE '%" + name + "%'";
     return executeQuery(buildADQL(where, 50));
 }
 

@@ -59,6 +59,8 @@ struct HostStarData {
     std::string spectral_type;                  // e.g., "G2V", "M4"
     MeasuredValue<double> distance_pc;          // Distance in parsecs
     MeasuredValue<double> age_gyr;              // Age in billion years
+    MeasuredValue<double> rotation_period_days; // Stellar rotation period (activity indicator)
+    MeasuredValue<double> surface_gravity_logg; // Stellar surface gravity (log g)
 };
 
 // Main exoplanet data structure
@@ -85,6 +87,13 @@ struct ExoplanetData {
     MeasuredValue<double> density_gcc;          // Bulk density g/cm³
     MeasuredValue<double> surface_gravity_g;    // Surface gravity in Earth g
     MeasuredValue<double> equilibrium_temp_k;   // Equilibrium temperature
+    MeasuredValue<double> insolation_flux;      // Stellar flux received (Earth = 1.0)
+
+    // Transit/observation parameters (atmosphere indicators)
+    MeasuredValue<double> transit_depth;        // Transit depth (fraction of stellar light blocked)
+    MeasuredValue<double> transit_duration_hr;  // Transit duration in hours
+    MeasuredValue<double> tsm;                  // Transmission Spectroscopy Metric (atmosphere observability)
+    MeasuredValue<double> esm;                  // Emission Spectroscopy Metric
 
     // Atmospheric parameters (often AI-inferred)
     MeasuredValue<double> surface_pressure_atm;

@@ -76,11 +76,11 @@ struct PlanetParams {
     float transition = 0.01f;  // Smooth biome transitions
 
     // Volumetric clouds
-    float cloudsDensity = 0.5f;
-    float cloudsScale = 1.0f;
+    float cloudsDensity = 0.01f;    // MAX 0.02! Higher values look bad
+    float cloudsScale = 0.8f;       // Lower = larger cloud shapes
     float cloudsSpeed = 1.5f;
-    float cloudAltitude = 0.15f;    // height above surface
-    float cloudThickness = 0.1f;    // vertical extent of cloud layer
+    float cloudAltitude = 0.25f;    // Height above surface (elevated for better separation)
+    float cloudThickness = 0.2f;    // Vertical extent of cloud layer (thicker for more volume)
 
     // Atmosphere - beautiful blue glow
     glm::vec3 atmosphereColor = {0.05f, 0.3f, 0.9f};
@@ -132,6 +132,7 @@ public:
     void renderRing(uint64_t bodyId, const Camera& camera, const glm::vec3& planetPos);
     RingParams* getRingParams(uint64_t bodyId);
     bool hasRing(uint64_t bodyId) const;
+    void clearRings();
 
 private:
     void createQuad();

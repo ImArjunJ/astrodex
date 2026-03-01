@@ -1,0 +1,132 @@
+{
+  "name": "Solar System",
+  "description": "Our solar system with the Sun, 8 planets, and Earth's Moon",
+  "source": "preset",
+  "version": "1.0",
+  "gravitationalConstant": 6.6743e-11,
+  "integratorType": "Verlet",
+  "defaultTimestep": 86400.0,
+  "visualScale": 3.341891782226982e-07,
+  "bodies": [
+    {
+      "name": "Sun",
+      "type": "Star",
+      "mass": 1.989e30,
+      "radius": 6.96e8,
+      "position": [0.0, 0.0, 0.0],
+      "velocity": [0.0, 0.0, 0.0],
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 2164320.0,
+      "isEmissive": true,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Mercury",
+      "type": "Planet",
+      "mass": 3.3011e23,
+      "radius": 2439700.0,
+      "parentName": "Sun",
+      "orbitalDistance": 5.79e10,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 5067014.4,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Venus",
+      "type": "Planet",
+      "mass": 4.8675e24,
+      "radius": 6051800.0,
+      "parentName": "Sun",
+      "orbitalDistance": 1.082e11,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": -21002760.0,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Earth",
+      "type": "Planet",
+      "mass": 5.972e24,
+      "radius": 6371000.0,
+      "parentName": "Sun",
+      "orbitalDistance": 1.496e11,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 86163.9,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Moon",
+      "type": "Moon",
+      "mass": 7.342e22,
+      "radius": 1737000.0,
+      "parentName": "Earth",
+      "orbitalDistance": 384400000.0,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 2360591.5,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Mars",
+      "type": "Planet",
+      "mass": 6.4171e23,
+      "radius": 3389500.0,
+      "parentName": "Sun",
+      "orbitalDistance": 2.279e11,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 88642.7,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Jupiter",
+      "type": "Planet",
+      "mass": 1.8982e27,
+      "radius": 69911000.0,
+      "parentName": "Sun",
+      "orbitalDistance": 7.785e11,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 35729.7,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Saturn",
+      "type": "Planet",
+      "mass": 5.6834e26,
+      "radius": 58232000.0,
+      "parentName": "Sun",
+      "orbitalDistance": 1.427e12,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 38362.5,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Uranus",
+      "type": "Planet",
+      "mass": 8.681e25,
+      "radius": 25362000.0,
+      "parentName": "Sun",
+      "orbitalDistance": 2.871e12,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": -62063.7,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    },
+    {
+      "name": "Neptune",
+      "type": "Planet",
+      "mass": 1.02413e26,
+      "radius": 24622000.0,
+      "parentName": "Sun",
+      "orbitalDistance": 4.498e12,
+      "rotationAxis": [0.0, 1.0, 0.0],
+      "rotationPeriod": 58000.3,
+      "isEmissive": false,
+      "emissiveColor": [1.0, 0.9, 0.7]
+    }
+  ]
+}

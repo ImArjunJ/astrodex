@@ -1,10 +1,13 @@
 #include "core/Application.hpp"
 #include "core/Logger.hpp"
+#include "config/SystemConfig.hpp"
 #include "render/Renderer.hpp"
 #include "render/Camera.hpp"
+#include "render/ExoplanetConverter.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <chrono>
 
 namespace astrocore {
 
@@ -51,6 +54,32 @@ void Application::init() {
     // UI
     m_ui = std::make_unique<UIManager>();
     m_ui->init(m_window->getHandle());
+
+    // Preset manager - scan for available presets
+    m_presetManager.setPresetsDirectory("configs");
+    m_presetManager.scanPresets();
+    if (m_presetManager.getAvailablePresets().empty()) {
+        m_presetManager.generateBuiltInPresets();
+    }
+
+    // Exoplanet data aggregator (queries NASA, ExoMAST, Exoplanet.eu)
+    AggregatorConfig aggConfig;
+    aggConfig.query_nasa = true;
+    aggConfig.query_exomast = true;      // Get atmospheric spectroscopy data!
+    aggConfig.query_exoplanet_eu = true; // Get molecules, albedo, measured temps!
+    m_dataAggregator = std::make_unique<ExoplanetDataAggregator>(aggConfig);
+
+    // Start preloading Exoplanet.eu catalog in background (faster searches later)
+    LOG_INFO("Preloading Exoplanet.eu catalog in background...");
+    m_dataAggregator->preloadExoplanetEuCatalog();
+
+    // AI inference engine
+    m_inferenceEngine = std::make_unique<InferenceEngine>();
+    if (m_inferenceEngine->isAvailable()) {
+        LOG_INFO("AI inference available - will use Claude to fill missing exoplanet data");
+    } else {
+        LOG_WARN("AI inference not available - will use heuristics only");
+    }
 
     // Initialize simulation with solar system
     m_simulation.init();
@@ -430,6 +459,117 @@ void Application::render() {
     }
     ImGui::End();
 
+    // System presets UI
+    int selectedPresetIndex = -1;
+    if (m_ui->renderSystemPresets(m_presetManager, selectedPresetIndex)) {
+        // A preset was selected - load it
+        auto config = m_presetManager.loadPresetByIndex(static_cast<size_t>(selectedPresetIndex));
+        if (config.has_value()) {
+            m_simulation.loadFromConfig(config.value());
+            // Re-setup ring renderers for any bodies with rings
+            m_renderer->clearRings();
+            for (const auto& body : m_simulation.world().bodies()) {
+                if (m_simulation.hasRing(body->id())) {
+                    auto* ringParams = m_simulation.getRingParams(body->id());
+                    if (ringParams) {
+                        m_renderer->setupRing(body->id(), *ringParams,
+                                              body->renderRadius(), static_cast<float>(body->mass()));
+                    }
+                }
+            }
+            LOG_INFO("Loaded preset: {}", config->name);
+        }
+    }
+
+    // Check if async exoplanet search completed
+    if (m_exoSearching && m_exoSearchFuture.valid()) {
+        auto status = m_exoSearchFuture.wait_for(std::chrono::milliseconds(0));
+        if (status == std::future_status::ready) {
+            m_exoSearchResults = m_exoSearchFuture.get();
+            m_exoSearching = false;
+            LOG_INFO("Exoplanet search completed: {} results", m_exoSearchResults.size());
+        }
+    }
+
+    // Check if AI inference completed
+    if (m_inferring && m_inferenceFuture.valid()) {
+        auto status = m_inferenceFuture.wait_for(std::chrono::milliseconds(0));
+        if (status == std::future_status::ready) {
+            ExoplanetData enrichedExo = m_inferenceFuture.get();
+            m_inferring = false;
+            LOG_INFO("AI inference completed for {}", enrichedExo.name);
+
+            // Now load the planet with AI-enriched data
+            loadExoplanetIntoSimulation(enrichedExo);
+        }
+    }
+
+    // AI inference settings UI
+    m_ui->renderInferenceSettings(m_inferenceEngine.get());
+
+    // Exoplanet search UI
+    auto exoResult = m_ui->renderExoplanetSearch(m_exoSearchResults, m_exoSearching);
+    if (exoResult.searchRequested && !m_exoSearching) {
+        // Start async search
+        m_exoSearchResults.clear();
+        m_exoSearching = true;
+        m_exoSearchFuture = m_dataAggregator->getNasaClient().queryByName(exoResult.searchQuery);
+        LOG_INFO("Starting exoplanet search for: {}", exoResult.searchQuery);
+    }
+    if (exoResult.viewRequested && exoResult.selectedIndex >= 0 &&
+        exoResult.selectedIndex < static_cast<int>(m_exoSearchResults.size()) &&
+        !m_inferring) {
+        // User wants to view an exoplanet - query ALL data sources
+        auto exo = m_exoSearchResults[static_cast<size_t>(exoResult.selectedIndex)];
+        LOG_INFO("Fetching data for exoplanet: {} from all sources...", exo.name);
+
+        // Query Exoplanet.eu for molecules, albedo, measured temp (CRITICAL FOR COLOR!)
+        LOG_DEBUG("Querying Exoplanet.eu for: {}", exo.name);
+        auto euData = m_dataAggregator->getExoplanetEuClient().queryByNameSync(exo.name);
+        if (euData.has_value()) {
+            LOG_INFO("Exoplanet.eu: Found data for {}", euData->name);
+            m_dataAggregator->getExoplanetEuClient().mergeIntoExoplanetData(exo, *euData);
+            if (euData->molecules_detected.has_value()) {
+                LOG_INFO("Exoplanet.eu: DETECTED MOLECULES: {}", *euData->molecules_detected);
+            }
+            if (euData->temp_measured_k.has_value()) {
+                LOG_INFO("Exoplanet.eu: MEASURED TEMP: {:.0f} K", *euData->temp_measured_k);
+            }
+            if (euData->geometric_albedo.has_value()) {
+                LOG_INFO("Exoplanet.eu: MEASURED ALBEDO: {:.3f}", *euData->geometric_albedo);
+            }
+        } else {
+            LOG_WARN("Exoplanet.eu: No data found for {}", exo.name);
+        }
+
+        // Also query ExoMAST for additional atmospheric detections
+        auto atmosData = m_dataAggregator->getExoMastClient().queryAtmosphereSync(exo.name);
+        if (atmosData.has_value() && !atmosData->detections.empty()) {
+            std::string molecules;
+            for (const auto& det : atmosData->detections) {
+                if (!molecules.empty()) molecules += ", ";
+                molecules += det.molecule;
+            }
+            LOG_INFO("ExoMAST: Detected molecules: {}", molecules);
+            m_currentAtmosphericDetections = atmosData->detections;
+        } else {
+            m_currentAtmosphericDetections.clear();
+        }
+
+        LOG_INFO("Starting AI inference for exoplanet: {}", exo.name);
+
+        if (m_inferenceEngine->isAvailable()) {
+            // Use AI to fill missing parameters
+            m_pendingExoplanet = exo;
+            m_inferring = true;
+            m_inferenceFuture = m_inferenceEngine->fillMissingParameters(exo);
+        } else {
+            // No AI available, load directly with heuristics
+            LOG_WARN("AI not available, using heuristics only");
+            loadExoplanetIntoSimulation(exo);
+        }
+    }
+
     m_ui->endFrame();
 }
 
@@ -442,6 +582,133 @@ void Application::shutdown() {
     m_renderer.reset();
     m_camera.reset();
     m_window.reset();
+}
+
+void Application::loadExoplanetIntoSimulation(const ExoplanetData& exo) {
+    LOG_INFO("Loading exoplanet {} into simulation", exo.name);
+
+    // Log AI-inferred values if present
+    if (exo.biome_classification.isAIInferred()) {
+        LOG_INFO("  AI biome: {}", exo.biome_classification.value);
+    }
+    if (exo.surface_color_hint.isAIInferred()) {
+        LOG_INFO("  AI surface hint: {}", exo.surface_color_hint.value);
+    }
+    if (exo.atmosphere_composition.isAIInferred()) {
+        LOG_INFO("  AI atmosphere: {}", exo.atmosphere_composition.value);
+    }
+    if (exo.ocean_coverage_fraction.isAIInferred()) {
+        LOG_INFO("  AI ocean coverage: {:.1f}%", exo.ocean_coverage_fraction.value * 100);
+    }
+
+    // Convert exoplanet data to planet params using AI-generated render params
+    PlanetParams params = ExoplanetConverter::toPlanetParams(exo, m_inferenceEngine.get());
+
+    // Create a system with host star and planet
+    SystemConfig config;
+    config.name = exo.name + " System";
+    config.description = "Exoplanet system from NASA Exoplanet Archive";
+    config.source = "nasa_tap";
+    config.visualScale = 1.0;
+
+    // Get star temperature for lighting color
+    double starTemp = 5778.0;  // Default solar temperature
+    if (exo.host_star.effective_temp_k.hasValue()) {
+        starTemp = exo.host_star.effective_temp_k.value;
+    }
+
+    // Visual sizes - planet radius from params, star is 8x larger visually
+    float visualPlanetRadius = params.radius;
+    float visualStarRadius = visualPlanetRadius * 8.0f;  // Star 8x planet size visually
+    float starDistance = visualPlanetRadius * 40.0f;     // Star 40 planet-radii away
+
+    // Create the host star with VISUAL radius (not physical)
+    BodyConfig star;
+    star.name = exo.host_star.name.empty() ? "Host Star" : exo.host_star.name;
+    star.type = "Star";
+    star.mass = constants::SOLAR_MASS;  // Mass doesn't matter for rendering
+    star.radius = visualStarRadius;     // Use VISUAL radius, not physical!
+    // Position star for good lighting angle
+    star.position = {starDistance, starDistance * 0.3, -starDistance * 0.2};
+    star.velocity = {0.0, 0.0, 0.0};
+    star.rotationPeriod = 25.0 * constants::DAY;
+    config.bodies.push_back(star);
+
+    // Create the exoplanet at origin with VISUAL radius
+    BodyConfig planet;
+    planet.name = exo.name;
+    planet.type = "Planet";
+    planet.mass = exo.mass_earth.hasValue() ?
+        exo.mass_earth.value * constants::EARTH_MASS : constants::EARTH_MASS;
+    planet.radius = visualPlanetRadius;  // Use VISUAL radius
+    planet.position = {0.0, 0.0, 0.0};
+    planet.velocity = {0.0, 0.0, 0.0};
+    planet.rotationPeriod = constants::DAY;
+    config.bodies.push_back(planet);
+
+    // Load the config into simulation
+    m_simulation.loadFromConfig(config);
+
+    // Find the star and planet bodies
+    CelestialBody* starBody = nullptr;
+    CelestialBody* planetBody = nullptr;
+    for (const auto& body : m_simulation.world().bodies()) {
+        if (body->type() == BodyType::Star) {
+            starBody = body.get();
+        } else if (body->type() == BodyType::Planet) {
+            planetBody = body.get();
+        }
+    }
+
+    if (planetBody) {
+        m_simulation.setBodyAppearance(planetBody->id(), params);
+        m_simulation.setSelectedBody(planetBody->id());
+        m_simulation.setFocusBody(planetBody->id());
+
+        // Update renderer params for the planet
+        m_renderer->params() = params;
+
+        // Set sun direction pointing from planet toward star
+        if (starBody) {
+            glm::vec3 toStar = glm::vec3(starBody->position() - planetBody->position());
+            m_renderer->params().sunDirection = glm::normalize(toStar);
+        }
+
+        // Adjust sun color based on host star temperature
+        if (starTemp < 3500) {
+            // Red dwarf - warm reddish light
+            m_renderer->params().sunColor = {1.0f, 0.65f, 0.4f};
+            m_renderer->params().sunIntensity *= 0.8f;
+        } else if (starTemp < 5000) {
+            // Orange/K-type - warm light
+            m_renderer->params().sunColor = {1.0f, 0.85f, 0.65f};
+        } else if (starTemp < 6000) {
+            // Sun-like - yellow-white
+            m_renderer->params().sunColor = {1.0f, 0.98f, 0.9f};
+        } else if (starTemp < 7500) {
+            // F-type - white
+            m_renderer->params().sunColor = {1.0f, 1.0f, 1.0f};
+        } else {
+            // Hot star - blue-white, brighter
+            m_renderer->params().sunColor = {0.9f, 0.95f, 1.0f};
+            m_renderer->params().sunIntensity *= 1.2f;
+        }
+
+        LOG_INFO("Host star {} at {}K, visual radius {:.1f}",
+                 star.name, starTemp, visualStarRadius);
+
+        // Position camera for good view of the planet
+        float viewDistance = params.radius * 4.0f;
+        m_camera->setPosition(glm::vec3(0.0f, 0.0f, viewDistance));
+        m_camera->setTarget(glm::vec3(0.0f));
+    }
+
+    // Pause simulation since we're just viewing
+    m_simulation.pause();
+    m_renderer->clearRings();
+
+    LOG_INFO("Now viewing exoplanet {} (type: {})",
+             exo.name, ExoplanetConverter::inferPlanetType(exo));
 }
 
 }  // namespace astrocore

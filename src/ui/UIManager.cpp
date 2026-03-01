@@ -1,5 +1,6 @@
 #include "ui/UIManager.hpp"
 #include "render/Renderer.hpp"
+#include "config/PresetManager.hpp"
 #include "core/Logger.hpp"
 
 #include <imgui.h>
@@ -544,6 +545,284 @@ void UIManager::renderPlanetEditor(const std::string& bodyName, PlanetParams& p,
     }
 
     ImGui::End();
+}
+
+UIManager::ExoplanetSearchResult UIManager::renderExoplanetSearch(
+    const std::vector<ExoplanetData>& results, bool isSearching) {
+
+    ExoplanetSearchResult result;
+
+    ImGui::SetNextWindowPos(ImVec2(360, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("Exoplanet Search")) {
+        // Search input
+        ImGui::Text("Search NASA Exoplanet Archive");
+        ImGui::SetNextItemWidth(-80);
+        bool enterPressed = ImGui::InputText("##exosearch", m_exoSearchBuffer,
+                                              sizeof(m_exoSearchBuffer),
+                                              ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if ((ImGui::Button("Search") || enterPressed) && m_exoSearchBuffer[0] != '\0') {
+            result.searchRequested = true;
+            result.searchQuery = m_exoSearchBuffer;
+        }
+
+        // Status
+        if (isSearching) {
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Searching...");
+        }
+
+        ImGui::Separator();
+
+        // Results list
+        if (!results.empty()) {
+            ImGui::Text("Found %zu exoplanets:", results.size());
+
+            ImGui::BeginChild("ExoResults", ImVec2(0, 250), true);
+            for (size_t i = 0; i < results.size(); i++) {
+                const auto& exo = results[i];
+                bool isSelected = (m_exoSelectedIndex == static_cast<int>(i));
+
+                // Calculate data completeness
+                int dataFields = 0;
+                int totalFields = 5;
+                if (exo.mass_earth.hasValue()) dataFields++;
+                if (exo.radius_earth.hasValue()) dataFields++;
+                if (exo.equilibrium_temp_k.hasValue()) dataFields++;
+                if (exo.semi_major_axis_au.hasValue()) dataFields++;
+                if (exo.orbital_period_days.hasValue()) dataFields++;
+
+                // Color based on data completeness
+                ImVec4 color;
+                if (dataFields >= 4) {
+                    color = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);  // Green - good data
+                } else if (dataFields >= 2) {
+                    color = ImVec4(1.0f, 1.0f, 0.3f, 1.0f);  // Yellow - partial data
+                } else {
+                    color = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);  // Orange - sparse data
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                if (ImGui::Selectable(exo.name.c_str(), isSelected)) {
+                    m_exoSelectedIndex = static_cast<int>(i);
+                }
+                ImGui::PopStyleColor();
+
+                // Show host star on hover
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("Host: %s", exo.host_star.name.c_str());
+                    ImGui::Text("Data: %d/%d fields", dataFields, totalFields);
+                    ImGui::EndTooltip();
+                }
+            }
+            ImGui::EndChild();
+
+            // Selected exoplanet details
+            if (m_exoSelectedIndex >= 0 && m_exoSelectedIndex < static_cast<int>(results.size())) {
+                const auto& selected = results[static_cast<size_t>(m_exoSelectedIndex)];
+
+                ImGui::Separator();
+                ImGui::Text("Selected: %s", selected.name.c_str());
+
+                // Show available data with source indicators
+                auto showValue = [](const char* label, const auto& val, const char* unit) {
+                    if (val.hasValue()) {
+                        ImVec4 color = val.isAIInferred() ?
+                            ImVec4(0.3f, 0.8f, 1.0f, 1.0f) :  // Cyan for AI
+                            ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // White for NASA
+                        ImGui::TextColored(color, "%s: %.3g %s", label, val.value, unit);
+                    } else {
+                        ImGui::TextDisabled("%s: unknown", label);
+                    }
+                };
+
+                showValue("Mass", selected.mass_earth, "Earth");
+                showValue("Radius", selected.radius_earth, "Earth");
+                showValue("Temp", selected.equilibrium_temp_k, "K");
+                showValue("Orbit", selected.semi_major_axis_au, "AU");
+                showValue("Period", selected.orbital_period_days, "days");
+
+                ImGui::Text("Host star: %s (%s)",
+                           selected.host_star.name.c_str(),
+                           selected.host_star.spectral_type.c_str());
+
+                ImGui::Separator();
+                if (ImGui::Button("View Planet", ImVec2(-1, 0))) {
+                    result.viewRequested = true;
+                    result.selectedIndex = m_exoSelectedIndex;
+                }
+            }
+        } else if (!isSearching && m_exoSearchBuffer[0] != '\0') {
+            ImGui::TextDisabled("No results. Try another search.");
+        } else {
+            ImGui::TextDisabled("Enter a planet name (e.g., 'Kepler-442')");
+            ImGui::TextDisabled("or host star (e.g., 'TRAPPIST-1')");
+        }
+
+        // Quick access buttons
+        ImGui::Separator();
+        ImGui::Text("Quick Search:");
+        if (ImGui::SmallButton("TRAPPIST-1")) {
+            strcpy(m_exoSearchBuffer, "TRAPPIST-1");
+            result.searchRequested = true;
+            result.searchQuery = "TRAPPIST-1";
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Kepler-442")) {
+            strcpy(m_exoSearchBuffer, "Kepler-442");
+            result.searchRequested = true;
+            result.searchQuery = "Kepler-442";
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Proxima")) {
+            strcpy(m_exoSearchBuffer, "Proxima");
+            result.searchRequested = true;
+            result.searchQuery = "Proxima";
+        }
+    }
+    ImGui::End();
+
+    return result;
+}
+
+bool UIManager::renderSystemPresets(PresetManager& presetManager, int& selectedPresetIndex) {
+    bool presetSelected = false;
+
+    ImGui::SetNextWindowPos(ImVec2(10, 620), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(280, 150), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("System Presets")) {
+        const auto& presets = presetManager.getAvailablePresets();
+
+        if (presets.empty()) {
+            ImGui::TextWrapped("No presets found. Click 'Generate' to create default presets.");
+            if (ImGui::Button("Generate Presets")) {
+                presetManager.generateBuiltInPresets();
+            }
+        } else {
+            // Build combo items
+            std::vector<const char*> systemPresetNames;
+            for (const auto& preset : presets) {
+                systemPresetNames.push_back(preset.name.c_str());
+            }
+
+            ImGui::SetNextItemWidth(-80);
+            if (ImGui::Combo("##systemPreset", &m_systemPresetIndex,
+                             systemPresetNames.data(), static_cast<int>(systemPresetNames.size()))) {
+                // Combo changed but not loaded yet
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Load")) {
+                selectedPresetIndex = m_systemPresetIndex;
+                presetSelected = true;
+            }
+
+            // Show description
+            if (m_systemPresetIndex >= 0 && m_systemPresetIndex < static_cast<int>(presets.size())) {
+                const auto& info = presets[static_cast<size_t>(m_systemPresetIndex)];
+                ImGui::TextWrapped("%s", info.description.c_str());
+                ImGui::Text("Bodies: %d", info.bodyCount);
+            }
+
+            ImGui::Separator();
+            if (ImGui::Button("Rescan Presets")) {
+                presetManager.scanPresets();
+            }
+        }
+    }
+    ImGui::End();
+
+    return presetSelected;
+}
+
+bool UIManager::renderInferenceSettings(InferenceEngine* engine) {
+    if (!engine) return false;
+
+    bool backendChanged = false;
+
+    ImGui::SetNextWindowPos(ImVec2(770, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(280, 150), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("AI Inference")) {
+        // Get available backends
+        auto availableBackends = engine->getAvailableBackends();
+        InferenceBackend currentBackend = engine->getBackend();
+
+        if (availableBackends.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "No AI backends available");
+            ImGui::TextWrapped("Configure AWS credentials or check network connectivity.");
+        } else {
+            ImGui::Text("Backend:");
+
+            // Build combo items
+            std::vector<std::string> backendNames;
+            std::vector<const char*> backendNamePtrs;
+            int currentIndex = 0;
+
+            for (size_t i = 0; i < availableBackends.size(); i++) {
+                backendNames.push_back(InferenceEngine::backendToString(availableBackends[i]));
+                if (availableBackends[i] == currentBackend) {
+                    currentIndex = static_cast<int>(i);
+                }
+            }
+            for (const auto& name : backendNames) {
+                backendNamePtrs.push_back(name.c_str());
+            }
+
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::Combo("##inferenceBackend", &currentIndex,
+                             backendNamePtrs.data(), static_cast<int>(backendNamePtrs.size()))) {
+                engine->setBackend(availableBackends[static_cast<size_t>(currentIndex)]);
+                backendChanged = true;
+            }
+
+            // Show backend info
+            ImGui::Separator();
+            switch (currentBackend) {
+                case InferenceBackend::AWS_BEDROCK:
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Claude Sonnet via AWS Bedrock");
+                    ImGui::TextWrapped("Highest quality, slower (6-12s)");
+                    break;
+                case InferenceBackend::AWS_BEDROCK_HAIKU:
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.8f, 1.0f), "Claude Haiku via AWS Bedrock");
+                    ImGui::TextWrapped("Fast (~1-2s), good quality");
+                    break;
+                case InferenceBackend::GROQ_KIMI_K2:
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 1.0f, 1.0f), "Kimi K2 via Groq");
+                    ImGui::TextWrapped("Very fast (~100ms), excellent quality");
+                    break;
+                case InferenceBackend::JIMMY_QWEN_72B:
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "Qwen 72B via chatjimmy.ai");
+                    ImGui::TextWrapped("Fast (~20ms), excellent quality");
+                    break;
+                case InferenceBackend::JIMMY_LLAMA_70B:
+                    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Llama 70B via chatjimmy.ai");
+                    ImGui::TextWrapped("Fast (~20ms), good quality");
+                    break;
+                case InferenceBackend::JIMMY_LLAMA_8B:
+                    ImGui::TextColored(ImVec4(0.8f, 0.6f, 1.0f, 1.0f), "Llama 8B via chatjimmy.ai");
+                    ImGui::TextWrapped("Fastest (~10ms), basic quality");
+                    break;
+                case InferenceBackend::NONE:
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Disabled");
+                    break;
+            }
+
+            // Status indicator
+            ImGui::Separator();
+            if (engine->isAvailable()) {
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Ready");
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Unavailable");
+            }
+        }
+    }
+    ImGui::End();
+
+    return backendChanged;
 }
 
 }  // namespace astrocore

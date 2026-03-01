@@ -279,4 +279,9 @@ bool Renderer::hasRing(uint64_t bodyId) const {
     return it != m_ringParams.end() && it->second.enabled;
 }
 
+void Renderer::clearRings() {
+    m_ringRenderers.clear();
+    m_ringParams.clear();
+}
+
 }  // namespace astrocore

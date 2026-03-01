@@ -1,4 +1,6 @@
 #include "simulation/Simulation.hpp"
+#include "config/SystemConfig.hpp"
+#include "config/PresetManager.hpp"
 #include "render/Camera.hpp"
 #include "core/Logger.hpp"
 #include <limits>
@@ -197,6 +199,43 @@ void Simulation::loadRandomSystem(int numBodies) {
     m_world = PhysicsWorld::createRandomSystem(numBodies, regionSize, totalMass);
     setupDefaultAppearances();
     m_scaleFactor = 1.0 / constants::AU * 5.0;
+}
+
+void Simulation::loadFromConfig(const SystemConfig& config) {
+    // Clear current state
+    m_appearances.clear();
+    m_ringParams.clear();
+    m_focusBody = nullptr;
+    m_selectedBody = nullptr;
+
+    // Apply config to physics world
+    PresetManager pm;
+    pm.applyConfigToWorld(config, m_world);
+
+    // Set scale factor from config
+    m_scaleFactor = config.visualScale;
+
+    // Setup appearances for all bodies
+    setupDefaultAppearances();
+
+    // Focus on first emissive body (star) or first body
+    for (const auto& body : m_world.bodies()) {
+        if (body->isEmissive()) {
+            setFocusBody(body->id());
+            break;
+        }
+    }
+    if (!m_focusBody && !m_world.bodies().empty()) {
+        setFocusBody(m_world.bodies()[0]->id());
+    }
+
+    // Time scale: 1 day per second for orbital motion
+    m_timeScale = config.defaultTimestep;
+
+    // Clear orbit trails
+    m_orbitTrailsNeedClear = true;
+
+    LOG_INFO("Loaded system '{}' with {} bodies", config.name, m_world.bodyCount());
 }
 
 Simulation::Stats Simulation::getStats() const {
