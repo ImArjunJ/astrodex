@@ -8,11 +8,89 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cstring>
 
 namespace astrocore {
+
+// ── Info Panel Helpers ───────────────────────────────────────────────────────
+
+namespace {
+
+ImVec4 getSourceColor(DataSource source) {
+    switch (source) {
+        case DataSource::AI_INFERRED:
+            return ImVec4(0.0f, 0.9f, 0.9f, 1.0f);   // cyan
+        case DataSource::CALCULATED:
+            return ImVec4(0.9f, 0.9f, 0.0f, 1.0f);    // yellow
+        default:
+            return ImVec4(0.96f, 0.97f, 1.0f, 1.0f);  // white (measured)
+    }
+}
+
+void renderMeasuredValue(const char* label, const MeasuredValue<double>& val,
+                         const char* unit, const char* friendlyUnit = nullptr) {
+    if (!val.hasValue()) {
+        ImGui::TextDisabled("%s: ---", label);
+        return;
+    }
+    std::string text;
+    if (friendlyUnit) {
+        text = fmt::format("{}: {:.2f} {} {}", label, val.value, unit, friendlyUnit);
+    } else if (unit[0] != '\0') {
+        text = fmt::format("{}: {:.2f} {}", label, val.value, unit);
+    } else {
+        text = fmt::format("{}: {:.4f}", label, val.value);
+    }
+    ImGui::TextColored(getSourceColor(val.source), "%s", text.c_str());
+    if (val.isAIInferred() && ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::Text("Source: AI-Inferred");
+        ImGui::Text("Confidence: %.0f%%", val.confidence * 100.0f);
+        if (val.ai_reasoning) {
+            ImGui::Separator();
+            ImGui::TextWrapped("%s", val.ai_reasoning->c_str());
+        }
+        ImGui::EndTooltip();
+    }
+}
+
+void renderTemperature(const char* label, const MeasuredValue<double>& val) {
+    if (!val.hasValue()) {
+        ImGui::TextDisabled("%s: ---", label);
+        return;
+    }
+    auto text = fmt::format("{}: {:.0f} K ({:.0f} C)", label, val.value, val.value - 273.15);
+    ImGui::TextColored(getSourceColor(val.source), "%s", text.c_str());
+    if (val.isAIInferred() && ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::Text("Source: AI-Inferred");
+        ImGui::Text("Confidence: %.0f%%", val.confidence * 100.0f);
+        if (val.ai_reasoning) {
+            ImGui::Separator();
+            ImGui::TextWrapped("%s", val.ai_reasoning->c_str());
+        }
+        ImGui::EndTooltip();
+    }
+}
+
+void renderProvenanceLegend() {
+    ImGui::TextColored(ImVec4(0.96f, 0.97f, 1.0f, 1.0f), "o");
+    ImGui::SameLine();
+    ImGui::TextDisabled("Measured");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.0f, 0.9f, 0.9f, 1.0f), "o");
+    ImGui::SameLine();
+    ImGui::TextDisabled("AI-Inferred");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.0f, 1.0f), "o");
+    ImGui::SameLine();
+    ImGui::TextDisabled("Calculated");
+}
+
+}  // anonymous namespace
 
 // ── Presets ──────────────────────────────────────────────────────────────────
 
@@ -376,6 +454,47 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
+
+    // ── Planet Info Panel ────────────────────────────────────────────────
+    if (m_exoData != nullptr) {
+        if (ImGui::CollapsingHeader("Planet Info", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text("%s", m_exoData->name.c_str());
+            if (m_exoData->discovery_year > 0) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%s, %d)", m_exoData->discovery_method.c_str(),
+                                    m_exoData->discovery_year);
+            }
+            renderProvenanceLegend();
+            ImGui::Separator();
+
+            if (ImGui::TreeNodeEx("Physical", ImGuiTreeNodeFlags_DefaultOpen)) {
+                renderMeasuredValue("Mass", m_exoData->mass_earth, "M_E", "(Earth masses)");
+                renderMeasuredValue("Radius", m_exoData->radius_earth, "R_E", "(Earth radii)");
+                renderTemperature("Eq. Temp", m_exoData->equilibrium_temp_k);
+                renderMeasuredValue("Density", m_exoData->density_gcc, "g/cm^3");
+                renderMeasuredValue("Surface Gravity", m_exoData->surface_gravity_g, "g");
+                ImGui::TreePop();
+            }
+
+            if (ImGui::TreeNodeEx("Orbital", ImGuiTreeNodeFlags_DefaultOpen)) {
+                renderMeasuredValue("Period", m_exoData->orbital_period_days, "days");
+                renderMeasuredValue("Semi-major Axis", m_exoData->semi_major_axis_au, "AU");
+                renderMeasuredValue("Eccentricity", m_exoData->eccentricity, "");
+                renderMeasuredValue("Inclination", m_exoData->inclination_deg, "deg");
+                ImGui::TreePop();
+            }
+
+            if (ImGui::TreeNodeEx("Host Star", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Text("Name: %s", m_exoData->host_star.name.empty()
+                            ? "---" : m_exoData->host_star.name.c_str());
+                ImGui::Text("Spectral Type: %s", m_exoData->host_star.spectral_type.empty()
+                            ? "---" : m_exoData->host_star.spectral_type.c_str());
+                renderMeasuredValue("Distance", m_exoData->host_star.distance_pc, "pc");
+                renderTemperature("Eff. Temp", m_exoData->host_star.effective_temp_k);
+                ImGui::TreePop();
+            }
+        }
+    }
 
     // ── Pokédex-style liquid glass tab bar ───────────────────────────────
     if (ImGui::BeginTabBar("##tabs")) {
