@@ -124,3 +124,14 @@ add_custom_command(TARGET astrosplat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/configs $<TARGET_FILE_DIR:astrosplat>/configs
 )
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+include(FetchContent)
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        v3.5.2
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(Catch2)
+add_subdirectory(tests)

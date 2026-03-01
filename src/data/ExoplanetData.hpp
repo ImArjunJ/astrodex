@@ -107,6 +107,7 @@ struct ExoplanetData {
     MeasuredValue<double> density_gcc;          // Bulk density g/cm³
     MeasuredValue<double> surface_gravity_g;    // Surface gravity in Earth g
     MeasuredValue<double> equilibrium_temp_k;   // Equilibrium temperature
+    MeasuredValue<double> insolation_flux;      // Insolation flux in Earth units (S⊕)
 
     // Atmospheric parameters (often AI-inferred)
     MeasuredValue<double> surface_pressure_atm;

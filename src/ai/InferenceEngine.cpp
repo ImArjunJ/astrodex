@@ -539,7 +539,7 @@ std::optional<PlanetParams> InferenceEngine::generateRenderParams(const Exoplane
     LOG_INFO("Generating AI render params for {} using {}", data.name, backendToString(m_currentBackend));
 
     std::string systemPrompt = std::string(prompts::RENDER_PARAMS_SYSTEM_PROMPT);
-    std::string userPrompt = prompts::buildFullRenderParamsPrompt(data);
+    std::string userPrompt = prompts::buildRenderParamsPrompt(data);
 
     auto response = queryBackend(systemPrompt, userPrompt);
 

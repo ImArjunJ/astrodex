@@ -386,7 +386,7 @@ float IntroAnimation::getUIAlpha() const {
 void IntroAnimation::syncBorderToWindow(float x, float y, float w, float h) {
     const float dx = x - m_borderX;
     const float dy = y - m_borderY;
-    if (std::fabsf(dx) < 0.5f && std::fabsf(dy) < 0.5f) return; // already aligned
+    if (std::fabs(dx) < 0.5f && std::fabs(dy) < 0.5f) return; // already aligned
 
     for (auto& p : m_particles) {
         if (!p.goToBorder) continue;
