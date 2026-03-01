@@ -420,7 +420,7 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
     ImVec2 acInputPos, acInputSize;
 
     if (ImGui::CollapsingHeader("Exoplanet Lookup", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::TextDisabled("Search NASA Exoplanet Archive");
+        ImGui::TextDisabled("Search Exoplanet Catalogs");
 
         // Disable input and button during loading
         if (m_isLoading) ImGui::BeginDisabled();
@@ -444,8 +444,8 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
             m_exoCallback(std::string(m_searchBuf));
         }
 
-        // Determine if autocomplete should show
-        showAutocomplete = inputActive && m_searchBuf[0] != '\0' && !m_isLoading;
+        // Determine if autocomplete should show (keep open while hovered so clicks land)
+        showAutocomplete = (inputActive || m_acHovered) && m_searchBuf[0] != '\0' && !m_isLoading;
 
         ImGui::TextDisabled("%s", m_exoStatus.c_str());
         ImGui::Spacing();
@@ -648,6 +648,9 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing)) {
+                // Track hover so dropdown stays open while mouse is over it
+                m_acHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
                 int shown = 0;
                 for (const auto& name : m_cachedNames) {
                     if (!matchesPrefix(name, m_searchBuf)) continue;
@@ -656,6 +659,8 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                     if (ImGui::Selectable(name.c_str())) {
                         std::strncpy(m_searchBuf, name.c_str(), sizeof(m_searchBuf) - 1);
                         m_searchBuf[sizeof(m_searchBuf) - 1] = '\0';
+                        // Close autocomplete after selection
+                        m_acHovered = false;
                         // Trigger load on selection
                         if (m_exoCallback) {
                             m_exoStatus = "Loading...";
@@ -666,7 +671,11 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                 }
             }
             ImGui::End();
+        } else {
+            m_acHovered = false;
         }
+    } else {
+        m_acHovered = false;
     }
 }
 

@@ -34,6 +34,14 @@ asan: configure
 	cmake --build $(BUILD_DIR) -j$(JOBS)
 
 configure:
+	@# Nuke stale cache if it was generated from a different source directory
+	@if [ -f $(BUILD_DIR)/CMakeCache.txt ]; then \
+		cached_src=$$(grep 'CMAKE_HOME_DIRECTORY' $(BUILD_DIR)/CMakeCache.txt 2>/dev/null | cut -d= -f2); \
+		if [ -n "$$cached_src" ] && [ "$$cached_src" != "$$(pwd)" ]; then \
+			echo "-- Build cache from $$cached_src, reconfiguring for $$(pwd)"; \
+			rm -rf $(BUILD_DIR); \
+		fi; \
+	fi
 	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(CMAKE_FLAGS)
 
 clean:
