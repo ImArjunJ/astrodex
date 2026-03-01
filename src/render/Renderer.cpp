@@ -170,6 +170,16 @@ void Renderer::render(const Camera& camera, bool isEmissive) {
     m_shader.setFloat("uBandingStrength", m_params.bandingStrength);
     m_shader.setFloat("uBandingFrequency", m_params.bandingFrequency);
 
+    // Gas giant storm system
+    m_shader.setFloat("uStormCount", m_params.stormCount);
+    m_shader.setFloat("uStormSize", m_params.stormSize);
+    m_shader.setFloat("uStormIntensity", m_params.stormIntensity);
+    m_shader.setFloat("uStormSeed", m_params.stormSeed);
+    m_shader.setVec3("uStormColor", m_params.stormColor);
+    m_shader.setFloat("uFlowSpeed", m_params.flowSpeed);
+    m_shader.setFloat("uTurbulenceScale", m_params.turbulenceScale);
+    m_shader.setFloat("uVortexTightness", m_params.vortexTightness);
+
     // Colors
     m_shader.setVec3("uWaterColorDeep", m_params.waterColorDeep);
     m_shader.setVec3("uWaterColorSurface", m_params.waterColorSurface);

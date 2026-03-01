@@ -60,6 +60,16 @@ struct PlanetParams {
     float bandingStrength = 0.0f;   // 0 = none, 1 = strong horizontal bands (gas giants)
     float bandingFrequency = 20.0f; // how many latitude bands
 
+    // Gas giant storm system
+    float stormCount = 0.0f;        // 0 = no storms, 1-10 = number of major storms
+    float stormSize = 0.15f;        // Size of storms (0.05 = small, 0.3 = Great Red Spot scale)
+    float stormIntensity = 0.8f;    // How pronounced the vortex swirling is
+    float stormSeed = 0.0f;         // Seed for storm positions (different values = different layouts)
+    glm::vec3 stormColor = {0.8f, 0.4f, 0.2f};  // Color of storm centers (reddish for Jupiter-like)
+    float flowSpeed = 1.0f;         // Speed of fluid motion in bands
+    float turbulenceScale = 1.0f;   // Scale of small-scale turbulent features
+    float vortexTightness = 3.0f;   // How tight the spiral arms are (1=loose, 5=tight)
+
     // Colors - from reference shader
     glm::vec3 waterColorDeep = {0.01f, 0.05f, 0.15f};
     glm::vec3 waterColorSurface = {0.02f, 0.12f, 0.27f};

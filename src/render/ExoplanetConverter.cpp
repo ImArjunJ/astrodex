@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <fstream>
 #include <filesystem>
+#include <functional>
 #include <nlohmann/json.hpp>
 #include <cstdlib>
 #include <cctype>
@@ -70,6 +71,10 @@ std::string ExoplanetConverter::inferPlanetType(const ExoplanetData& exo) {
         }
         // density >= 4.0 = rocky composition
         if (tempK > 1500) return "Lava World";
+        // Venus-like: hot rocky planets (400-1500K) with likely volcanic activity
+        if (tempK > 400 && tempK <= 1500) return "Venus-like";
+        // Frozen world: very cold rocky planets
+        if (tempK > 0 && tempK < 150) return "Frozen World";
         if (massEarth > 1.5 || radiusEarth > 1.25) return "Super-Earth";
         return "Terrestrial";
     }
@@ -90,6 +95,7 @@ std::string ExoplanetConverter::inferPlanetType(const ExoplanetData& exo) {
 
         // < 2 M_Earth likely rocky
         if (tempK > 1500) return "Lava World";
+        if (tempK > 400) return "Venus-like";
         return "Terrestrial";
     }
 
@@ -104,12 +110,17 @@ std::string ExoplanetConverter::inferPlanetType(const ExoplanetData& exo) {
             if (tempK > 1000) return "Super-Earth";  // Lost atmosphere
             return "Neptune-like";  // Likely has atmosphere
         }
+        // Smaller rocky planets - use temperature for sub-classification
+        if (tempK > 1500) return "Lava World";
+        if (tempK > 400) return "Venus-like";
+        if (tempK > 0 && tempK < 150) return "Frozen World";
         if (radiusEarth > 1.25) return "Super-Earth";
         return "Terrestrial";
     }
 
     // 5. TEMPERATURE-BASED fallback
     if (tempK > 1500) return "Lava World";
+    if (tempK > 400) return "Venus-like";  // Hot rocky = volcanic
     if (tempK > 0 && tempK < 350 && insolation > 0.3 && insolation < 1.5) {
         return "Terrestrial";  // Potentially habitable zone
     }
@@ -178,6 +189,9 @@ PlanetParams ExoplanetConverter::toHeuristicParams(const ExoplanetData& exo) {
     // Match by keywords in the type string (handles NASA's various naming conventions)
     if (typeLower.find("lava") != std::string::npos || typeLower.find("molten") != std::string::npos) {
         params = createLavaWorldParams(exo);
+    } else if (typeLower.find("venus") != std::string::npos || typeLower.find("volcanic") != std::string::npos ||
+               typeLower.find("sulfur") != std::string::npos || typeLower.find("inferno") != std::string::npos) {
+        params = createVenusLikeParams(exo);
     } else if (typeLower.find("jupiter") != std::string::npos || typeLower.find("jovian") != std::string::npos ||
                (typeLower.find("gas") != std::string::npos && typeLower.find("giant") != std::string::npos)) {
         params = createGasGiantParams(exo);
@@ -195,6 +209,9 @@ PlanetParams ExoplanetConverter::toHeuristicParams(const ExoplanetData& exo) {
         params = createOceanWorldParams(exo);
     } else if (typeLower.find("desert") != std::string::npos || typeLower.find("arid") != std::string::npos) {
         params = createDesertWorldParams(exo);
+    } else if (typeLower.find("frozen") != std::string::npos || typeLower.find("ice world") != std::string::npos ||
+               typeLower.find("icy") != std::string::npos || typeLower.find("snowball") != std::string::npos) {
+        params = createFrozenWorldParams(exo);
     } else if (typeLower.find("rocky") != std::string::npos || typeLower.find("earth") != std::string::npos) {
         params = createRockyParams(exo);
     } else {
@@ -322,6 +339,16 @@ PlanetParams ExoplanetConverter::createGasGiantParams(const ExoplanetData& exo) 
     p.waterLevel = -1.0f;
     p.sunIntensity = 2.8f;
 
+    // STORM SYSTEM - Dramatic fluid dynamics
+    p.stormCount = 5.0f;                           // Multiple storms for variety
+    p.stormSize = 0.22f;                           // Larger, more visible storms
+    p.stormIntensity = 1.0f;                       // Full intensity vortices
+    p.stormSeed = static_cast<float>(std::hash<std::string>{}(exo.name) % 1000) / 100.0f;
+    p.stormColor = {0.9f, 0.5f, 0.25f};            // Vivid red-orange storm color
+    p.flowSpeed = 1.5f;                            // Fast active flow
+    p.turbulenceScale = 1.4f;                      // Strong turbulence for eddies
+    p.vortexTightness = 4.0f;                      // Tight dramatic spirals
+
     return p;
 }
 
@@ -346,6 +373,16 @@ PlanetParams ExoplanetConverter::createIceGiantParams(const ExoplanetData& exo) 
 
     p.waterLevel = -1.0f;
     p.sunIntensity = 2.5f;
+
+    // STORM SYSTEM - Neptune-style with dramatic dark spots
+    p.stormCount = 4.0f;                           // More storms for visual interest
+    p.stormSize = 0.18f;                           // Larger storms
+    p.stormIntensity = 0.9f;                       // Strong intensity
+    p.stormSeed = static_cast<float>(std::hash<std::string>{}(exo.name) % 1000) / 100.0f;
+    p.stormColor = {0.08f, 0.2f, 0.45f};           // Deep blue storm color
+    p.flowSpeed = 2.0f;                            // Very fast winds (Neptune has fastest)
+    p.turbulenceScale = 1.3f;                      // Strong turbulence
+    p.vortexTightness = 3.0f;                      // Medium tight spirals
 
     return p;
 }
@@ -375,6 +412,42 @@ PlanetParams ExoplanetConverter::createLavaWorldParams(const ExoplanetData& exo)
     p.sunIntensity = 4.5f;
     p.ambientLight = 0.02f;  // Extra ambient from lava glow
     p.waterLevel = 0.1f;     // Lava "oceans"
+
+    return p;
+}
+
+PlanetParams ExoplanetConverter::createVenusLikeParams(const ExoplanetData& exo) {
+    PlanetParams p;
+    p.noiseStrength = 0.08f;
+    p.terrainScale = 1.2f;
+    p.domainWarpStrength = 0.5f;
+    p.fbmExponentiation = 3.0f;
+    p.ridgedStrength = 0.4f;
+    p.craterStrength = 0.35f;  // Shield volcanoes / calderas
+
+    // VENUS-LIKE VOLCANIC surface - ochre/orange/brown volcanic terrain
+    p.sandColor = {0.85f, 0.6f, 0.25f};            // Golden ochre volcanic plains
+    p.treeColor = {0.65f, 0.35f, 0.12f};           // Deep rust volcanic highlands
+    p.rockColor = {0.35f, 0.18f, 0.08f};           // Dark basalt flows
+    p.iceColor = {0.95f, 0.7f, 0.3f};              // Hot glow highlights (not actual ice)
+
+    // Lava "lakes" - not full oceans but visible magma
+    p.waterColorDeep = {0.6f, 0.15f, 0.0f};        // Deep red-orange lava
+    p.waterColorSurface = {0.9f, 0.4f, 0.05f};     // Bright orange surface glow
+    p.waterLevel = -0.05f;                          // Low lava coverage (volcanic vents)
+
+    // THICK SULFUROUS ATMOSPHERE - Venus's signature look
+    p.atmosphereColor = {0.95f, 0.75f, 0.3f};      // Dense yellow-orange haze
+    p.atmosphereDensity = 0.85f;                    // Very thick atmosphere
+    p.cloudsDensity = 0.7f;                         // Dense sulfuric acid clouds
+    p.cloudsScale = 2.0f;
+    p.cloudsSpeed = 0.8f;                           // Slow super-rotation
+    p.cloudColor = {0.95f, 0.85f, 0.5f};           // Yellow-white sulfur clouds
+    p.cloudAltitude = 0.35f;
+    p.cloudThickness = 0.3f;
+
+    p.sunIntensity = 3.5f;
+    p.ambientLight = 0.015f;                        // Some glow from hot surface
 
     return p;
 }
@@ -426,6 +499,38 @@ PlanetParams ExoplanetConverter::createDesertWorldParams(const ExoplanetData& ex
 
     p.sunIntensity = 4.0f;
     p.waterLevel = -0.2f;
+
+    return p;
+}
+
+PlanetParams ExoplanetConverter::createFrozenWorldParams(const ExoplanetData& exo) {
+    PlanetParams p;
+    p.noiseStrength = 0.02f;
+    p.terrainScale = 0.7f;
+    p.fbmExponentiation = 3.5f;
+    p.ridgedStrength = 0.25f;      // Ice ridges
+    p.craterStrength = 0.2f;
+
+    // ICY surface - Europa/Enceladus style
+    p.sandColor = {0.85f, 0.9f, 0.95f};            // Light ice
+    p.treeColor = {0.7f, 0.78f, 0.85f};            // Blue-grey ice
+    p.rockColor = {0.5f, 0.55f, 0.65f};            // Dark ice/rock
+    p.iceColor = {0.95f, 0.98f, 1.0f};             // Pure white ice
+
+    // Frozen methane/nitrogen "lakes" (like Titan)
+    p.waterColorDeep = {0.15f, 0.25f, 0.4f};       // Deep dark frozen liquid
+    p.waterColorSurface = {0.25f, 0.35f, 0.5f};    // Frozen surface
+    p.waterLevel = -0.1f;
+
+    // Thin, cold atmosphere
+    p.atmosphereColor = {0.6f, 0.75f, 0.95f};      // Pale blue
+    p.atmosphereDensity = 0.15f;
+    p.cloudsDensity = 0.1f;
+    p.cloudColor = {0.9f, 0.95f, 1.0f};
+
+    p.polarCapSize = 0.8f;                          // Large ice caps
+    p.sunIntensity = 1.8f;                          // Dim distant star
+    p.ambientLight = 0.005f;                        // Very dark
 
     return p;
 }

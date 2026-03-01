@@ -42,12 +42,14 @@ set(ASTROCORE_SOURCES
     src/config/PresetManager.cpp
     # Data / API
     src/data/ExoplanetData.cpp
+    src/data/ExoplanetPredictor.cpp
     src/data/NasaApiClient.cpp
     src/data/ExoMastClient.cpp
     src/data/ExoplanetEuClient.cpp
     src/data/ExoplanetDataAggregator.cpp
     # Exoplanet rendering
     src/render/ExoplanetConverter.cpp
+    src/render/Galaxy3DRenderer.cpp
     # AI inference
     src/ai/InferenceEngine.cpp
     src/ai/BedrockClient.cpp

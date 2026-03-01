@@ -462,6 +462,16 @@ std::optional<PlanetParams> InferenceEngine::parseRenderParamsJson(const std::st
         params.bandingStrength = getFloat("bandingStrength", 0.0f);
         params.bandingFrequency = getFloat("bandingFrequency", 20.0f);
 
+        // Gas giant storm system
+        params.stormCount = getFloat("stormCount", 0.0f);
+        params.stormSize = getFloat("stormSize", 0.15f);
+        params.stormIntensity = getFloat("stormIntensity", 0.8f);
+        params.stormSeed = getFloat("stormSeed", 0.0f);
+        params.stormColor = getVec3("stormColor", {0.8f, 0.4f, 0.2f});
+        params.flowSpeed = getFloat("flowSpeed", 1.0f);
+        params.turbulenceScale = getFloat("turbulenceScale", 1.0f);
+        params.vortexTightness = getFloat("vortexTightness", 3.0f);
+
         // Colors
         params.waterColorDeep = getVec3("waterColorDeep", {0.01f, 0.05f, 0.15f});
         params.waterColorSurface = getVec3("waterColorSurface", {0.02f, 0.12f, 0.27f});

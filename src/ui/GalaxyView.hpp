@@ -1,6 +1,7 @@
 #pragma once
 
 #include <imgui.h>
+#include <glm/glm.hpp>
 #include <vector>
 #include <string>
 #include <memory>
@@ -10,6 +11,7 @@ namespace astrocore {
 
 struct PlanetParams;
 class PlanetThumbnailRenderer;
+class Galaxy3DRenderer;
 
 // GalaxyView - Galaxy navigation screen with cached exoplanet browser
 class GalaxyView {
@@ -175,6 +177,62 @@ private:
     void renderCatalogPanel(float W, float H);
     void renderCatalogTile(int planetIdx, float x, float y, float size);
     bool planetPassesFilter(int planetIdx) const;
+
+    // 3D Galaxy View
+    void render3DGalaxy(float W, float H);
+    void handleCameraInput(float dt);
+    void updateCameraAnimation(float dt);
+    void flyToObject(int objectId);
+    glm::mat4 getViewMatrix() const;
+    glm::mat4 getProjectionMatrix(float W, float H) const;
+
+    std::unique_ptr<Galaxy3DRenderer> m_galaxyRenderer;
+
+    // 3D Camera state
+    glm::vec3 m_cameraPos = glm::vec3(0.0f, 200.0f, 500.0f);
+    glm::vec3 m_cameraTarget = glm::vec3(0.0f);
+    float m_cameraYaw = 0.0f;    // Horizontal rotation
+    float m_cameraPitch = -0.3f; // Vertical rotation (looking down slightly)
+    float m_cameraSpeed = 200.0f;
+    float m_cameraSensitivity = 0.003f;
+
+    // Camera animation (for flying to planets)
+    bool m_flyingToTarget = false;
+    glm::vec3 m_flyStartPos;
+    glm::vec3 m_flyEndPos;
+    float m_flyStartYaw = 0.0f;
+    float m_flyStartPitch = 0.0f;
+    float m_flyEndYaw = 0.0f;
+    float m_flyEndPitch = 0.0f;
+    float m_flyProgress = 0.0f;
+    float m_flyDuration = 2.5f;
+
+    // Transition state (zooming into/out of planet)
+    enum class TransitionState { None, ZoomingIn, ViewingPlanet, ZoomingOut };
+    TransitionState m_transitionState = TransitionState::None;
+    float m_transitionProgress = 0.0f;
+    float m_transitionDuration = 2.0f;
+    int m_transitionPlanetIdx = -1;
+
+    // Input state
+    bool m_rightMouseDown = false;
+    glm::vec2 m_lastMousePos = glm::vec2(0.0f);
+
+public:
+    // Check if we're in a transition or viewing planet (for Application to know)
+    bool isZoomingToPlanet() const { return m_transitionState == TransitionState::ZoomingIn; }
+    bool isViewingPlanet() const { return m_transitionState == TransitionState::ViewingPlanet; }
+    bool isZoomingOut() const { return m_transitionState == TransitionState::ZoomingOut; }
+    float getTransitionProgress() const { return m_transitionProgress; }
+
+    // Start zoom transition to planet
+    void startZoomToPlanet(int planetIdx);
+
+    // Start zoom back to galaxy
+    void startZoomToGalaxy();
+
+    // Called when planet is fully loaded and we can complete transition
+    void onPlanetReady();
 };
 
 }  // namespace astrocore

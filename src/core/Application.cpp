@@ -4,6 +4,7 @@
 #include "render/Renderer.hpp"
 #include "render/Camera.hpp"
 #include "render/ExoplanetConverter.hpp"
+#include "data/ExoplanetPredictor.hpp"
 #include "intro/IntroAnimation.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -79,12 +80,17 @@ void Application::init() {
         loadPlanet(name);
     });
     m_galaxy->setFetchMetadataCallback([this](const std::string& name) {
-        // Fetch metadata from NASA in background
+        // Fetch metadata from NASA in background, then predict missing values
         m_galaxy->setFetchingMetadata(true);
         std::thread([this, name]() {
             try {
                 auto result = m_dataAggregator->queryPlanetSync(name);
-                const auto& d = result.data;
+                ExoplanetData d = result.data;
+
+                // Use predictor to fill ALL missing fields
+                ExoplanetPredictor predictor;
+                predictor.setInferenceEngine(m_inferenceEngine.get());
+                d = predictor.fillAllMissing(std::move(d));
 
                 // Calculate distance in light years from parsecs
                 float distLY = 0.f;
@@ -94,17 +100,23 @@ void Application::init() {
                     distLY = static_cast<float>(d.host_star.distance_pc.value * 3.26156);
                 }
 
+                // All values are now guaranteed to be valid (no NaN)
                 m_galaxy->updatePlanetMetadata(
                     name,
                     d.host_star.name,
                     distLY,
-                    d.radius_earth.hasValue() ? static_cast<float>(d.radius_earth.value) : 0.f,
-                    d.mass_earth.hasValue() ? static_cast<float>(d.mass_earth.value) : 0.f,
-                    d.equilibrium_temp_k.hasValue() ? static_cast<float>(d.equilibrium_temp_k.value) : 0.f,
+                    static_cast<float>(d.radius_earth.value),
+                    static_cast<float>(d.mass_earth.value),
+                    static_cast<float>(d.equilibrium_temp_k.value),
                     d.host_star.gaia_dr3_id
                 );
-                LOG_INFO("Fetched metadata for {}: host={}, dist={:.1f}ly, gaia={}",
-                         name, d.host_star.name, distLY, d.host_star.gaia_dr3_id);
+                LOG_INFO("Fetched and predicted metadata for {}: host={}, dist={:.1f}ly, "
+                         "radius={:.2f}R_E, mass={:.2f}M_E, temp={:.0f}K [sources: R={}, M={}, T={}]",
+                         name, d.host_star.name, distLY,
+                         d.radius_earth.value, d.mass_earth.value, d.equilibrium_temp_k.value,
+                         dataSourceToString(d.radius_earth.source),
+                         dataSourceToString(d.mass_earth.source),
+                         dataSourceToString(d.equilibrium_temp_k.source));
             } catch (const std::exception& e) {
                 LOG_WARN("Failed to fetch metadata for {}: {}", name, e.what());
             }
@@ -250,31 +262,51 @@ void Application::run() {
 }
 
 void Application::renderGalaxy(float dt) {
-    // 'S' key switches to solar system view
-    GLFWwindow* w = m_window->getHandle();
-    static bool sWasPressed = false;
-    bool sPressed = glfwGetKey(w, GLFW_KEY_S) == GLFW_PRESS;
-    if (sPressed && !sWasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
-        // Reload the solar system (it may have been replaced by loadFromConfig)
-        m_simulation.loadSolarSystem();
-        m_simulation.resume();  // Unpause when entering
-        m_camera->setPosition(glm::vec3(0.0f, 50.0f, 100.0f));
-        m_camera->setTarget(glm::vec3(0.0f));
-        m_screen = AppScreen::SolarSystem;
-        return;
-    }
-    sWasPressed = sPressed;
-
-    m_renderer->beginFrame();
-    m_renderer->render(*m_camera);
-
-    m_ui->beginFrame();
+    // Note: Solar system can be accessed via the "Solar System Simulation" button in the sidebar
 
     ImGuiIO& io = ImGui::GetIO();
     if (!m_galaxy->isInitialized())
         m_galaxy->init(io.DisplaySize.x, io.DisplaySize.y);
 
     m_galaxy->update(dt, io.DisplaySize.x, io.DisplaySize.y);
+
+    // Check transition states
+    bool isZoomingIn = m_galaxy->isZoomingToPlanet();
+    bool isViewingPlanet = m_galaxy->isViewingPlanet();
+    bool isZoomingOut = m_galaxy->isZoomingOut();
+    float transProgress = m_galaxy->getTransitionProgress();
+
+    m_renderer->beginFrame();
+
+    // If zooming in or out, blend between galaxy and planet render
+    if (isZoomingIn || isZoomingOut) {
+        float rawProgress = isZoomingIn ? transProgress : (1.0f - transProgress);
+
+        // For most of the transition, just show galaxy
+        if (rawProgress < 0.92f) {
+            // Pure galaxy view while zooming
+            m_galaxy->renderBackground(nullptr, io.DisplaySize.x, io.DisplaySize.y);
+        } else {
+            // Final stretch (92-100%): crossfade from galaxy to planet
+            float crossfade = (rawProgress - 0.92f) / 0.08f;  // 0 to 1 over final 8%
+
+            if (crossfade < 0.5f) {
+                // First half: galaxy fading out
+                m_galaxy->renderBackground(nullptr, io.DisplaySize.x, io.DisplaySize.y);
+            } else {
+                // Second half: planet fading in
+                m_renderer->render(*m_camera, false);
+            }
+        }
+    } else if (isViewingPlanet) {
+        // Just render the planet when fully arrived
+        m_renderer->render(*m_camera, false);
+    } else {
+        // Normal galaxy view - render 3D galaxy
+        m_galaxy->renderBackground(nullptr, io.DisplaySize.x, io.DisplaySize.y);
+    }
+
+    m_ui->beginFrame();
 
     // Fade-in timer
     m_galaxyFadeTimer += dt;
@@ -283,33 +315,49 @@ void Application::renderGalaxy(float dt) {
 
     bool switching = m_galaxy->isExplosionDone();
 
-    if (!switching) {
-        // Full-screen overlay for star field
-        ImGui::SetNextWindowPos({0.f, 0.f});
-        ImGui::SetNextWindowSize(io.DisplaySize);
-        ImGui::SetNextWindowBgAlpha(0.f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
-        if (ImGui::Begin("##galaxy_bg", nullptr,
-                ImGuiWindowFlags_NoDecoration |
-                ImGuiWindowFlags_NoMove |
-                ImGuiWindowFlags_NoScrollbar |
-                ImGuiWindowFlags_NoSavedSettings |
-                ImGuiWindowFlags_NoMouseInputs |
-                ImGuiWindowFlags_NoBringToFrontOnFocus)) {
-            ImGui::PopStyleVar();
-            m_galaxy->renderBackground(ImGui::GetWindowDrawList(),
-                                       io.DisplaySize.x, io.DisplaySize.y);
-        } else {
-            ImGui::PopStyleVar();
-        }
-        ImGui::End();
-
+    // Show UI only when not in full planet view
+    if (!switching && !isViewingPlanet) {
         m_galaxy->renderUI(io.DisplaySize.x, io.DisplaySize.y);
     }
 
+    // When viewing planet, show "Return to Galaxy" button
+    if (isViewingPlanet) {
+        ImGui::SetNextWindowPos(ImVec2(20.f, 20.f), ImGuiCond_Always);
+        if (ImGui::Begin("##return_btn", nullptr,
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_AlwaysAutoResize |
+                ImGuiWindowFlags_NoSavedSettings)) {
+            if (ImGui::Button("  < Return to Galaxy  ", ImVec2(180.f, 40.f))) {
+                m_galaxy->startZoomToGalaxy();
+            }
+        }
+        ImGui::End();
+    }
+
     // Theme toggle always visible
-    if (!switching)
+    if (!switching && !isViewingPlanet)
         m_ui->renderThemeToggle();
+
+    // Transition flash overlay (smooth the galaxy->planet switch)
+    if (isZoomingIn || isZoomingOut) {
+        float rawProgress = isZoomingIn ? transProgress : (1.0f - transProgress);
+        // Create a brief white flash at the crossfade point (around 94-98%)
+        if (rawProgress > 0.90f && rawProgress < 1.0f) {
+            // Peak at 96%, fade in from 90%, fade out to 100%
+            float flashIntensity;
+            if (rawProgress < 0.96f) {
+                flashIntensity = (rawProgress - 0.90f) / 0.06f;  // Fade in
+            } else {
+                flashIntensity = 1.0f - (rawProgress - 0.96f) / 0.04f;  // Fade out
+            }
+            flashIntensity = std::clamp(flashIntensity, 0.0f, 1.0f);
+            int flashAlpha = static_cast<int>(flashIntensity * 200);  // Max 200 alpha (not full white)
+            ImGui::GetForegroundDrawList()->AddRectFilled(
+                {0.f, 0.f}, io.DisplaySize,
+                IM_COL32(255, 255, 255, flashAlpha));
+        }
+    }
 
     // Fade-in overlay
     if (fadeAlpha < 1.f) {
@@ -332,6 +380,36 @@ void Application::renderGalaxy(float dt) {
         LOG_INFO("Switching to Solar System simulation");
         return;
     }
+
+    // Handle zoom transitions - load planet when zoom starts
+    static bool wasZooming = false;
+    if (isZoomingIn && !wasZooming) {
+        // Just started zooming - load the planet so it's ready when we arrive
+        const std::string name = m_galaxy->selectedName();
+        const int preset = m_galaxy->selectedPreset();
+
+        if (preset >= 0) {
+            m_renderer->params() = UIManager::getPreset(preset);
+            m_currentStatus = name + "  |  Preset";
+        } else {
+            loadPlanet(name);
+        }
+
+        // Set up camera for planet viewing
+        m_camera->setPosition(glm::vec3(0.0f, 0.0f, 15.0f));
+        m_camera->setTarget(glm::vec3(0.0f));
+        m_renderer->setPlanetPosition(glm::vec3(0.0f, 0.0f, -10.0f));
+
+        // Clear simulation state
+        m_simulation.clear();
+        m_renderer->clearRings();
+
+        LOG_INFO("Loading planet for zoom transition: {}", name);
+    }
+    wasZooming = isZoomingIn;
+
+    // When zoom out completes, we're back in galaxy browsing mode
+    // (nothing special needed - just continue rendering galaxy)
 
     if (switching) {
         const std::string name = m_galaxy->selectedName();
@@ -579,7 +657,11 @@ void Application::loadPlanet(const std::string& name) {
         std::thread([this, name]() {
             try {
                 auto result = m_dataAggregator->queryPlanetSync(name);
-                m_ui->setCurrentExoplanetData(result.data);
+                // Fill ALL missing fields with predictions
+                ExoplanetPredictor predictor;
+                predictor.setInferenceEngine(m_inferenceEngine.get());
+                auto filledData = predictor.fillAllMissing(std::move(result.data));
+                m_ui->setCurrentExoplanetData(filledData);
             } catch (...) {
                 // Ignore - metadata is optional
             }
@@ -605,12 +687,11 @@ void Application::loadPlanet(const std::string& name) {
             }
 
             auto data = results[0];
-            data.calculateDerivedValues();
 
-            // AI fills missing parameters
-            if (m_inferenceEngine->isAvailable()) {
-                data = m_inferenceEngine->fillMissingParametersSync(std::move(data));
-            }
+            // Fill ALL missing fields with scientific predictions + AI
+            ExoplanetPredictor predictor;
+            predictor.setInferenceEngine(m_inferenceEngine.get());
+            data = predictor.fillAllMissing(std::move(data));
 
             // Convert to render params
             PlanetParams params = ExoplanetConverter::toPlanetParams(data, m_inferenceEngine.get());

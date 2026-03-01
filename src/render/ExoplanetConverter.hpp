@@ -43,8 +43,10 @@ private:
     static PlanetParams createGasGiantParams(const ExoplanetData& exo);
     static PlanetParams createIceGiantParams(const ExoplanetData& exo);
     static PlanetParams createLavaWorldParams(const ExoplanetData& exo);
+    static PlanetParams createVenusLikeParams(const ExoplanetData& exo);
     static PlanetParams createOceanWorldParams(const ExoplanetData& exo);
     static PlanetParams createDesertWorldParams(const ExoplanetData& exo);
+    static PlanetParams createFrozenWorldParams(const ExoplanetData& exo);
 
     // Validate AI output and auto-correct obvious errors
     static void validateAndCorrectParams(PlanetParams& params, const ExoplanetData& exo, const std::string& planetType);

@@ -75,6 +75,16 @@ uniform float uPolarCapSize;
 uniform float uBandingStrength;
 uniform float uBandingFrequency;
 
+// Gas giant storm system
+uniform float uStormCount;
+uniform float uStormSize;
+uniform float uStormIntensity;
+uniform float uStormSeed;
+uniform vec3 uStormColor;
+uniform float uFlowSpeed;
+uniform float uTurbulenceScale;
+uniform float uVortexTightness;
+
 // Constants
 #define PLANET_ROTATION rotateY(uTime * uRotationSpeed + uRotationOffset)
 #define EPSILON 1e-3
@@ -380,6 +390,129 @@ float hybridFBM(vec3 p, int octaves, float persistence, float lacunarity, float 
     float blend = noise(p * 0.5);
     return mix(mix(standard, ridged, smoothstep(0.3, 0.7, blend)),
                billowy, smoothstep(0.6, 0.9, blend));
+}
+
+// ── Gas Giant Storm System ──────────────────────────────────────────────────
+
+// Hash function for storm positions
+vec2 hash2(float n) {
+    return fract(sin(vec2(n, n + 1.0)) * vec2(43758.5453, 22578.1459));
+}
+
+// Curl noise for fluid-like motion
+vec2 curlNoise2D(vec2 p) {
+    float eps = 0.001;
+    float n1 = noise(vec3(p.x - eps, p.y, 0.0));
+    float n2 = noise(vec3(p.x + eps, p.y, 0.0));
+    float n3 = noise(vec3(p.x, p.y - eps, 0.0));
+    float n4 = noise(vec3(p.x, p.y + eps, 0.0));
+
+    float dNdx = (n2 - n1) / (2.0 * eps);
+    float dNdy = (n4 - n3) / (2.0 * eps);
+
+    return vec2(dNdy, -dNdx);
+}
+
+// Vortex spiral function - creates hurricane-like rotation
+float vortexSpiral(vec2 p, float tightness, float time) {
+    float r = length(p);
+    float theta = atan(p.y, p.x);
+
+    // Logarithmic spiral with time-based rotation
+    float spiral = sin(theta * tightness - log(r + 0.1) * 8.0 + time * 0.5);
+
+    // Falloff from center
+    float falloff = exp(-r * 3.0);
+
+    return spiral * falloff;
+}
+
+// Storm structure - creates the full storm with eye, wall, and spiral bands
+struct StormData {
+    float intensity;    // How strong the storm is at this point
+    float vorticity;    // Swirling strength
+    vec3 color;         // Storm color contribution
+    float distortion;   // How much to distort surrounding flow
+};
+
+StormData sampleStorm(vec2 stormCenter, vec2 samplePos, float stormRadius, float time, int stormIndex) {
+    StormData storm;
+    storm.intensity = 0.0;
+    storm.vorticity = 0.0;
+    storm.color = vec3(0.0);
+    storm.distortion = 0.0;
+
+    vec2 toCenter = samplePos - stormCenter;
+    float dist = length(toCenter);
+    float normalizedDist = dist / stormRadius;
+
+    if (normalizedDist > 2.5) return storm;
+
+    // Storm profile - intensity peaks at eyewall
+    float eyeRadius = 0.15;
+    float eyewallWidth = 0.25;
+
+    // Eye - calm center
+    float eyeMask = smoothstep(eyeRadius, 0.0, normalizedDist);
+
+    // Eyewall - most intense region
+    float eyewall = smoothstep(eyeRadius, eyeRadius + eyewallWidth, normalizedDist) *
+                    smoothstep(eyeRadius + eyewallWidth * 2.0, eyeRadius + eyewallWidth, normalizedDist);
+
+    // Outer spiral bands
+    float outerBands = smoothstep(2.5, 0.5, normalizedDist) * (1.0 - eyeMask);
+
+    // Vortex rotation
+    float angle = atan(toCenter.y, toCenter.x);
+    float spiralPhase = angle * uVortexTightness - normalizedDist * 6.0 + time * 0.8;
+
+    // Multiple spiral arms with varying intensity
+    float arms = 0.0;
+    arms += sin(spiralPhase) * 0.5 + 0.5;
+    arms += sin(spiralPhase * 2.0 + 1.0) * 0.3;
+    arms += sin(spiralPhase * 0.5 - 0.5) * 0.2;
+    arms = clamp(arms, 0.0, 1.0);
+
+    // Add small-scale turbulence to spiral arms
+    float turbulence = noise(vec3(samplePos * 20.0, time * 0.1)) * 0.3;
+    arms += turbulence * outerBands;
+
+    // Total intensity
+    storm.intensity = eyewall * 1.5 + outerBands * arms * 0.8;
+    storm.intensity *= uStormIntensity;
+
+    // Vorticity - strongest near eyewall
+    float vorticityProfile = eyewall * 2.0 + outerBands * arms * 0.5;
+    storm.vorticity = vorticityProfile / (normalizedDist + 0.1);
+
+    // Storm color - varies by distance from center
+    vec3 eyeColor = uStormColor * 1.5;  // Bright center
+    vec3 wallColor = uStormColor;        // Standard storm color
+    vec3 outerColor = uStormColor * 0.6; // Darker outer regions
+
+    storm.color = mix(outerColor, wallColor, eyewall);
+    storm.color = mix(storm.color, eyeColor, eyeMask * 0.5);
+
+    // Flow distortion
+    storm.distortion = (1.0 - eyeMask) * smoothstep(2.0, 0.0, normalizedDist);
+
+    return storm;
+}
+
+// Generate storm positions based on seed
+vec3 getStormPosition(int index, float seed) {
+    vec2 h = hash2(float(index) * 127.1 + seed * 311.7);
+
+    // Latitude: storms form at specific latitudes (like Jupiter's bands)
+    // Avoid equator and poles
+    float lat = mix(-0.6, 0.6, h.x);
+    // Add some clustering around typical storm latitudes
+    lat += sin(lat * 3.14159) * 0.15;
+
+    // Longitude: spread around the planet
+    float lon = h.y * 6.28318;
+
+    return vec3(lon, lat, 0.0);
 }
 
 // ── Terrain ──────────────────────────────────────────────────────────────────
@@ -771,37 +904,196 @@ Hit intersectPlanet(vec3 ro, vec3 rd) {
     float latitude = abs(localDir.y);
 
     if (uBandingStrength > 0.0) {
-        // Jupiter-style bands with turbulent flow
+        // Jupiter-style bands with animated storms and dynamic features
         float lat = localDir.y;
+        float lon = atan(localDir.z, localDir.x);
 
-        // Warp latitude with flowing turbulence
-        vec3 nc = rotatedCoord * 2.0;
-        float warp1 = noise(nc + vec3(uTime * 0.02, 0.0, 0.0)) - 0.5;
-        float warp2 = noise(nc * 1.5 + vec3(0.0, uTime * 0.015, 17.0)) - 0.5;
-        float warpedLat = lat + (warp1 * 0.06 + warp2 * 0.04) * uBandingStrength;
+        // === DIFFERENTIAL ROTATION ===
+        // Equator rotates faster than poles (like real Jupiter)
+        float diffRot = sin(lat * PI) * 0.2 * uFlowSpeed;
+        float animatedLon = lon + uTime * 0.02 * (1.0 + diffRot);
 
-        // Multiple band frequencies for varied width bands
+        // === FLOWING BAND EDGES ===
+        // Smooth, animated warping at band boundaries
+        vec3 warpCoord = localDir * 2.0;
+        float flowTime = uTime * 0.008 * uFlowSpeed;
+        float warp1 = noise(warpCoord + vec3(flowTime, 0.0, 0.0)) - 0.5;
+        float warp2 = noise(warpCoord * 0.6 + vec3(0.0, flowTime * 0.7, 20.0)) - 0.5;
+        float warp = warp1 * 0.7 + warp2 * 0.5;
+
+        float warpedLat = lat + warp * 0.1 * uBandingStrength;
+
+        // === PRIMARY BAND STRUCTURE ===
         float b1 = sin(warpedLat * uBandingFrequency) * 0.5 + 0.5;
-        float b2 = sin(warpedLat * uBandingFrequency * 0.4 + 0.5) * 0.5 + 0.5;
-        float b3 = sin(warpedLat * uBandingFrequency * 1.7 - 0.3) * 0.5 + 0.5;
-
-        // Combine for complex band structure
+        float b2 = sin(warpedLat * uBandingFrequency * 0.45 + 0.8) * 0.5 + 0.5;
+        float b3 = sin(warpedLat * uBandingFrequency * 1.5 - 0.3) * 0.5 + 0.5;
         float band = b1 * 0.5 + b2 * 0.3 + b3 * 0.2;
 
-        // Flowing streaks within bands - use 3D position instead of atan to avoid seam
-        vec3 streakCoord = localDir * 8.0 + vec3(0.0, lat * uBandingFrequency, uTime * 0.05);
-        float streak = noise(streakCoord);
-        band += (streak - 0.5) * 0.15;
+        // === CHEVRONS / FESTOONS ===
+        // V-shaped intrusions between bands (animated)
+        float bandPhase = warpedLat * uBandingFrequency;
+        float bandEdge = abs(fract(bandPhase / (2.0 * PI) + 0.25) - 0.5) * 2.0;
+        bandEdge = smoothstep(0.3, 0.0, bandEdge); // 1.0 at band boundaries
 
-        // Small turbulent eddies
-        float eddy = noise(rotatedCoord * 12.0 + vec3(uTime * 0.03));
-        float eddyMask = noise(rotatedCoord * 3.0);  // Where eddies appear
-        eddyMask = smoothstep(0.55, 0.7, eddyMask);
-        band += (eddy - 0.5) * 0.2 * eddyMask;
+        // Animated chevron pattern
+        float chevronPhase = animatedLon * 3.0 + sin(lat * 8.0) * 0.5;
+        float chevron = sin(chevronPhase + uTime * 0.15 * uFlowSpeed);
+        chevron = smoothstep(-0.2, 0.5, chevron); // Sharp leading edge
+
+        // Chevrons push dark material into light bands
+        band = mix(band, band * 0.4, chevron * bandEdge * 0.5 * uTurbulenceScale);
+
+        // === ANIMATED PLUMES ===
+        // Rising/falling columns at band edges
+        float plumePhase = animatedLon * 5.0;
+        float plume = noise(vec3(plumePhase, lat * 4.0, uTime * 0.03 * uFlowSpeed));
+        plume = smoothstep(0.55, 0.75, plume);
+        band = mix(band, 1.0 - band, plume * bandEdge * 0.4 * uTurbulenceScale);
+
+        // === FLOWING STREAKS ===
+        // Horizontal wisps that flow with the wind
+        vec3 streakCoord = vec3(animatedLon * 1.5, lat * uBandingFrequency * 0.5, 0.0);
+        streakCoord.x += uTime * 0.04 * uFlowSpeed * (1.0 + lat * 0.5);
+        float streak = noise(streakCoord) - 0.5;
+        band += streak * 0.12;
 
         band = clamp(band, 0.0, 1.0);
 
-        // Three-tone color palette
+        // === ENHANCED STORM SYSTEM - Fluid Dynamics ===
+        float stormMask = 0.0;
+        vec3 stormContribution = vec3(0.0);
+        float stormBandWarp = 0.0;
+        float turbulentDistortion = 0.0;
+
+        if (uStormCount > 0.0) {
+            int numStorms = int(min(uStormCount, 12.0));  // Allow more storms
+            for (int i = 0; i < 12; i++) {
+                if (i >= numStorms) break;
+
+                // Storm position from seed - varied latitudes
+                vec2 stormHash = hash2(float(i) * 127.1 + uStormSeed * 311.7);
+                vec2 stormHash2 = hash2(float(i) * 234.5 + uStormSeed * 567.8);
+
+                // Storms cluster near band boundaries (like Jupiter)
+                float bandLat = floor(stormHash.x * 6.0) / 6.0 - 0.5;
+                float stormLat = bandLat + (stormHash2.x - 0.5) * 0.15;
+
+                // Storms drift at different speeds (differential rotation)
+                float driftSpeed = 0.003 + stormHash2.y * 0.008;
+                float stormLon = stormHash.y * 6.28318 + uTime * driftSpeed;
+
+                // Distance to storm center
+                float lonDiff = animatedLon - stormLon;
+                lonDiff = mod(lonDiff + PI, 2.0 * PI) - PI;
+                float latDiff = lat - stormLat;
+
+                // Variable aspect ratio (some storms more elongated than others)
+                float aspectRatio = 1.5 + stormHash2.x * 1.5;  // 1.5 to 3.0
+                float stormDist = sqrt(lonDiff * lonDiff * aspectRatio + latDiff * latDiff);
+                float stormRadius = uStormSize * (0.7 + float(i) * 0.08 + stormHash2.y * 0.3);
+
+                if (stormDist < stormRadius * 4.0) {
+                    float r = stormDist / stormRadius;
+
+                    // === FLUID STORM STRUCTURE ===
+                    // Eye - calm center with slight motion
+                    float eyeRadius = 0.2 + sin(uTime * 0.3 + float(i)) * 0.05;
+                    float eye = smoothstep(eyeRadius + 0.1, eyeRadius * 0.5, r);
+
+                    // Eyewall - turbulent, brightest ring
+                    float eyewall = smoothstep(0.1, 0.3, r) * smoothstep(0.7, 0.35, r);
+
+                    // Add turbulence to eyewall
+                    vec2 turbPos = vec2(animatedLon, lat) * 30.0 + uTime * 0.5;
+                    float turbulence = noise(vec3(turbPos, uTime * 0.2)) * 0.3;
+                    eyewall *= (1.0 + turbulence * uTurbulenceScale);
+
+                    // Angle from center
+                    float angle = atan(latDiff, lonDiff);
+
+                    // ANIMATED ROTATION with variable speed
+                    float rotationSpeed = 1.2 + float(i) * 0.15 + stormHash.x * 0.5;
+                    float rotatedAngle = angle - uTime * rotationSpeed * uStormIntensity;
+
+                    // === MULTIPLE SPIRAL ARMS ===
+                    // Primary arms - tight spiral
+                    float numArms = 3.0 + floor(stormHash2.x * 4.0);  // 3-6 arms
+                    float spiral1 = sin(rotatedAngle * numArms - r * uVortexTightness * 2.0);
+
+                    // Secondary arms - looser, offset
+                    float spiral2 = sin(rotatedAngle * (numArms + 1.0) - r * (uVortexTightness + 2.0) + PI * 0.5);
+
+                    // Tertiary micro-arms for detail
+                    float microArms = sin(rotatedAngle * 8.0 - r * 12.0 + uTime * 2.0) * 0.3;
+
+                    // Combine spirals with varying influence by radius
+                    float innerSpiral = spiral1 * smoothstep(0.8, 0.3, r);
+                    float outerSpiral = spiral2 * smoothstep(0.3, 1.2, r) * smoothstep(3.0, 1.5, r);
+                    float spiral = max(innerSpiral, outerSpiral) * 0.5 + 0.5;
+                    spiral += microArms * smoothstep(0.2, 0.6, r) * smoothstep(1.5, 0.8, r);
+
+                    // === FLUID FILAMENTS ===
+                    // Stretched wisps being pulled into the vortex
+                    float filamentAngle = rotatedAngle * 2.0 - r * 4.0;
+                    float filaments = pow(abs(sin(filamentAngle * 5.0 + turbulence * 3.0)), 3.0);
+                    filaments *= smoothstep(1.0, 2.5, r) * smoothstep(4.0, 2.5, r);
+
+                    // === TURBULENT EDDIES ===
+                    // Small swirls within the storm
+                    float eddyScale = 15.0 * uTurbulenceScale;
+                    vec2 eddyPos = vec2(rotatedAngle, r) * eddyScale;
+                    float eddies = noise(vec3(eddyPos + uTime * 0.3, float(i)));
+                    eddies = pow(eddies, 0.7) * smoothstep(0.3, 0.8, r) * smoothstep(2.0, 1.0, r);
+
+                    // Spiral visible in outer region
+                    float spiralMask = smoothstep(0.15, 0.5, r) * smoothstep(3.0, 1.0, r);
+                    float spiralIntensity = spiral * spiralMask + eddies * 0.4 + filaments * 0.3;
+
+                    // === COMBINE STORM FEATURES ===
+                    float intensity = eye * 0.4 + eyewall * 1.5 + spiralIntensity * 0.8;
+                    intensity *= smoothstep(4.0, 2.0, r); // Gradual fade at edge
+
+                    // Add pulsing to storm intensity
+                    float pulse = 1.0 + sin(uTime * 0.5 + float(i) * 1.5) * 0.1;
+                    intensity *= pulse;
+
+                    // === STORM WARPS NEARBY BANDS ===
+                    float warpStrength = smoothstep(3.5, 0.5, r);
+                    float warpAngle = rotatedAngle + PI * 0.5;
+                    // Stronger warping with turbulent variation
+                    float warpTurb = noise(vec3(animatedLon * 5.0, lat * 5.0, uTime * 0.1));
+                    stormBandWarp += sin(warpAngle + warpTurb) * warpStrength * 0.15 * uStormIntensity;
+
+                    // Turbulent distortion field
+                    turbulentDistortion += eddies * warpStrength * 0.05;
+
+                    // === RICH COLOR GRADIENTS ===
+                    // Eye is darker, mysterious
+                    vec3 eyeColor = uStormColor * 0.4;
+                    // Eyewall is intense, bright
+                    vec3 wallColor = uStormColor * 1.6;
+                    // Arms have varied colors
+                    vec3 armColor = mix(uStormColor, uStormColor * vec3(1.2, 0.9, 0.8), spiral);
+                    // Outer filaments fade to band color
+                    vec3 filamentColor = mix(uStormColor * 0.7, uTreeColor, smoothstep(2.0, 3.5, r));
+
+                    vec3 thisStormColor = mix(armColor, wallColor, eyewall);
+                    thisStormColor = mix(thisStormColor, eyeColor, eye);
+                    thisStormColor = mix(thisStormColor, filamentColor, filaments);
+
+                    // Add subtle color variation from turbulence
+                    thisStormColor *= 1.0 + (eddies - 0.5) * 0.3;
+
+                    stormMask = max(stormMask, intensity * uStormIntensity);
+                    stormContribution += thisStormColor * intensity * uStormIntensity;
+                }
+            }
+        }
+
+        // Apply storm warping and turbulence to bands
+        band = clamp(band + stormBandWarp + turbulentDistortion, 0.0, 1.0);
+
+        // === COLOR PALETTE ===
         vec3 darkBand = uTreeColor;
         vec3 midBand = uRockColor;
         vec3 lightBand = uSandColor;
@@ -813,7 +1105,25 @@ Hit intersectPlanet(vec3 ro, vec3 rd) {
             bandColor = mix(midBand, lightBand, (band - 0.5) * 2.0);
         }
 
+        // Apply base bands
         color = mix(color, bandColor, uBandingStrength);
+
+        // Overlay storms with smooth blending
+        if (stormMask > 0.005) {
+            vec3 normalizedStorm = stormContribution / max(stormMask, 0.05);
+
+            // Blend storm color with underlying band color for natural look
+            float blendFactor = smoothstep(0.0, 0.5, stormMask);
+            vec3 stormBlend = mix(bandColor, normalizedStorm, 0.6 + blendFactor * 0.3);
+
+            // Add subtle glow around intense storm areas
+            float glowIntensity = pow(stormMask, 2.0) * 0.3;
+            stormBlend += uStormColor * glowIntensity;
+
+            // Smooth edge blending
+            float edgeFade = smoothstep(0.0, 0.15, stormMask);
+            color = mix(color, stormBlend, edgeFade * uBandingStrength);
+        }
     }
 
     if (uPolarCapSize > 0.0) {
