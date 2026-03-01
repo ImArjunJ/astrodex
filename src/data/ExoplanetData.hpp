@@ -28,6 +28,8 @@ struct MeasuredValue {
     bool hasValue() const {
         if constexpr (std::is_floating_point_v<T>) {
             return !std::isnan(value);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return !value.empty();
         } else {
             return true;
         }

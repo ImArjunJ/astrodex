@@ -246,6 +246,11 @@ void Application::run() {
         m_window->pollEvents();
 
         if (m_screen == AppScreen::Galaxy) {
+            // When viewing a planet from galaxy, enable camera controls
+            if (m_galaxy && m_galaxy->isViewingPlanet()) {
+                handleInput();
+                update(deltaTime);
+            }
             renderGalaxy(deltaTime);
         } else if (m_screen == AppScreen::SolarSystem) {
             handleSolarSystemInput();
@@ -320,22 +325,33 @@ void Application::renderGalaxy(float dt) {
         m_galaxy->renderUI(io.DisplaySize.x, io.DisplaySize.y);
     }
 
-    // When viewing planet, show "Return to Galaxy" button
+    // When viewing planet, show full planet UI with controls
     if (isViewingPlanet) {
-        ImGui::SetNextWindowPos(ImVec2(20.f, 20.f), ImGuiCond_Always);
-        if (ImGui::Begin("##return_btn", nullptr,
-                ImGuiWindowFlags_NoDecoration |
-                ImGuiWindowFlags_NoMove |
-                ImGuiWindowFlags_AlwaysAutoResize |
-                ImGuiWindowFlags_NoSavedSettings)) {
-            if (ImGui::Button("  < Return to Galaxy  ", ImVec2(180.f, 40.f))) {
-                m_galaxy->startZoomToGalaxy();
-            }
+        // Render planet control panels
+        m_ui->render(m_renderer->params());
+
+        // Simulation controls for planet rotation
+        auto simResult = m_ui->renderSimulationControls(
+            m_renderer->isPaused(),
+            static_cast<double>(m_renderer->timeScale()),
+            false,  // No lock feature in single planet view
+            "");
+        if (simResult.pauseToggled) {
+            m_renderer->setPaused(!m_renderer->isPaused());
         }
-        ImGui::End();
+        if (simResult.timeScaleChanged) {
+            m_renderer->setTimeScale(static_cast<float>(simResult.newTimeScale));
+        }
+
+        m_ui->renderThemeToggle();
+
+        // Handle back button from the panel
+        if (m_ui->wasBackPressed()) {
+            m_galaxy->startZoomToGalaxy();
+        }
     }
 
-    // Theme toggle always visible
+    // Theme toggle for non-planet views
     if (!switching && !isViewingPlanet)
         m_ui->renderThemeToggle();
 
