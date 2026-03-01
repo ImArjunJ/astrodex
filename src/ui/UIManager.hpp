@@ -20,7 +20,7 @@ namespace astrocore {
 
 struct PlanetParams;
 class PresetManager;
-class VulkanRenderer;
+class RendererBase;
 
 enum class Theme { Dark, Light };
 
@@ -29,9 +29,9 @@ public:
     UIManager();
     ~UIManager();
 
-    void init(GLFWwindow* window, VulkanRenderer* renderer);
+    void init(GLFWwindow* window, RendererBase* renderer);
     void beginFrame();
-    void endFrame(VulkanRenderer* renderer);
+    void endFrame(RendererBase* renderer);
 
     void shutdown();
 

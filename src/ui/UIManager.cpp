@@ -1,14 +1,22 @@
 #include "ui/UIManager.hpp"
 #include "ui/DataVisualization.hpp"
 #include "render/IRenderer.hpp"
-#include "render/VulkanRenderer.hpp"
+#include "render/RendererBase.hpp"
 #include "config/PresetManager.hpp"
 #include "core/Logger.hpp"
 
-#include <vulkan/vulkan.h>
+#ifdef __EMSCRIPTEN__
+    #include <webgpu/webgpu.h>
+    #include <imgui_impl_wgpu.h>
+    #include "render/WebGPURenderer.hpp"
+#else
+    #include <vulkan/vulkan.h>
+    #include <imgui_impl_vulkan.h>
+    #include "render/VulkanRenderer.hpp"
+#endif
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
-#include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
 
 #include <nlohmann/json.hpp>
@@ -455,7 +463,7 @@ UIManager::~UIManager() {
     }
 }
 
-void UIManager::init(GLFWwindow* window, VulkanRenderer* renderer) {
+void UIManager::init(GLFWwindow* window, RendererBase* renderer) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
@@ -463,22 +471,35 @@ void UIManager::init(GLFWwindow* window, VulkanRenderer* renderer) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplGlfw_InitForOther(window, true);
+
+    auto* wgpuRenderer = static_cast<WebGPURenderer*>(renderer);
+    ImGui_ImplWGPU_InitInfo wgpuInfo{};
+    wgpuInfo.Device = wgpuRenderer->getDevice();
+    wgpuInfo.RenderTargetFormat = wgpuRenderer->getSurfaceFormat();
+    wgpuInfo.DepthStencilFormat = WGPUTextureFormat_Undefined;
+    wgpuInfo.NumFramesInFlight = 1;
+    ImGui_ImplWGPU_Init(&wgpuInfo);
+#else
     ImGui_ImplGlfw_InitForVulkan(window, true);
 
+    auto* vkRenderer = static_cast<VulkanRenderer*>(renderer);
     ImGui_ImplVulkan_InitInfo initInfo{};
-    initInfo.Instance       = static_cast<VkInstance>(renderer->getInstance());
-    initInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(renderer->getPhysicalDevice());
-    initInfo.Device         = static_cast<VkDevice>(renderer->getDevice());
-    initInfo.QueueFamily    = renderer->getGraphicsQueueFamily();
-    initInfo.Queue          = static_cast<VkQueue>(renderer->getGraphicsQueue());
-    initInfo.DescriptorPool = static_cast<VkDescriptorPool>(renderer->getDescriptorPool());
-    initInfo.RenderPass     = static_cast<VkRenderPass>(renderer->getRenderPass());
+    initInfo.Instance       = static_cast<VkInstance>(vkRenderer->getInstance());
+    initInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(vkRenderer->getPhysicalDevice());
+    initInfo.Device         = static_cast<VkDevice>(vkRenderer->getDevice());
+    initInfo.QueueFamily    = vkRenderer->getGraphicsQueueFamily();
+    initInfo.Queue          = static_cast<VkQueue>(vkRenderer->getGraphicsQueue());
+    initInfo.DescriptorPool = static_cast<VkDescriptorPool>(vkRenderer->getDescriptorPool());
+    initInfo.RenderPass     = static_cast<VkRenderPass>(vkRenderer->getRenderPass());
     initInfo.MinImageCount  = 2;
-    initInfo.ImageCount     = renderer->getSwapchainImageCount();
+    initInfo.ImageCount     = vkRenderer->getSwapchainImageCount();
     initInfo.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
 
     ImGui_ImplVulkan_Init(&initInfo);
     ImGui_ImplVulkan_CreateFontsTexture();
+#endif
 
     setupStyle();
     refreshCachedPlanets();
@@ -489,7 +510,11 @@ void UIManager::init(GLFWwindow* window, VulkanRenderer* renderer) {
     m_dataViz->applyTheme(m_theme == Theme::Dark);
 
     m_initialized = true;
+#ifdef __EMSCRIPTEN__
+    LOG_INFO("ImGui initialized (WebGPU backend)");
+#else
     LOG_INFO("ImGui initialized (Vulkan backend)");
+#endif
 }
 
 void UIManager::shutdown() {
@@ -497,23 +522,36 @@ void UIManager::shutdown() {
         m_dataViz->shutdown();
         m_dataViz.reset();
     }
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplWGPU_Shutdown();
+#else
     ImGui_ImplVulkan_Shutdown();
+#endif
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     m_initialized = false;
 }
 
 void UIManager::beginFrame() {
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplWGPU_NewFrame();
+#else
     ImGui_ImplVulkan_NewFrame();
+#endif
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 }
 
-void UIManager::endFrame(VulkanRenderer* renderer) {
+void UIManager::endFrame(RendererBase* renderer) {
     ImGui::Render();
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData());
+    (void)renderer;  // WebGPU ImGui backend does not need the renderer
+#else
     ImGui_ImplVulkan_RenderDrawData(
         ImGui::GetDrawData(),
-        static_cast<VkCommandBuffer>(renderer->getCurrentCommandBuffer()));
+        static_cast<VkCommandBuffer>(static_cast<VulkanRenderer*>(renderer)->getCurrentCommandBuffer()));
+#endif
 }
 
 void UIManager::refreshCachedPlanets() {

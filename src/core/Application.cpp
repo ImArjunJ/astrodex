@@ -1,7 +1,7 @@
 #include "core/Application.hpp"
 #include "core/Logger.hpp"
 #include "config/SystemConfig.hpp"
-#include "render/VulkanRenderer.hpp"
+#include "render/RendererBase.hpp"
 #include "render/Camera.hpp"
 #include "render/ExoplanetConverter.hpp"
 #include "intro/IntroAnimation.hpp"
@@ -10,6 +10,13 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+
+#ifdef __EMSCRIPTEN__
+    #include "render/WebGPURenderer.hpp"
+    #include <emscripten.h>
+#else
+    #include "render/VulkanRenderer.hpp"
+#endif
 
 namespace astrocore {
 
@@ -46,8 +53,13 @@ void Application::init() {
         m_camera->setAspectRatio(static_cast<float>(width) / static_cast<float>(height));
     });
 
+#ifdef __EMSCRIPTEN__
+    m_renderer = std::make_unique<WebGPURenderer>();
+    LOG_INFO("Using WebGPU rendering backend");
+#else
     m_renderer = std::make_unique<VulkanRenderer>();
     LOG_INFO("Using Vulkan rendering backend");
+#endif
     m_renderer->init(m_window->getWidth(), m_window->getHeight(),
                      m_window->getHandle());
 
@@ -61,7 +73,8 @@ void Application::init() {
         m_presetManager.generateBuiltInPresets();
     }
 
-    // Exoplanet data aggregator
+#ifndef __EMSCRIPTEN__
+    // Exoplanet data aggregator (requires libcurl, not available in Emscripten)
     AggregatorConfig aggConfig;
     aggConfig.query_nasa = true;
     aggConfig.query_exomast = true;
@@ -69,17 +82,19 @@ void Application::init() {
     m_dataAggregator = std::make_unique<ExoplanetDataAggregator>(aggConfig);
     m_dataAggregator->preloadExoplanetEuCatalog();
 
-    // AI inference engine
+    // AI inference engine (requires libcurl)
     m_inferenceEngine = std::make_unique<InferenceEngine>();
     if (m_inferenceEngine->isAvailable()) {
         LOG_INFO("AI inference available");
     }
+#endif
 
     // Galaxy view setup
     m_galaxy = std::make_unique<GalaxyView>();
     m_galaxy->setExoplanetCallback([this](const std::string& name) {
         loadPlanet(name);
     });
+#ifndef __EMSCRIPTEN__
     m_galaxy->setFetchMetadataCallback([this](const std::string& name) {
         m_galaxy->setFetchingMetadata(true);
         std::thread([this, name]() {
@@ -111,6 +126,7 @@ void Application::init() {
             m_galaxy->setFetchingMetadata(false);
         }).detach();
     });
+#endif
 
     // Load cached planets into galaxy view
     auto cachedPlanets = ExoplanetConverter::listCachedPlanets();
@@ -214,6 +230,42 @@ void Application::runIntro() {
     m_lastFrameTime = m_window->getTime();
 }
 
+#ifdef __EMSCRIPTEN__
+
+void Application::tick() {
+    double currentTime = m_window->getTime();
+    float deltaTime = std::min(static_cast<float>(currentTime - m_lastFrameTime), 0.05f);
+    m_lastFrameTime = currentTime;
+
+    m_window->pollEvents();
+
+    if (m_screen == AppScreen::Galaxy) {
+        renderGalaxy(deltaTime);
+    } else if (m_screen == AppScreen::SolarSystem) {
+        handleSolarSystemInput();
+        m_simulation.update(deltaTime);
+        renderSolarSystem(deltaTime);
+    } else {
+        handleInput();
+        update(deltaTime);
+        render(deltaTime);
+    }
+
+    m_window->swapBuffers();
+}
+
+void Application::run() {
+    // Skip intro for web — go straight to PlanetDetail
+    m_screen = AppScreen::PlanetDetail;
+    m_lastFrameTime = m_window->getTime();
+
+    emscripten_set_main_loop_arg(
+        [](void* arg) { static_cast<Application*>(arg)->tick(); },
+        this, 0, true);
+}
+
+#else
+
 void Application::run() {
     // Run intro animation
     runIntro();
@@ -248,6 +300,8 @@ void Application::run() {
         m_window->swapBuffers();
     }
 }
+
+#endif
 
 void Application::renderGalaxy(float dt) {
     // 'S' key switches to solar system view
@@ -565,6 +619,7 @@ void Application::loadPlanet(const std::string& name) {
         m_ui->setExoplanetStatus(m_currentStatus);
         LOG_INFO("Loaded cached params for {}", name);
 
+#ifndef __EMSCRIPTEN__
         std::thread([this, name]() {
             try {
                 auto result = m_dataAggregator->queryPlanetSync(name);
@@ -572,9 +627,15 @@ void Application::loadPlanet(const std::string& name) {
             } catch (...) {
             }
         }).detach();
+#endif
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    // Network API calls are not available in the web build
+    m_ui->setExoplanetStatus("Not cached: \"" + name + "\"");
+    LOG_WARN("Planet {} not cached; network queries unavailable in web build", name);
+#else
     // Otherwise, start async load
     m_planetLoading = true;
     m_ui->setExoplanetStatus("Searching...");
@@ -606,6 +667,7 @@ void Application::loadPlanet(const std::string& name) {
             result.hasExoData = true;
             return result;
         });
+#endif
 }
 
 void Application::handleInput() {
@@ -803,7 +865,7 @@ void Application::shutdown() {
 void Application::loadExoplanetIntoSimulation(const ExoplanetData& exo) {
     LOG_INFO("Loading exoplanet {} into simulation", exo.name);
 
-    PlanetParams params = ExoplanetConverter::toPlanetParams(exo, m_inferenceEngine.get());
+    PlanetParams params = ExoplanetConverter::toPlanetParams(exo, m_inferenceEngine ? m_inferenceEngine.get() : nullptr);
 
     SystemConfig config;
     config.name = exo.name + " System";

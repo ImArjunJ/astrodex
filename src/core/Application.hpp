@@ -15,7 +15,7 @@
 
 namespace astrocore {
 
-class VulkanRenderer;
+class RendererBase;
 class Camera;
 
 enum class AppScreen { Intro, Galaxy, PlanetDetail, SolarSystem };
@@ -43,8 +43,12 @@ private:
     void loadExoplanetIntoSimulation(const ExoplanetData& exo);
     void loadPlanet(const std::string& name);
 
+#ifdef __EMSCRIPTEN__
+    void tick();  // Single-frame callback for emscripten_set_main_loop
+#endif
+
     std::unique_ptr<Window> m_window;
-    std::unique_ptr<VulkanRenderer> m_renderer;
+    std::unique_ptr<RendererBase> m_renderer;
     std::unique_ptr<Camera> m_camera;
     std::unique_ptr<UIManager> m_ui;
     std::unique_ptr<GalaxyView> m_galaxy;
