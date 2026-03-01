@@ -1,6 +1,6 @@
 #pragma once
 
-#include "render/IRenderer.hpp"
+#include "render/RendererBase.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 #include <cstdint>
@@ -9,7 +9,7 @@ namespace astrocore {
 
 class Camera;
 
-class VulkanRenderer : public IRenderer {
+class VulkanRenderer : public RendererBase {
 public:
     VulkanRenderer();
     ~VulkanRenderer();
@@ -23,20 +23,6 @@ public:
     void beginFrame() override;
     void render(const Camera& camera) override;
     void endFrame() override;
-
-    PlanetParams& params() override;
-
-    // Planet position for multi-body rendering
-    void setPlanetPosition(const glm::vec3& pos);
-
-    // Time control for rotation animation
-    void setPaused(bool paused);
-    bool isPaused() const;
-    void setTimeScale(float scale);
-    float timeScale() const;
-
-    // Emissive flag for star rendering
-    void setEmissive(bool emissive);
 
     // Vulkan accessors for ImGui integration (opaque void* to avoid vulkan.h in header)
     void* getInstance();

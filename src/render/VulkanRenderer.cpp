@@ -13,10 +13,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#ifdef __APPLE__
-#include <mach-o/dyld.h>
-#endif
-
 #define STB_IMAGE_IMPLEMENTATION
 #include "../../external/stb_image.h"
 
@@ -40,38 +36,8 @@ namespace astrocore {
         }                                                                   \
     } while (0)
 
-// Resolve path relative to executable, falling back to CWD
-static std::string resolveAssetPath(const std::string& relative) {
-#ifdef __APPLE__
-    // Get executable directory via _NSGetExecutablePath
-    char exePath[4096];
-    uint32_t size = sizeof(exePath);
-    if (_NSGetExecutablePath(exePath, &size) == 0) {
-        std::string dir(exePath);
-        auto pos = dir.find_last_of('/');
-        if (pos != std::string::npos) {
-            std::string candidate = dir.substr(0, pos + 1) + relative;
-            if (std::ifstream(candidate).good()) return candidate;
-        }
-    }
-#elif defined(__linux__)
-    char exePath[4096];
-    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
-    if (len > 0) {
-        exePath[len] = '\0';
-        std::string dir(exePath);
-        auto pos = dir.find_last_of('/');
-        if (pos != std::string::npos) {
-            std::string candidate = dir.substr(0, pos + 1) + relative;
-            if (std::ifstream(candidate).good()) return candidate;
-        }
-    }
-#endif
-    return relative; // fallback to CWD-relative
-}
-
 static std::vector<char> readFile(const std::string& path) {
-    std::string resolved = resolveAssetPath(path);
+    std::string resolved = RendererBase::resolveAssetPath(path);
     std::ifstream f(resolved, std::ios::ate | std::ios::binary);
     if (!f.is_open()) throw std::runtime_error("Failed to open file: " + path);
     size_t sz = f.tellg();
@@ -158,19 +124,9 @@ struct VulkanRenderer::Impl {
     VkSampler     starmapSampler   = VK_NULL_HANDLE;
 
     // State
-    PlanetParams params;
-    float        time   = 0.0f;
-    int          width  = 0;
-    int          height = 0;
     uint32_t     currentImageIndex = 0;
     bool         framebufferResized = false;
     GLFWwindow*  window = nullptr;
-
-    // Blackhole branch extensions
-    glm::vec3    planetPosition{0.0f, 0.0f, -10.0f};
-    bool         paused = false;
-    float        timeScale = 1.0f;
-    bool         emissive = false;
 
     // Methods
     void createSwapchain(int w, int h);
@@ -237,8 +193,6 @@ void VulkanRenderer::Impl::recreateSwapchain() {
     cleanupSwapchain();
     createSwapchain(w, h);
     createFramebuffers();
-    width  = w;
-    height = h;
     framebufferResized = false;
 }
 
@@ -296,8 +250,8 @@ VulkanRenderer::~VulkanRenderer() {
 
 void VulkanRenderer::init(int width, int height, void* glfwWindow) {
     m_impl->window = static_cast<GLFWwindow*>(glfwWindow);
-    m_impl->width  = width;
-    m_impl->height = height;
+    width_  = width;
+    height_ = height;
 
     // 0. On macOS, ensure the Vulkan loader can find MoltenVK's ICD
 #ifdef __APPLE__
@@ -557,18 +511,12 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
 
     // 11. Vertex buffer (fullscreen quad)
     {
-        float verts[] = {
-            -1.f, -1.f, 0.f, 0.f,
-             1.f, -1.f, 1.f, 0.f,
-             1.f,  1.f, 1.f, 1.f,
-            -1.f, -1.f, 0.f, 0.f,
-             1.f,  1.f, 1.f, 1.f,
-            -1.f,  1.f, 0.f, 1.f,
-        };
+        auto verts = RendererBase::getQuadVertices();
+        VkDeviceSize vertsSize = verts.size() * sizeof(float);
 
         VkBufferCreateInfo bufCI{};
         bufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufCI.size  = sizeof(verts);
+        bufCI.size  = vertsSize;
         bufCI.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
         VmaAllocationCreateInfo allocCI{};
@@ -581,7 +529,7 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
         VkBuffer staging; VmaAllocation stagingAlloc;
         VkBufferCreateInfo stageBufCI{};
         stageBufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stageBufCI.size  = sizeof(verts);
+        stageBufCI.size  = vertsSize;
         stageBufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         VmaAllocationCreateInfo stageAllocCI{};
         stageAllocCI.usage = VMA_MEMORY_USAGE_CPU_ONLY;
@@ -589,7 +537,7 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
 
         void* mapped;
         vmaMapMemory(m_impl->allocator, stagingAlloc, &mapped);
-        std::memcpy(mapped, verts, sizeof(verts));
+        std::memcpy(mapped, verts.data(), vertsSize);
         vmaUnmapMemory(m_impl->allocator, stagingAlloc);
 
         // One-shot command buffer for transfer
@@ -612,7 +560,7 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
         beginI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmd, &beginI);
-        VkBufferCopy region{0, 0, sizeof(verts)};
+        VkBufferCopy region{0, 0, vertsSize};
         vkCmdCopyBuffer(cmd, staging, m_impl->vertexBuffer, 1, &region);
         vkEndCommandBuffer(cmd);
 
@@ -647,13 +595,7 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
     // 13. 3D noise texture (512^3 R8)
     {
         constexpr int sz = 512;
-        size_t totalSize = size_t(sz) * sz * sz;
-        std::vector<uint8_t> data(totalSize);
-        uint32_t seed = 0x12345678;
-        for (size_t i = 0; i < totalSize; ++i) {
-            seed = seed * 1664525u + 1013904223u;
-            data[i] = static_cast<uint8_t>(seed >> 24);
-        }
+        auto data = RendererBase::generateNoiseData();
 
         // Create image
         VkImageCreateInfo imgCI{};
@@ -677,14 +619,14 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
         VkBuffer staging; VmaAllocation stagingAlloc;
         VkBufferCreateInfo stageBufCI{};
         stageBufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stageBufCI.size  = totalSize;
+        stageBufCI.size  = data.size();
         stageBufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         VmaAllocationCreateInfo stageAllocCI{};
         stageAllocCI.usage = VMA_MEMORY_USAGE_CPU_ONLY;
         VK_CHECK(vmaCreateBuffer(m_impl->allocator, &stageBufCI, &stageAllocCI, &staging, &stagingAlloc, nullptr));
         void* mapped;
         vmaMapMemory(m_impl->allocator, stagingAlloc, &mapped);
-        std::memcpy(mapped, data.data(), totalSize);
+        std::memcpy(mapped, data.data(), data.size());
         vmaUnmapMemory(m_impl->allocator, stagingAlloc);
 
         // Upload via one-shot command buffer
@@ -779,7 +721,7 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
         stbi_uc* facePixels[6]{};
 
         for (int f = 0; f < 6; f++) {
-            std::string path = resolveAssetPath(faceFiles[f]);
+            std::string path = RendererBase::resolveAssetPath(faceFiles[f]);
             facePixels[f] = stbi_load(path.c_str(), &faceW, &faceH, &faceChannels, 4);
             if (!facePixels[f]) {
                 LOG_WARN("Failed to load starmap face: {} — using black", faceFiles[f]);
@@ -1024,8 +966,8 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
 
 void VulkanRenderer::resize(int width, int height) {
     m_impl->framebufferResized = true;
-    m_impl->width  = width;
-    m_impl->height = height;
+    width_  = width;
+    height_ = height;
 }
 
 void VulkanRenderer::beginFrame() {
@@ -1038,6 +980,8 @@ void VulkanRenderer::beginFrame() {
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         m_impl->recreateSwapchain();
+        width_  = static_cast<int>(m_impl->swapchainExtent.width);
+        height_ = static_cast<int>(m_impl->swapchainExtent.height);
         return;
     }
 
@@ -1063,103 +1007,10 @@ void VulkanRenderer::render(const Camera& camera) {
     uint32_t f = m_impl->currentFrame;
     VkCommandBuffer cmd = m_impl->commandBuffers[f];
 
-    if (!m_impl->paused) {
-        m_impl->time += 0.016f * m_impl->timeScale;
-    }
+    advanceTime(0.016f);
 
-    // Fill UBO
-    PlanetUniformsVk u{};
-
-    glm::mat4 inv = glm::inverse(camera.getViewMatrix());
-    std::memcpy(u.invView, &inv[0][0], sizeof(u.invView));
-
-    // Planet rotation matrix
-    float angle = m_impl->time * m_impl->params.rotationSpeed + m_impl->params.rotationOffset;
-    float c = glm::cos(angle), s = glm::sin(angle);
-    glm::mat3 rot(glm::vec3(c, 0, s), glm::vec3(0, 1, 0), glm::vec3(-s, 0, c));
-    u.planetRot_col0[0] = rot[0][0]; u.planetRot_col0[1] = rot[0][1]; u.planetRot_col0[2] = rot[0][2]; u.planetRot_col0[3] = 0.f;
-    u.planetRot_col1[0] = rot[1][0]; u.planetRot_col1[1] = rot[1][1]; u.planetRot_col1[2] = rot[1][2]; u.planetRot_col1[3] = 0.f;
-    u.planetRot_col2[0] = rot[2][0]; u.planetRot_col2[1] = rot[2][1]; u.planetRot_col2[2] = rot[2][2]; u.planetRot_col2[3] = 0.f;
-
-    glm::vec3 cam = camera.getPosition();
-    u.camPosX = cam.x; u.camPosY = cam.y; u.camPosZ = cam.z;
-    u.time = m_impl->time;
-
-    u.planetX = m_impl->planetPosition.x;
-    u.planetY = m_impl->planetPosition.y;
-    u.planetZ = m_impl->planetPosition.z;
-    u.radius  = m_impl->params.radius;
-
-    u.resX = float(m_impl->width); u.resY = float(m_impl->height);
-    u.rotOffset = m_impl->params.rotationOffset;
-    u.rotSpeed  = m_impl->params.rotationSpeed;
-
-    u.noiseStr    = m_impl->params.noiseStrength;
-    u.quality     = m_impl->params.quality;
-    u.terrainScale = m_impl->params.terrainScale;
-    u.domainWarp  = m_impl->params.domainWarpStrength;
-
-    u.fbmPersist = m_impl->params.fbmPersistence;
-    u.fbmLac     = m_impl->params.fbmLacunarity;
-    u.fbmExp     = m_impl->params.fbmExponentiation;
-    u.fbmOct     = float(m_impl->params.fbmOctaves);
-
-    u.ridged     = m_impl->params.ridgedStrength;
-    u.crater     = m_impl->params.craterStrength;
-    u.continent  = m_impl->params.continentScale;
-    u.waterLevel = m_impl->params.waterLevel;
-
-    u.bandStr  = m_impl->params.bandingStrength;
-    u.bandFreq = m_impl->params.bandingFrequency;
-    u.polarCap = m_impl->params.polarCapSize;
-
-    u.cloudDensity = m_impl->params.cloudsDensity;
-    u.cloudScale   = m_impl->params.cloudsScale;
-    u.cloudSpeed   = m_impl->params.cloudsSpeed;
-    u.cloudAlt     = m_impl->params.cloudAltitude;
-    u.cloudThick   = m_impl->params.cloudThickness;
-    u.sunInt       = m_impl->params.sunIntensity;
-    u.ambLight     = m_impl->params.ambientLight;
-    u.atmoDensity  = m_impl->params.atmosphereDensity;
-
-    auto v3 = [](float* f, const glm::vec3& v) { f[0]=v.x; f[1]=v.y; f[2]=v.z; };
-    v3(&u.atmoR,      m_impl->params.atmosphereColor);
-    v3(&u.sunDirX,    glm::normalize(m_impl->params.sunDirection));
-    v3(&u.sunColR,    m_impl->params.sunColor);
-    v3(&u.deepSpR,    m_impl->params.deepSpaceColor);
-    v3(&u.waterDeepR, m_impl->params.waterColorDeep);
-    v3(&u.waterSurfR, m_impl->params.waterColorSurface);
-    v3(&u.sandR,      m_impl->params.sandColor);
-    v3(&u.treeR,      m_impl->params.treeColor);
-    v3(&u.rockR,      m_impl->params.rockColor);
-    v3(&u.iceR,       m_impl->params.iceColor);
-    v3(&u.cloudColR,  m_impl->params.cloudColor);
-
-    u.sandLev    = m_impl->params.sandLevel;
-    u.treeLev    = m_impl->params.treeLevel;
-    u.rockLev    = m_impl->params.rockLevel;
-    u.iceLev     = m_impl->params.iceLevel;
-    u.transition = m_impl->params.transition;
-
-    // Black hole
-    u.isBlackHole       = m_impl->params.isBlackHole ? 1.0f : 0.0f;
-    u.bhMass            = m_impl->params.bhMass;
-    u.bhAccretionInner  = m_impl->params.bhAccretionInner;
-    u.bhAccretionOuter  = m_impl->params.bhAccretionOuter;
-    u.bhDiskSpeed       = m_impl->params.bhDiskSpeed;
-    u.bhDiskTurbulence  = m_impl->params.bhDiskTurbulence;
-    u.bhDiskBrightness  = m_impl->params.bhDiskBrightness;
-    u.bhTempInner       = m_impl->params.bhDiskTemperatureInner;
-    u.bhTempOuter       = m_impl->params.bhDiskTemperatureOuter;
-    u.bhDopplerStrength = m_impl->params.bhDopplerStrength;
-    u.bhRaySteps        = float(m_impl->params.bhRaySteps);
-    v3(&u.bhDiskTintR, m_impl->params.bhDiskTint);
-
-    // Extra params (blackhole branch additions)
-    u.noiseType     = float(static_cast<int>(m_impl->params.noiseType));
-    u.continentBlend = m_impl->params.continentBlend;
-    u.isEmissive    = m_impl->emissive ? 1.0f : 0.0f;
-
+    // Fill UBO via base class
+    PlanetUniformsVk u = fillUniforms(camera);
     std::memcpy(m_impl->uniformMapped[f], &u, sizeof(u));
 
     // Draw
@@ -1211,14 +1062,14 @@ void VulkanRenderer::endFrame() {
     VkResult result = vkQueuePresentKHR(m_impl->presentQueue, &present);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_impl->framebufferResized) {
         m_impl->recreateSwapchain();
+        width_  = static_cast<int>(m_impl->swapchainExtent.width);
+        height_ = static_cast<int>(m_impl->swapchainExtent.height);
     }
 
     m_impl->currentFrame = (f + 1) % FRAMES_IN_FLIGHT;
 }
 
 // ── Accessors ────────────────────────────────────────────────────────────────
-
-PlanetParams& VulkanRenderer::params() { return m_impl->params; }
 
 void* VulkanRenderer::getInstance()             { return m_impl->instance; }
 void* VulkanRenderer::getPhysicalDevice()       { return m_impl->physicalDevice; }
@@ -1229,14 +1080,5 @@ void* VulkanRenderer::getRenderPass()           { return m_impl->renderPass; }
 void* VulkanRenderer::getDescriptorPool()       { return m_impl->imguiDescriptorPool; }
 void* VulkanRenderer::getCurrentCommandBuffer() { return m_impl->commandBuffers[m_impl->currentFrame]; }
 uint32_t VulkanRenderer::getSwapchainImageCount() { return uint32_t(m_impl->swapchainImages.size()); }
-
-// ── Blackhole branch extensions ──────────────────────────────────────────────
-
-void VulkanRenderer::setPlanetPosition(const glm::vec3& pos) { m_impl->planetPosition = pos; }
-void VulkanRenderer::setPaused(bool paused) { m_impl->paused = paused; }
-bool VulkanRenderer::isPaused() const { return m_impl->paused; }
-void VulkanRenderer::setTimeScale(float scale) { m_impl->timeScale = scale; }
-float VulkanRenderer::timeScale() const { return m_impl->timeScale; }
-void VulkanRenderer::setEmissive(bool emissive) { m_impl->emissive = emissive; }
 
 } // namespace astrocore

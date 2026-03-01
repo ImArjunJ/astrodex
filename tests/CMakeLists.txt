@@ -27,6 +27,7 @@ catch_discover_tests(data_aggregation_tests)
 add_executable(render_tests
     render/test_planet_params.cpp
     render/test_thumbnail_renderer.cpp
+    render/test_renderer_base.cpp
 )
 
 target_link_libraries(render_tests

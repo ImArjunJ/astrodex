@@ -20,6 +20,7 @@ set(ASTROCORE_SOURCES
     src/core/Window.cpp
     src/core/Application.cpp
     src/core/Logger.cpp
+    src/render/RendererBase.cpp
     src/render/VulkanRenderer.cpp
     src/render/Camera.cpp
     # GL-dependent renderers temporarily removed (will be ported to Vulkan later)
@@ -88,12 +89,12 @@ target_link_libraries(astrocore_lib
         pugixml
 )
 
-add_executable(astrosplat src/main.cpp)
-target_link_libraries(astrosplat PRIVATE astrocore_lib)
+add_executable(astrodex src/main.cpp)
+target_link_libraries(astrodex PRIVATE astrocore_lib)
 
 # On macOS with Homebrew Vulkan/MoltenVK, ensure loader finds the ICD and dylib
 if(APPLE)
-    set_target_properties(astrosplat PROPERTIES
+    set_target_properties(astrodex PROPERTIES
         BUILD_RPATH "/opt/homebrew/lib;/usr/local/lib"
     )
     # Detect MoltenVK ICD
@@ -112,17 +113,17 @@ if(APPLE)
 endif()
 
 # Compile shaders to SPIR-V
-compile_shaders(astrosplat
+compile_shaders(astrodex
     ${CMAKE_SOURCE_DIR}/shaders/planet_vk.vert
     ${CMAKE_SOURCE_DIR}/shaders/planet_vk.frag
 )
 
 # Copy assets and configs
-add_custom_command(TARGET astrosplat POST_BUILD
+add_custom_command(TARGET astrodex POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrosplat>/assets
+    ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrodex>/assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/configs $<TARGET_FILE_DIR:astrosplat>/configs
+    ${CMAKE_SOURCE_DIR}/configs $<TARGET_FILE_DIR:astrodex>/configs
 )
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
