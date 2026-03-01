@@ -15,10 +15,13 @@
 #include <atomic>
 #include <set>
 #include <vector>
+#include <deque>
+#include <unordered_map>
 
 namespace astrocore {
 
 class Camera;
+class ThumbnailRenderer;
 
 // Pipeline stage for thread-safe status communication
 enum class PipelineStage : int {
@@ -56,6 +59,13 @@ private:
     // Build the known planet name list from SolarSystemDatabase + cache
     void buildPlanetNameList();
 
+    // Thumbnail management
+    void initThumbnailRenderer();
+    void loadThumbnailsFromCache();
+    ImTextureID loadPNGAsTexture(const std::string& filepath);
+    void updateThumbnailGeneration(float deltaTime);
+    static std::string makePlanetSlug(const std::string& name);
+
     std::unique_ptr<Window>          m_window;
     std::unique_ptr<IRenderer>       m_renderer;
     std::unique_ptr<Camera>          m_camera;
@@ -91,6 +101,14 @@ private:
     std::shared_ptr<std::atomic<int>> m_prefetchProgress;
     bool m_catalogueMode = true;   // true = show catalogue, false = planet detail
     bool m_prefetchComplete = false;
+
+    // ── Thumbnail state ─────────────────────────────────────────────────
+    std::unique_ptr<ThumbnailRenderer> m_thumbnailRenderer;
+    std::deque<int> m_thumbnailQueue;            // indices into m_catalogueData
+    bool m_thumbnailQueueInitialized = false;
+    int m_currentThumbnailIdx = -1;
+    bool m_renderingThumbnail = false;
+    std::unique_ptr<Camera> m_thumbnailCamera;
 
     // Fade transition state
     PlanetParams m_targetParams{};

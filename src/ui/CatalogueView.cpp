@@ -120,7 +120,14 @@ void CatalogueView::setLoadingProgress(int current, int total) {
 
 // ── Main render entry point ─────────────────────────────────────────────────
 
-void CatalogueView::render(const std::vector<ExoplanetData>& data, float W, float H) {
+void CatalogueView::setThumbnail(const std::string& name, ImTextureID texID) {
+    m_thumbnails[name] = texID;
+}
+
+void CatalogueView::render(const std::vector<ExoplanetData>& data, float W, float H, float dt) {
+    // Reset hovered card each frame; it will be set during renderCardGrid
+    m_hoveredCardIdx = -1;
+    m_hoveredPlanetName.clear();
     // Full-screen catalogue window (no title bar, no move)
     ImGui::SetNextWindowPos({0.f, 0.f}, ImGuiCond_Always);
     ImGui::SetNextWindowSize({W, H}, ImGuiCond_Always);
@@ -414,21 +421,32 @@ void CatalogueView::renderCardGrid(const std::vector<ExoplanetData>& data,
         // Card border (subtle)
         dl->AddRect(cardMin, cardMax, IM_COL32(60, 65, 80, 120), kCornerR, 0, 1.0f);
 
-        // ── Colored placeholder rectangle (planet type) ─────────────────
+        // ── Thumbnail or colored placeholder rectangle ─────────────────
         std::string typeStr = planet.planet_type.hasValue() ? planet.planet_type.value : "";
-        ImU32 typeColor = planetTypeColor(typeStr);
         ImVec2 thumbMin = {cursorStart.x + kPadInner, cursorStart.y + kPadInner};
         ImVec2 thumbMax = {cursorStart.x + kCardW - kPadInner,
                            cursorStart.y + kPadInner + kThumbH};
-        dl->AddRectFilled(thumbMin, thumbMax, typeColor, 4.f);
 
-        // Type label centered on the placeholder
-        if (!typeStr.empty()) {
-            std::string canon = canonicalType(typeStr);
-            ImVec2 labelSz = ImGui::CalcTextSize(canon.c_str());
-            float labelX = thumbMin.x + (thumbMax.x - thumbMin.x - labelSz.x) * 0.5f;
-            float labelY = thumbMin.y + (thumbMax.y - thumbMin.y - labelSz.y) * 0.5f;
-            dl->AddText({labelX, labelY}, IM_COL32(255, 255, 255, 200), canon.c_str());
+        // Check if we have a rendered thumbnail for this planet
+        auto thumbIt = m_thumbnails.find(planet.name);
+        if (thumbIt != m_thumbnails.end() && thumbIt->second != 0) {
+            // Draw the thumbnail image
+            ImVec2 thumbSize = {thumbMax.x - thumbMin.x, thumbMax.y - thumbMin.y};
+            ImGui::SetCursorScreenPos(thumbMin);
+            ImGui::Image(thumbIt->second, thumbSize);
+        } else {
+            // Fallback: colored placeholder rectangle
+            ImU32 typeColor = planetTypeColor(typeStr);
+            dl->AddRectFilled(thumbMin, thumbMax, typeColor, 4.f);
+
+            // Type label centered on the placeholder
+            if (!typeStr.empty()) {
+                std::string canon = canonicalType(typeStr);
+                ImVec2 labelSz = ImGui::CalcTextSize(canon.c_str());
+                float labelX = thumbMin.x + (thumbMax.x - thumbMin.x - labelSz.x) * 0.5f;
+                float labelY = thumbMin.y + (thumbMax.y - thumbMin.y - labelSz.y) * 0.5f;
+                dl->AddText({labelX, labelY}, IM_COL32(255, 255, 255, 200), canon.c_str());
+            }
         }
 
         // ── Text area below placeholder ─────────────────────────────────
@@ -486,10 +504,12 @@ void CatalogueView::renderCardGrid(const std::vector<ExoplanetData>& data,
             onCardClicked(dataIdx, data);
         }
 
-        // Hover highlight
+        // Hover highlight and thumbnail hover tracking
         if (ImGui::IsItemHovered()) {
             dl->AddRect(cardMin, cardMax, IM_COL32(100, 180, 255, 180), kCornerR, 0, 2.0f);
             ImGui::SetTooltip("%s", planet.name.c_str());
+            m_hoveredCardIdx = dataIdx;
+            m_hoveredPlanetName = planet.name;
         }
 
         ImGui::PopID();

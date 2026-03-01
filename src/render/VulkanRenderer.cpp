@@ -1214,5 +1214,7 @@ void* VulkanRenderer::getRenderPass()           { return m_impl->renderPass; }
 void* VulkanRenderer::getDescriptorPool()       { return m_impl->imguiDescriptorPool; }
 void* VulkanRenderer::getCurrentCommandBuffer() { return m_impl->commandBuffers[m_impl->currentFrame]; }
 uint32_t VulkanRenderer::getSwapchainImageCount() { return uint32_t(m_impl->swapchainImages.size()); }
+void* VulkanRenderer::getAllocator()             { return m_impl->allocator; }
+void* VulkanRenderer::getCommandPool()           { return m_impl->commandPools[m_impl->currentFrame]; }
 
 } // namespace astrocore

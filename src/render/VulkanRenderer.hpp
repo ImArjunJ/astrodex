@@ -35,6 +35,8 @@ public:
     void* getDescriptorPool();
     void* getCurrentCommandBuffer();
     uint32_t getSwapchainImageCount();
+    void* getAllocator();
+    void* getCommandPool();
 
 private:
     struct Impl;

@@ -1,12 +1,14 @@
 #include "core/Application.hpp"
 #include "core/Logger.hpp"
 #include "render/Camera.hpp"
+#include "render/ThumbnailRenderer.hpp"
 #include "intro/IntroAnimation.hpp"
 #include "render/VulkanRenderer.hpp"
 #include "data/SolarSystemDatabase.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <chrono>
+#include <filesystem>
 #include <spdlog/fmt/fmt.h>
 #include <set>
 #include <algorithm>

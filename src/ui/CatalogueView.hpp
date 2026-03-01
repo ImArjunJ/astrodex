@@ -5,6 +5,7 @@
 #include <string>
 #include <functional>
 #include <set>
+#include <unordered_map>
 
 namespace astrocore {
 
@@ -41,9 +42,14 @@ public:
     CatalogueView();
 
     void init();
-    void render(const std::vector<ExoplanetData>& data, float W, float H);
+    void render(const std::vector<ExoplanetData>& data, float W, float H, float dt = 0.f);
     void setPlanetCallback(std::function<void(const std::string&)> cb);
     void setLoadingProgress(int current, int total);
+
+    // Thumbnail management
+    void setThumbnail(const std::string& name, ImTextureID texID);
+    int getHoveredCardIndex() const { return m_hoveredCardIdx; }
+    std::string getHoveredPlanetName() const { return m_hoveredPlanetName; }
 
 private:
     void renderSearchBar(const std::vector<ExoplanetData>& data);
@@ -80,6 +86,12 @@ private:
 
     // Planet click callback
     std::function<void(const std::string&)> m_planetCallback;
+
+    // Thumbnail state
+    std::unordered_map<std::string, ImTextureID> m_thumbnails;
+    int m_hoveredCardIdx = -1;
+    std::string m_hoveredPlanetName;
+    float m_hoverTime = 0.f;
 };
 
 }  // namespace astrocore
