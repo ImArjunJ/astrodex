@@ -1,4 +1,4 @@
-# astrosplat
+# astrodex
 
 visualize every exoplanet ever discovered. yeah all 5000+ of them.
 
