@@ -118,10 +118,19 @@ void WebGPURenderer::init(int width, int height, void* glfwWindow) {
         throw std::runtime_error("Failed to create WebGPU instance");
     }
 
-    // 2. Get surface from GLFW (Emscripten provides glfwGetWGPUSurface)
-    m_impl->surface = glfwGetWGPUSurface(m_impl->instance, m_impl->window);
+    // 2. Get surface from HTML canvas (Emscripten-specific)
+    {
+        WGPUSurfaceDescriptorFromCanvasHTMLSelector canvasDesc{};
+        canvasDesc.chain.sType = WGPUSType_SurfaceDescriptorFromCanvasHTMLSelector;
+        canvasDesc.selector = "#canvas";
+
+        WGPUSurfaceDescriptor surfDesc{};
+        surfDesc.nextInChain = &canvasDesc.chain;
+
+        m_impl->surface = wgpuInstanceCreateSurface(m_impl->instance, &surfDesc);
+    }
     if (!m_impl->surface) {
-        throw std::runtime_error("Failed to get WebGPU surface from GLFW window");
+        throw std::runtime_error("Failed to create WebGPU surface from canvas");
     }
 
     // 3. Request adapter (synchronous under Emscripten's Dawn implementation)
@@ -658,6 +667,10 @@ WGPUDevice WebGPURenderer::getDevice() {
 
 WGPUTextureFormat WebGPURenderer::getSurfaceFormat() {
     return m_impl->surfaceFormat;
+}
+
+WGPURenderPassEncoder WebGPURenderer::getRenderPassEncoder() {
+    return m_impl->passEncoder;
 }
 
 }  // namespace astrocore

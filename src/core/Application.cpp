@@ -865,7 +865,11 @@ void Application::shutdown() {
 void Application::loadExoplanetIntoSimulation(const ExoplanetData& exo) {
     LOG_INFO("Loading exoplanet {} into simulation", exo.name);
 
+#ifdef __EMSCRIPTEN__
+    PlanetParams params = ExoplanetConverter::toPlanetParams(exo, nullptr);
+#else
     PlanetParams params = ExoplanetConverter::toPlanetParams(exo, m_inferenceEngine ? m_inferenceEngine.get() : nullptr);
+#endif
 
     SystemConfig config;
     config.name = exo.name + " System";

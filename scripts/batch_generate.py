@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Batch generate planet render params using Claude Sonnet via AWS Bedrock.
-Caches results to ~/.cache/astrosplat/planets/
+Caches results to ~/.cache/astrodex/planets/
 
 Usage:
     python scripts/batch_generate.py --limit 100  # Generate first 100
@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.request import urlopen
 from urllib.parse import quote
 
-CACHE_DIR = Path.home() / ".cache" / "astrosplat" / "planets"
+CACHE_DIR = Path.home() / ".cache" / "astrodex" / "planets"
 NASA_TAP_URL = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
 
 # System prompt - EXACT COPY from src/ai/PromptTemplates.hpp RENDER_PARAMS_SYSTEM_PROMPT

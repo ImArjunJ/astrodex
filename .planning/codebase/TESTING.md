@@ -30,7 +30,7 @@
 mkdir -p build && cd build
 cmake ..
 cmake --build .
-./astrosplat    # Run application manually
+./astrodex    # Run application manually
 ```
 
 **AddressSanitizer (for memory debugging):**
@@ -38,7 +38,7 @@ cmake --build .
 mkdir -p build && cd build
 cmake -DASTROCORE_ENABLE_ASAN=ON ..
 cmake --build .
-./astrosplat    # Memory issues logged to stderr
+./astrodex    # Memory issues logged to stderr
 ```
 
 ## Code Coverage

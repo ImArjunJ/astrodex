@@ -545,8 +545,8 @@ void UIManager::beginFrame() {
 void UIManager::endFrame(RendererBase* renderer) {
     ImGui::Render();
 #ifdef __EMSCRIPTEN__
-    ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData());
-    (void)renderer;  // WebGPU ImGui backend does not need the renderer
+    auto* wgpuRenderer = static_cast<WebGPURenderer*>(renderer);
+    ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), wgpuRenderer->getRenderPassEncoder());
 #else
     ImGui_ImplVulkan_RenderDrawData(
         ImGui::GetDrawData(),

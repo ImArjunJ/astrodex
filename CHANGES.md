@@ -64,7 +64,7 @@ brew install glfw
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(sysctl -n hw.logicalcpu)
-./astrosplat
+./astrodex
 ```
 
 CMake will print `Apple Silicon (arm64) detected — Metal backend ENABLED` to confirm the right path is active.
@@ -75,7 +75,7 @@ CMake will print `Apple Silicon (arm64) detected — Metal backend ENABLED` to c
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)   # Linux; use -j%NUMBER_OF_PROCESSORS% on Windows
-./astrosplat
+./astrodex
 ```
 
 The OpenGL path is used automatically. No Metal files are compiled.

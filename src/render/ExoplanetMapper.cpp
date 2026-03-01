@@ -1,7 +1,7 @@
 #include "render/ExoplanetMapper.hpp"
 #include <algorithm>
 #include <cmath>
-#include <spdlog/fmt/fmt.h>
+#include <format>
 #include <numeric>
 #include <optional>
 
@@ -444,7 +444,7 @@ ValidationReport ExoplanetMapper::validate(const PlanetParams& pred,
         report.overall_score = sum / static_cast<float>(scores.size());
     }
 
-    report.summary = fmt::format("AI accuracy: {:.1f}%", report.overall_score * 100.0f);
+    report.summary = std::format("AI accuracy: {:.1f}%", report.overall_score * 100.0f);
     return report;
 }
 

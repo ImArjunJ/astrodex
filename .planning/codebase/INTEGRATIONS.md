@@ -95,7 +95,7 @@
 - Not detected
 
 **Build Output:**
-- Executable: `astrosplat`
+- Executable: `astrodex`
 - Library: `libastrocore_lib.a` (static)
 - Post-build steps copy shaders and assets to executable directory
 

@@ -70,7 +70,7 @@ make debug          # Debug build
 make asan           # Debug + AddressSanitizer
 make clean          # Nuke build/
 make rebuild        # clean + release
-make run            # Build and launch astrosplat
+make run            # Build and launch astrodex
 make explorer       # Build and launch starexplorer
 make test           # Build and run tests
 ```
@@ -99,7 +99,7 @@ On Apple Silicon, native ARM64 builds happen automatically. On Linux aarch64, ju
 
 After a successful build:
 ```
-build/astrosplat          # Main planet renderer
+build/astrodex          # Main planet renderer
 build/starexplorer        # 3D star map navigator
 build/shaders/*.spv       # Compiled SPIR-V shaders
 ```
@@ -107,7 +107,7 @@ build/shaders/*.spv       # Compiled SPIR-V shaders
 ## Running
 
 ```bash
-./build/astrosplat
+./build/astrodex
 ```
 
 The UI opens with a default procedural planet. Type any planet name in the search bar:

@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cmath>
-#include <spdlog/fmt/fmt.h>
+#include <format>
 
 namespace astrocore {
 
@@ -175,7 +175,7 @@ void CatalogueView::render(const std::vector<ExoplanetData>& data, float W, floa
     // ── Loading progress ─────────────────────────────────────────────────
     if (m_loadingTotal > 0 && m_loadingCurrent < m_loadingTotal) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.8f, 1.0f, 0.85f));
-        auto loadText = fmt::format("Loading... {}/{} planets", m_loadingCurrent, m_loadingTotal);
+        auto loadText = std::format("Loading... {}/{} planets", m_loadingCurrent, m_loadingTotal);
         float textW = ImGui::CalcTextSize(loadText.c_str()).x;
         float availW = ImGui::GetContentRegionAvail().x;
         ImGui::SetCursorPosX((availW - textW) * 0.5f + ImGui::GetCursorPosX());
@@ -483,7 +483,7 @@ void CatalogueView::renderCardGrid(const std::vector<ExoplanetData>& data,
 
         // Discovery year
         if (planet.discovery_year > 0) {
-            auto yearStr = fmt::format("{}", planet.discovery_year);
+            auto yearStr = std::format("{}", planet.discovery_year);
             dl->AddText({cursorStart.x + kPadInner, textY},
                         IM_COL32(160, 165, 185, 200), yearStr.c_str());
             textY += ImGui::GetTextLineHeight() + 2.f;
@@ -491,12 +491,12 @@ void CatalogueView::renderCardGrid(const std::vector<ExoplanetData>& data,
 
         // Key stat: mass or radius (whichever is available)
         if (planet.mass_earth.hasValue()) {
-            auto massStr = fmt::format("{:.1f} M\xe2\x8a\x95", planet.mass_earth.value);
+            auto massStr = std::format("{:.1f} M\xe2\x8a\x95", planet.mass_earth.value);
             dl->AddText({cursorStart.x + kPadInner, textY},
                         IM_COL32(140, 180, 220, 200), massStr.c_str());
             textY += ImGui::GetTextLineHeight() + 2.f;
         } else if (planet.radius_earth.hasValue()) {
-            auto radStr = fmt::format("{:.1f} R\xe2\x8a\x95", planet.radius_earth.value);
+            auto radStr = std::format("{:.1f} R\xe2\x8a\x95", planet.radius_earth.value);
             dl->AddText({cursorStart.x + kPadInner, textY},
                         IM_COL32(140, 180, 220, 200), radStr.c_str());
             textY += ImGui::GetTextLineHeight() + 2.f;

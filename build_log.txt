@@ -39,7 +39,7 @@
 [ 91%] Building CXX object CMakeFiles/astrocore_lib.dir/src/render/Renderer.cpp.o
 [ 92%] Linking CXX static library libastrocore_lib.a
 [ 92%] Built target astrocore_lib
-[ 92%] Building CXX object CMakeFiles/astrosplat.dir/src/main.cpp.o
+[ 92%] Building CXX object CMakeFiles/astrodex.dir/src/main.cpp.o
 [ 93%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_nasa_client.cpp.o
 [ 93%] Building CXX object tests/CMakeFiles/render_tests.dir/render/test_planet_params.cpp.o
 [ 95%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_inference_integration.cpp.o
@@ -48,8 +48,8 @@
 [ 96%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_data_fusion.cpp.o
 [ 94%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_gaia_client.cpp.o
 [ 96%] Building CXX object tests/CMakeFiles/data_aggregation_tests.dir/data/test_oec_parser.cpp.o
-[ 97%] Linking CXX executable astrosplat
-[ 97%] Built target astrosplat
+[ 97%] Linking CXX executable astrodex
+[ 97%] Built target astrodex
 [ 98%] Linking CXX executable data_aggregation_tests
 [ 98%] Built target data_aggregation_tests
 [100%] Linking CXX executable render_tests

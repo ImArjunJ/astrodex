@@ -5,9 +5,11 @@
 #include "ui/GalaxyView.hpp"
 #include "simulation/Simulation.hpp"
 #include "config/PresetManager.hpp"
-#include "data/ExoplanetDataAggregator.hpp"
 #include "data/ExoplanetData.hpp"
+#ifndef __EMSCRIPTEN__
+#include "data/ExoplanetDataAggregator.hpp"
 #include "ai/InferenceEngine.hpp"
+#endif
 #include <GLFW/glfw3.h>
 #include <memory>
 #include <future>
@@ -55,18 +57,20 @@ private:
     Simulation m_simulation;
     PresetManager m_presetManager;
 
-    // Exoplanet data aggregator (NASA + ExoMAST + more)
+#ifndef __EMSCRIPTEN__
+    // Exoplanet data aggregator (NASA + ExoMAST + more, requires libcurl)
     std::unique_ptr<ExoplanetDataAggregator> m_dataAggregator;
     std::vector<ExoplanetData> m_exoSearchResults;
     std::future<std::vector<ExoplanetData>> m_exoSearchFuture;
     bool m_exoSearching = false;
     std::vector<AtmosphericDetection> m_currentAtmosphericDetections;
 
-    // AI inference
+    // AI inference (requires libcurl)
     std::unique_ptr<InferenceEngine> m_inferenceEngine;
     std::future<ExoplanetData> m_inferenceFuture;
     bool m_inferring = false;
     ExoplanetData m_pendingExoplanet;
+#endif
 
     // Async planet load
     struct LoadResult {

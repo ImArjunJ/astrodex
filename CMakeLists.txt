@@ -113,15 +113,16 @@ add_executable(astrodex src/main.cpp)
 target_link_libraries(astrodex PRIVATE astrocore_lib)
 
 if(EMSCRIPTEN)
+    set_target_properties(astrodex PROPERTIES SUFFIX ".html")
     # Emscripten build flags
     target_link_options(astrodex PRIVATE
         -sUSE_WEBGPU=1
         -sUSE_GLFW=3
         -sALLOW_MEMORY_GROWTH=1
-        --preload-file ${CMAKE_SOURCE_DIR}/assets@/assets
-        --preload-file ${CMAKE_SOURCE_DIR}/shaders@/shaders
-        --preload-file ${CMAKE_SOURCE_DIR}/configs@/configs
-        --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html
+        "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/assets@/assets"
+        "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/shaders@/shaders"
+        "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/configs@/configs"
+        "SHELL:--shell-file ${CMAKE_SOURCE_DIR}/web/shell.html"
     )
     target_compile_options(astrodex PRIVATE -sUSE_WEBGPU=1 -sUSE_GLFW=3)
     target_compile_options(astrocore_lib PRIVATE -sUSE_WEBGPU=1 -sUSE_GLFW=3)

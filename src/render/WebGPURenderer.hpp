@@ -31,6 +31,7 @@ public:
     // WebGPU accessors for ImGui integration
     WGPUDevice getDevice();
     WGPUTextureFormat getSurfaceFormat();
+    WGPURenderPassEncoder getRenderPassEncoder();
 #endif
 
 private:

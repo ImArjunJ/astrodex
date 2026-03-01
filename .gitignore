@@ -12,7 +12,7 @@ Makefile
 .cache/
 
 # Executable
-astrosplat
+astrodex
 
 # IDE
 .idea/
@@ -57,3 +57,4 @@ scripts/venv/
 assets/starmap/gaia_octree.bin
 assets/starmap/.hyg_cache.csv
 *.bin
+build_web/
