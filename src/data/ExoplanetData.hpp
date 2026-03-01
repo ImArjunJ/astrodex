@@ -65,6 +65,7 @@ struct MeasuredValue {
 // Host star data
 struct HostStarData {
     std::string name;
+    std::string gaia_dr3_id;                    // Gaia DR3 source ID for cross-matching
     MeasuredValue<double> effective_temp_k;     // Stellar effective temperature
     MeasuredValue<double> radius_solar;         // Stellar radius in solar radii
     MeasuredValue<double> mass_solar;           // Stellar mass in solar masses
@@ -85,6 +86,11 @@ struct ExoplanetData {
 
     // Host star
     HostStarData host_star;
+
+    // Position in sky (for galaxy visualization)
+    MeasuredValue<double> ra_hours;              // Right ascension in hours (0-24)
+    MeasuredValue<double> dec_degrees;           // Declination in degrees (-90 to +90)
+    MeasuredValue<double> distance_ly;           // Distance from Earth in light years
 
     // Orbital parameters
     MeasuredValue<double> orbital_period_days;

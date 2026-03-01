@@ -1,5 +1,7 @@
 #include "ui/GalaxyView.hpp"
-#include "render/PlanetParams.hpp"
+#include "render/ExoplanetConverter.hpp"
+// PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+// #include "render/PlanetThumbnailRenderer.hpp"
 
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -11,17 +13,13 @@
 
 namespace astrocore {
 
-// ── Constants ─────────────────────────────────────────────────────────────────
 static constexpr float kExplosionDur  = 0.75f;
 static constexpr int   kStarCount     = 380;
 static constexpr float kGlowLineOuter = 7.f;
 static constexpr float kGlowLineCore  = 1.3f;
+static constexpr float kSidebarW = 360.f;
+static constexpr float kSidebarX = 10.f;
 
-// Sidebar occupies the left kSidebarW px; galaxy spans the whole screen behind it.
-static constexpr float kSidebarW = 340.f;
-static constexpr float kSidebarX =  10.f;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 static ImU32 col32f(float r, float g, float b, float a) {
     return IM_COL32(
         static_cast<int>(std::clamp(r, 0.f, 1.f) * 255),
@@ -30,19 +28,25 @@ static ImU32 col32f(float r, float g, float b, float a) {
         static_cast<int>(std::clamp(a, 0.f, 1.f) * 255));
 }
 
-// ── GalaxyView ────────────────────────────────────────────────────────────────
-
 GalaxyView::GalaxyView() = default;
 
-// Galaxy is centered on the full screen so stars bleed beautifully behind the
-// transparent sidebar glass.
+GalaxyView::~GalaxyView() {
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    // if (m_thumbnailRenderer) {
+    //     m_thumbnailRenderer->shutdown();
+    // }
+}
+
 float GalaxyView::galaxyCX(float W) const { return W * 0.5f; }
 float GalaxyView::galaxyCY(float H) const { return H * 0.5f; }
 
 void GalaxyView::init(float W, float H) {
     m_lastW = W; m_lastH = H;
     generateStars(W, H);
-    generatePlanets(W, H);
+    generatePresetPlanets(W, H);
+    loadCachedPlanets();
+    assignPlanetPositions(W, H);
+
     m_initialized        = true;
     m_exploding          = false;
     m_explosionDone      = false;
@@ -58,6 +62,13 @@ void GalaxyView::init(float W, float H) {
     m_time               = 0.f;
     m_searchBuf[0]       = '\0';
     m_searchMatches.clear();
+    updateSearch();
+
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    // m_thumbnailRenderer = std::make_unique<PlanetThumbnailRenderer>();
+    // m_thumbnailRenderer->init(128);
+    m_catalogOpen = false;
+    m_catalogSlideAnim = 0.0f;
 }
 
 void GalaxyView::reset() {
@@ -75,8 +86,6 @@ void GalaxyView::reset() {
     m_time = 0.f;
 }
 
-// ── Star + planet generation ──────────────────────────────────────────────────
-
 void GalaxyView::generateStars(float W, float H) {
     m_stars.clear();
     m_stars.reserve(static_cast<size_t>(kStarCount));
@@ -88,17 +97,16 @@ void GalaxyView::generateStars(float W, float H) {
 
     const float cx = galaxyCX(W);
     const float cy = galaxyCY(H);
-    // Semi-axes of the galaxy disk (fills most of the screen)
     const float rx = W * 0.44f;
     const float ry = H * 0.38f;
 
     for (int i = 0; i < kStarCount; ++i) {
         float angle = frand(0.f, 6.2832f);
         float dist;
-        if (i < kStarCount * 0.6f)
-            dist = frand(0.f, 1.f) * frand(0.f, 1.f);  // concentrated core
+        if (static_cast<float>(i) < static_cast<float>(kStarCount) * 0.6f)
+            dist = frand(0.f, 1.f) * frand(0.f, 1.f);
         else
-            dist = std::sqrt(frand(0.f, 1.f));           // uniform area halo
+            dist = std::sqrt(frand(0.f, 1.f));
 
         Star s;
         s.x = cx + std::cos(angle) * dist * rx;
@@ -119,71 +127,193 @@ void GalaxyView::generateStars(float W, float H) {
     }
 }
 
-void GalaxyView::generatePlanets(float W, float H) {
+void GalaxyView::generatePresetPlanets(float /*W*/, float /*H*/) {
     m_planets.clear();
 
-    const float cx = galaxyCX(W);
-    const float cy = galaxyCY(H);
-
-    // All planets must be visible past the sidebar (x > kSidebarX + kSidebarW + margin).
-    // Offsets are from the true screen center (cx, cy).
-    // For W=1280, cx=640: minimum dx ≈ kSidebarX+kSidebarW+20 - 640 = -260.
-    struct PlanetDef {
+    // Real solar system planet presets
+    struct PresetDef {
         const char* name;
         const char* typeStr;
-        float dx, dy;
-        float size;
+        int presetIdx;
         float r, g, b;
-        int   presetIdx;
-        float distLY;
+    };
+    static const PresetDef presets[] = {
+        { "Earth",   "Terrestrial",  0, 0.30f, 0.55f, 0.90f },
+        { "Mars",    "Desert",       1, 0.85f, 0.45f, 0.25f },
+        { "Venus",   "Volcanic",     2, 0.90f, 0.70f, 0.40f },
+        { "Mercury", "Rocky",        3, 0.50f, 0.48f, 0.45f },
+        { "Jupiter", "Gas Giant",    4, 0.90f, 0.80f, 0.60f },
+        { "Saturn",  "Gas Giant",    5, 0.95f, 0.85f, 0.65f },
+        { "Neptune", "Ice Giant",    6, 0.25f, 0.45f, 0.85f },
+        { "Uranus",  "Ice Giant",    7, 0.55f, 0.80f, 0.85f },
     };
 
-    static const PlanetDef defs[] = {
-        // ── Preset planets ────────────────────────────────────────────────────
-        { "Earth",         "Ocean-Rock",    10.f,   15.f, 7.5f, 0.28f, 0.60f, 1.00f,  0,    0.f },
-        { "Mars",          "Desert-Rock",  155.f,  -35.f, 6.5f, 0.90f, 0.42f, 0.18f,  1,    0.f },
-        { "Lava World",    "Volcanic",     -55.f,   70.f, 6.0f, 1.00f, 0.22f, 0.04f,  2,  120.f },
-        { "Ice World",     "Frozen",       270.f,  -75.f, 6.5f, 0.72f, 0.88f, 1.00f,  3,   88.f },
-        { "Gas Giant",     "Gas Giant",   -130.f,  -50.f, 9.0f, 0.82f, 0.62f, 0.30f,  4,   14.f },
-        { "Ocean World",   "Ocean",        170.f,   90.f, 7.0f, 0.08f, 0.28f, 0.90f,  5,  310.f },
-        { "Desert",        "Arid",          30.f, -100.f, 6.0f, 0.95f, 0.80f, 0.38f,  6,  240.f },
-        { "Alien",         "Exotic",       320.f,   55.f, 7.0f, 0.60f, 0.18f, 0.92f,  7, 1220.f },
-        // ── Exoplanet stubs ───────────────────────────────────────────────────
-        { "Kepler-452 b",  "Super-Earth", -175.f,   25.f, 4.5f, 0.70f, 0.75f, 0.85f, -1, 1402.f },
-        { "Proxima Cen b", "Rocky",        385.f,  -60.f, 4.0f, 0.60f, 0.70f, 0.80f, -1,    4.2f},
-        { "TRAPPIST-1e",   "Rocky",        -75.f,  -95.f, 4.0f, 0.65f, 0.78f, 0.88f, -1,   39.f },
-        { "HD 209458 b",   "Hot Jupiter",  250.f,  130.f, 5.5f, 0.85f, 0.65f, 0.40f, -1,  159.f },
-    };
-
-    for (auto& d : defs) {
+    for (auto& d : presets) {
         GalaxyPlanet p;
         p.name       = d.name;
         p.typeStr    = d.typeStr;
-        p.x          = cx + d.dx;
-        p.y          = cy + d.dy;
-        p.size       = d.size;
-        p.r = d.r; p.g = d.g; p.b = d.b;
+        p.hostStar   = "Sol";
         p.presetIdx  = d.presetIdx;
-        p.distanceLY = d.distLY;
+        p.distanceLY = 0.f;
+        p.radiusEarth = 1.0f;
+        p.massEarth   = 1.0f;
+        p.tempK       = 288.f;
+        p.isCached    = false;
+        p.x = p.y = 0.f;
+        p.size = 6.0f;
+        p.r = d.r; p.g = d.g; p.b = d.b;
         m_planets.push_back(p);
-    }
-
-    if (!m_planets.empty()) {
-        m_selectedName   = m_planets[0].name;
-        m_selectedPreset = m_planets[0].presetIdx;
     }
 }
 
-// ── Star highlight (exoplanet search placeholder) ─────────────────────────────
-// Pick a deterministic star near the galaxy centre to highlight when an
-// exoplanet is selected via search (placeholder until real positions are known).
+void GalaxyView::loadCachedPlanets() {
+    auto cached = ExoplanetConverter::listCachedPlanets();
+
+    for (const auto& info : cached) {
+        // Check if already exists (avoid duplicates)
+        bool exists = false;
+        for (const auto& p : m_planets) {
+            if (p.name == info.name) { exists = true; break; }
+        }
+        if (exists) continue;
+
+        GalaxyPlanet p;
+        p.name        = info.name;
+        p.typeStr     = info.type;
+        p.presetIdx   = -1;  // Not a preset
+        p.isCached    = true;
+        p.x = p.y = 0.f;
+        p.size = 4.0f;
+
+        // Metadata will be fetched from NASA API when needed
+        // For now, parse host star from planet name (common format: "HostStar b")
+        p.hostStar    = "";
+        p.distanceLY  = 0.f;
+        p.radiusEarth = 0.f;
+        p.massEarth   = 0.f;
+        p.tempK       = 0.f;
+
+        size_t lastSpace = info.name.rfind(' ');
+        if (lastSpace != std::string::npos && lastSpace > 0) {
+            p.hostStar = info.name.substr(0, lastSpace);
+        }
+
+        // Color based on type
+        if (info.type.find("Gas") != std::string::npos ||
+            info.type.find("Jupiter") != std::string::npos) {
+            p.r = 0.85f; p.g = 0.65f; p.b = 0.40f;
+        } else if (info.type.find("Neptune") != std::string::npos ||
+                   info.type.find("Ice") != std::string::npos) {
+            p.r = 0.40f; p.g = 0.70f; p.b = 1.00f;
+        } else if (info.type.find("Lava") != std::string::npos) {
+            p.r = 1.00f; p.g = 0.30f; p.b = 0.10f;
+        } else if (info.type.find("Ocean") != std::string::npos) {
+            p.r = 0.20f; p.g = 0.50f; p.b = 0.90f;
+        } else if (info.type.find("Super") != std::string::npos ||
+                   info.type.find("Earth") != std::string::npos ||
+                   info.type.find("Terrestrial") != std::string::npos) {
+            p.r = 0.40f; p.g = 0.80f; p.b = 0.40f;
+        } else {
+            p.r = 0.65f; p.g = 0.75f; p.b = 0.85f;
+        }
+
+        m_planets.push_back(p);
+    }
+
+    // Update filtered indices
+    updateSearch();
+}
+
+void GalaxyView::assignPlanetPositions(float W, float H) {
+    const float cx = galaxyCX(W);
+    const float cy = galaxyCY(H);
+
+    std::mt19937 rng(12345);
+    auto frand = [&](float lo, float hi) {
+        return lo + std::uniform_real_distribution<float>(0.f, 1.f)(rng) * (hi - lo);
+    };
+
+    // Place preset planets in visible area (right of sidebar)
+    float presetX = kSidebarX + kSidebarW + 80.f;
+    float presetY = 80.f;
+    int presetCount = 0;
+
+    for (auto& p : m_planets) {
+        if (p.presetIdx == -2) {
+            // Solar System - prominent position top center-right
+            p.x = presetX + 120.f;
+            p.y = presetY - 40.f;
+            p.size = 12.0f;
+        } else if (p.presetIdx >= 0) {
+            // Preset planets in a grid on the right
+            p.x = presetX + static_cast<float>(presetCount % 4) * 80.f;
+            p.y = presetY + static_cast<float>(presetCount / 4) * 80.f;  // NOLINT(bugprone-integer-division)
+            p.size = 7.0f;
+            presetCount++;
+        } else {
+            // Exoplanets scattered across galaxy
+            float angle = frand(0.f, 6.2832f);
+            float dist = frand(0.2f, 0.8f);
+            p.x = cx + std::cos(angle) * dist * (W * 0.35f);
+            p.y = cy + std::sin(angle) * dist * (H * 0.35f);
+
+            // Keep away from sidebar
+            if (p.x < kSidebarX + kSidebarW + 50.f) {
+                p.x = kSidebarX + kSidebarW + 50.f + frand(0.f, 100.f);
+            }
+            p.size = frand(3.0f, 5.0f);
+        }
+    }
+}
+
+void GalaxyView::addExoplanet(const std::string& name, const std::string& type,
+                              float distanceLY, const std::string& hostStar,
+                              float radiusEarth, float massEarth, float tempK) {
+    // Check if already exists
+    for (const auto& p : m_planets) {
+        if (p.name == name) return;
+    }
+
+    GalaxyPlanet p;
+    p.name = name;
+    p.typeStr = type;
+    p.hostStar = hostStar.empty() ? name.substr(0, name.rfind(' ')) : hostStar;
+    p.presetIdx = -1;
+    p.distanceLY = distanceLY;
+    p.radiusEarth = radiusEarth;
+    p.massEarth = massEarth;
+    p.tempK = tempK;
+    p.isCached = false;
+    p.x = p.y = 0.f;
+    p.size = 4.0f;
+
+    // Color based on type
+    if (type.find("Gas") != std::string::npos || type.find("Jupiter") != std::string::npos) {
+        p.r = 0.85f; p.g = 0.65f; p.b = 0.40f;
+    } else if (type.find("Neptune") != std::string::npos) {
+        p.r = 0.40f; p.g = 0.70f; p.b = 1.00f;
+    } else {
+        p.r = 0.65f; p.g = 0.75f; p.b = 0.85f;
+    }
+
+    m_planets.push_back(p);
+
+    if (m_initialized && m_lastW > 0.f) {
+        assignPlanetPositions(m_lastW, m_lastH);
+    }
+    updateSearch();
+}
+
+ImU32 GalaxyView::getPlanetColor(const GalaxyPlanet& p, float alpha) const {
+    return col32f(p.r, p.g, p.b, alpha);
+}
 
 void GalaxyView::pickHighlightStar(const std::string& planetName) {
     if (m_stars.empty()) { m_highlightedStarIdx = -1; return; }
 
     const float cx = galaxyCX(m_lastW);
     const float cy = galaxyCY(m_lastH);
-    const float maxDist = m_lastW * 0.12f;  // inner ~12 % of screen width
+    const float maxDist = m_lastW * 0.12f;
 
     std::vector<int> central;
     central.reserve(64);
@@ -199,28 +329,91 @@ void GalaxyView::pickHighlightStar(const std::string& planetName) {
     m_highlightedStarIdx = central[hash % central.size()];
 }
 
-// ── Search ────────────────────────────────────────────────────────────────────
-
 void GalaxyView::updateSearch() {
-    m_searchMatches.clear();
-    if (m_searchBuf[0] == '\0') return;
+    m_filteredIndices.clear();
 
-    std::string q(m_searchBuf);
-    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+    std::string query;
+    if (m_searchBuf[0] != '\0') {
+        query = m_searchBuf;
+        std::transform(query.begin(), query.end(), query.begin(), ::tolower);
+    }
 
     for (int i = 0; i < static_cast<int>(m_planets.size()); ++i) {
-        std::string name = m_planets[static_cast<size_t>(i)].name;
-        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-        if (name.find(q) != std::string::npos)
-            m_searchMatches.push_back(i);
+        const auto& p = m_planets[static_cast<size_t>(i)];
+
+        if (query.empty()) {
+            m_filteredIndices.push_back(i);
+        } else {
+            std::string nameLower = p.name;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+            std::string typeLower = p.typeStr;
+            std::transform(typeLower.begin(), typeLower.end(), typeLower.begin(), ::tolower);
+            std::string hostLower = p.hostStar;
+            std::transform(hostLower.begin(), hostLower.end(), hostLower.begin(), ::tolower);
+
+            if (nameLower.find(query) != std::string::npos ||
+                typeLower.find(query) != std::string::npos ||
+                hostLower.find(query) != std::string::npos) {
+                m_filteredIndices.push_back(i);
+            }
+        }
     }
 }
 
-// ── Update ────────────────────────────────────────────────────────────────────
-// MUST be called after ImGui::NewFrame() so input queries are valid.
-
 void GalaxyView::update(float dt, float W, float H) {
     m_time += dt;
+
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+#if 0
+    // Update thumbnail renderer
+    if (m_thumbnailRenderer) {
+        m_thumbnailRenderer->update(dt);
+        m_thumbnailRenderer->processRenderQueue(2);  // Render up to 2 thumbnails per frame
+
+        // Periodically clear unused thumbnails
+        static float clearTimer = 0.0f;
+        clearTimer += dt;
+        if (clearTimer > 10.0f) {
+            m_thumbnailRenderer->clearUnused(30.0f);
+            clearTimer = 0.0f;
+        }
+    }
+#endif
+
+    // Animate catalog slide
+    float targetSlide = m_catalogOpen ? 1.0f : 0.0f;
+    float slideSpeed = 6.0f;
+    if (m_catalogSlideAnim < targetSlide) {
+        m_catalogSlideAnim = std::min(m_catalogSlideAnim + dt * slideSpeed, targetSlide);
+    } else if (m_catalogSlideAnim > targetSlide) {
+        m_catalogSlideAnim = std::max(m_catalogSlideAnim - dt * slideSpeed, targetSlide);
+    }
+
+    // Handle window resize
+    if (m_initialized && (std::abs(W - m_lastW) > 1.f || std::abs(H - m_lastH) > 1.f)) {
+        float scaleX = W / m_lastW;
+        float scaleY = H / m_lastH;
+        for (auto& s : m_stars) {
+            s.x *= scaleX;
+            s.y *= scaleY;
+        }
+        for (auto& p : m_planets) {
+            p.x *= scaleX;
+            p.y *= scaleY;
+        }
+        for (auto& p : m_expParts) {
+            p.x *= scaleX;
+            p.y *= scaleY;
+        }
+        for (auto& p : m_transParts) {
+            p.x *= scaleX;
+            p.y *= scaleY;
+            p.tx *= scaleX;
+            p.ty *= scaleY;
+        }
+        m_lastW = W;
+        m_lastH = H;
+    }
 
     if (m_exploding) {
         m_explosionTimer += dt;
@@ -231,26 +424,34 @@ void GalaxyView::update(float dt, float W, float H) {
         }
         if (m_explosionTimer >= kExplosionDur)
             m_explosionDone = true;
-        // Don't return — also tick the transition animation below
     }
     if (m_transitioning)
         updateTransition(dt);
 
     if (m_exploding || m_transitioning) return;
 
-    // Arrow keys cycle planets (only when ImGui isn't capturing keyboard)
-    if (!ImGui::GetIO().WantCaptureKeyboard && !m_planets.empty()) {
+    // Arrow keys cycle planets
+    if (!ImGui::GetIO().WantCaptureKeyboard && !m_filteredIndices.empty()) {
         int delta = 0;
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true) ||
-            ImGui::IsKeyPressed(ImGuiKey_DownArrow,  true)) delta =  1;
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow,  true) ||
-            ImGui::IsKeyPressed(ImGuiKey_UpArrow,    true)) delta = -1;
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) delta = 1;
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) delta = -1;
 
         if (delta != 0) {
-            m_selectedIdx = (m_selectedIdx + delta + static_cast<int>(m_planets.size()))
-                            % static_cast<int>(m_planets.size());
-            m_selectedName       = m_planets[static_cast<size_t>(m_selectedIdx)].name;
-            m_selectedPreset     = m_planets[static_cast<size_t>(m_selectedIdx)].presetIdx;
+            // Find current selection in filtered list
+            int filteredPos = 0;
+            for (int i = 0; i < static_cast<int>(m_filteredIndices.size()); ++i) {
+                if (m_filteredIndices[static_cast<size_t>(i)] == m_selectedIdx) {
+                    filteredPos = i;
+                    break;
+                }
+            }
+            filteredPos = (filteredPos + delta + static_cast<int>(m_filteredIndices.size()))
+                          % static_cast<int>(m_filteredIndices.size());
+            m_selectedIdx = m_filteredIndices[static_cast<size_t>(filteredPos)];
+
+            auto& sel = m_planets[static_cast<size_t>(m_selectedIdx)];
+            m_selectedName = sel.name;
+            m_selectedPreset = sel.presetIdx;
             m_highlightedStarIdx = -1;
         }
     }
@@ -259,23 +460,21 @@ void GalaxyView::update(float dt, float W, float H) {
     m_hoveredIdx = -1;
     ImVec2 mp = ImGui::GetMousePos();
     for (int i = 0; i < static_cast<int>(m_planets.size()); ++i) {
-        auto& p  = m_planets[static_cast<size_t>(i)];
+        auto& p = m_planets[static_cast<size_t>(i)];
         float dx = mp.x - p.x, dy = mp.y - p.y;
         if (dx * dx + dy * dy < (p.size + 8.f) * (p.size + 8.f)) {
             m_hoveredIdx = i;
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
                 !ImGui::GetIO().WantCaptureMouse) {
-                m_selectedIdx        = i;
-                m_selectedName       = p.name;
-                m_selectedPreset     = p.presetIdx;
+                m_selectedIdx = i;
+                m_selectedName = p.name;
+                m_selectedPreset = p.presetIdx;
                 m_highlightedStarIdx = -1;
             }
             break;
         }
     }
 }
-
-// ── Explosion ────────────────────────────────────────────────────────────────
 
 void GalaxyView::triggerExplosion() {
     m_expParts.clear();
@@ -308,12 +507,9 @@ void GalaxyView::triggerExplosion() {
     m_explosionTimer = 0.f;
     m_explosionDone  = false;
 
-    // Simultaneously animate the constellation line particles to the panel border
     if (m_lastW > 0.f && m_lastH > 0.f)
         triggerTransition(m_lastW, m_lastH);
 }
-
-// ── Draw helpers ──────────────────────────────────────────────────────────────
 
 void GalaxyView::drawGlowLine(ImDrawList* dl, ImVec2 a, ImVec2 b, float alpha) const {
     dl->AddLine(a, b, IM_COL32(100, 180, 255, static_cast<int>(28 * alpha)), kGlowLineOuter);
@@ -321,235 +517,226 @@ void GalaxyView::drawGlowLine(ImDrawList* dl, ImVec2 a, ImVec2 b, float alpha) c
     dl->AddLine(a, b, IM_COL32(220, 240, 255, static_cast<int>(130 * alpha)), kGlowLineCore);
 }
 
-// ── renderBackground ─────────────────────────────────────────────────────────
-
 void GalaxyView::renderBackground(ImDrawList* dl, float W, float H) {
     if (!m_initialized) return;
 
     if (m_exploding || m_transitioning) {
-        // Star-scatter particles
         if (m_exploding) {
             for (auto& p : m_expParts) {
                 if (p.alpha > 0.f)
-                    dl->AddCircleFilled({ p.x, p.y }, p.size, col32f(p.r, p.g, p.b, p.alpha));
+                    dl->AddCircleFilled({p.x, p.y}, p.size, col32f(p.r, p.g, p.b, p.alpha));
             }
         }
-        // Border-assemble particles (draw on top)
         if (m_transitioning)
             drawTransitionParticles(dl);
         return;
     }
 
-    // Background stars (twinkle); highlighted star gets a pulsing exoplanet glow
+    // Calculate catalog panel bounds for clipping
+    const float sidebarRight = kSidebarX + kSidebarW;
+    float catalogLeft = sidebarRight + (m_catalogPanelWidth * (m_catalogSlideAnim - 1.0f));
+    float catalogRight = catalogLeft + m_catalogPanelWidth;
+    float catalogTop = 10.f;
+    float catalogBottom = H - 10.f;
+
+    // Helper to check if point is inside catalog panel
+    auto inCatalogArea = [&](float x, float y) {
+        return m_catalogSlideAnim > 0.01f &&
+               x >= catalogLeft && x <= catalogRight &&
+               y >= catalogTop && y <= catalogBottom;
+    };
+
+    // Background stars with twinkle
     for (int si = 0; si < static_cast<int>(m_stars.size()); ++si) {
-        auto& s  = m_stars[static_cast<size_t>(si)];
+        auto& s = m_stars[static_cast<size_t>(si)];
+
+        // Skip stars inside catalog panel
+        if (inCatalogArea(s.x, s.y)) continue;
+
         float tw = 0.55f + 0.45f * std::sin(m_time * s.twinkleSpeed + s.twinklePhase);
 
         if (si == m_highlightedStarIdx) {
             float p = 0.65f + 0.35f * std::sin(m_time * 2.6f);
-            dl->AddCircleFilled({ s.x, s.y }, s.size * 7.f,
-                col32f(0.25f, 0.55f, 1.0f, 0.12f * p));
-            dl->AddCircleFilled({ s.x, s.y }, s.size * 4.f,
-                col32f(0.45f, 0.75f, 1.0f, 0.30f * p));
-            dl->AddCircleFilled({ s.x, s.y }, s.size * 2.f,
-                col32f(0.80f, 0.92f, 1.0f, 0.85f * p));
-            // bright core
-            dl->AddCircleFilled({ s.x, s.y }, s.size,
-                col32f(1.0f, 1.0f, 1.0f, 1.0f));
+            dl->AddCircleFilled({s.x, s.y}, s.size * 7.f, col32f(0.25f, 0.55f, 1.0f, 0.12f * p));
+            dl->AddCircleFilled({s.x, s.y}, s.size * 4.f, col32f(0.45f, 0.75f, 1.0f, 0.30f * p));
+            dl->AddCircleFilled({s.x, s.y}, s.size * 2.f, col32f(0.80f, 0.92f, 1.0f, 0.85f * p));
+            dl->AddCircleFilled({s.x, s.y}, s.size, col32f(1.0f, 1.0f, 1.0f, 1.0f));
         } else {
-            dl->AddCircleFilled({ s.x, s.y }, s.size,
-                col32f(s.r, s.g, s.b, 0.50f + 0.50f * tw));
+            dl->AddCircleFilled({s.x, s.y}, s.size, col32f(s.r, s.g, s.b, 0.50f + 0.50f * tw));
         }
     }
 
     // Planet dots
     for (int i = 0; i < static_cast<int>(m_planets.size()); ++i) {
-        auto&      p     = m_planets[static_cast<size_t>(i)];
+        auto& p = m_planets[static_cast<size_t>(i)];
+
+        // Skip planets inside catalog panel
+        if (inCatalogArea(p.x, p.y)) continue;
         const bool isSel = (i == m_selectedIdx);
         const bool isHov = (i == m_hoveredIdx);
         const float pulse = isSel ? (0.75f + 0.25f * std::sin(m_time * 2.2f)) : 1.0f;
 
         if (isSel || isHov) {
             float ga = isSel ? 0.30f * pulse : 0.16f;
-            dl->AddCircleFilled({ p.x, p.y }, p.size * 3.6f, col32f(p.r * 0.8f, p.g * 0.8f, p.b, ga));
-            dl->AddCircleFilled({ p.x, p.y }, p.size * 2.2f, col32f(p.r, p.g, p.b, ga * 1.8f));
+            dl->AddCircleFilled({p.x, p.y}, p.size * 3.6f, col32f(p.r * 0.8f, p.g * 0.8f, p.b, ga));
+            dl->AddCircleFilled({p.x, p.y}, p.size * 2.2f, col32f(p.r, p.g, p.b, ga * 1.8f));
         }
 
-        dl->AddCircleFilled({ p.x, p.y }, p.size * pulse, col32f(p.r, p.g, p.b, isSel ? 1.0f : 0.80f));
-        dl->AddCircleFilled({ p.x - p.size * 0.28f, p.y - p.size * 0.28f },
+        dl->AddCircleFilled({p.x, p.y}, p.size * pulse, col32f(p.r, p.g, p.b, isSel ? 1.0f : 0.80f));
+        dl->AddCircleFilled({p.x - p.size * 0.28f, p.y - p.size * 0.28f},
             p.size * 0.30f, IM_COL32(255, 255, 255, isSel ? 200 : 120));
     }
 
-    // Constellation connector: planet → diagonal → star-node dot → horizontal → card
-    if (!m_planets.empty()) {
-        auto& sel   = m_planets[static_cast<size_t>(m_selectedIdx)];
-        const float cardX = W - 280.f;
+    // Constellation connector to fact card
+    if (!m_planets.empty() && m_selectedIdx < static_cast<int>(m_planets.size())) {
+        auto& sel = m_planets[static_cast<size_t>(m_selectedIdx)];
+        const float cardX = W - 300.f;
         const float cardY = 35.f;
         float pulse = 0.6f + 0.4f * std::sin(m_time * 1.5f);
 
-        // Node placed just left of the card, at a height between the planet and
-        // the card's vertical midpoint.
         float nodeX = cardX - 42.f;
         float nodeY = sel.y * 0.38f + (cardY + 100.f) * 0.62f;
 
-        // Segment 1: diagonal from planet to node
-        drawGlowLine(dl, { sel.x, sel.y }, { nodeX, nodeY }, pulse);
+        drawGlowLine(dl, {sel.x, sel.y}, {nodeX, nodeY}, pulse);
 
-        // Junction: a pulsing star dot (constellation vertex)
         float dotR = 3.0f + 1.2f * std::sin(m_time * 2.3f);
-        dl->AddCircleFilled({ nodeX, nodeY }, dotR + 5.f,
-            col32f(0.40f, 0.70f, 1.00f, 0.18f * pulse));
-        dl->AddCircleFilled({ nodeX, nodeY }, dotR + 2.5f,
-            col32f(0.60f, 0.85f, 1.00f, 0.45f * pulse));
-        dl->AddCircleFilled({ nodeX, nodeY }, dotR,
-            col32f(0.92f, 0.96f, 1.00f, 0.90f * pulse));
+        dl->AddCircleFilled({nodeX, nodeY}, dotR + 5.f, col32f(0.40f, 0.70f, 1.00f, 0.18f * pulse));
+        dl->AddCircleFilled({nodeX, nodeY}, dotR + 2.5f, col32f(0.60f, 0.85f, 1.00f, 0.45f * pulse));
+        dl->AddCircleFilled({nodeX, nodeY}, dotR, col32f(0.92f, 0.96f, 1.00f, 0.90f * pulse));
 
-        // Segment 2: horizontal from node to card left edge
-        drawGlowLine(dl, { nodeX, nodeY }, { cardX, nodeY }, pulse);
+        drawGlowLine(dl, {nodeX, nodeY}, {cardX, nodeY}, pulse);
     }
 }
-
-// ── renderUI ─────────────────────────────────────────────────────────────────
 
 bool GalaxyView::renderUI(float W, float H) {
     if (!m_initialized || m_exploding) return false;
     bool expandPressed = false;
 
-    // ── Left sidebar ──────────────────────────────────────────────────────────
-    ImGui::SetNextWindowPos({ kSidebarX, 10.f }, ImGuiCond_Always);
-    ImGui::SetNextWindowSize({ kSidebarW, H - 20.f }, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(-1.f);
+    // Left sidebar with planet list
+    ImGui::SetNextWindowPos({kSidebarX, 10.f}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({kSidebarW, H - 20.f}, ImGuiCond_Always);
 
     ImGuiWindowFlags sidebarFlags =
-        ImGuiWindowFlags_NoDecoration        |
-        ImGuiWindowFlags_NoMove              |
-        ImGuiWindowFlags_NoSavedSettings     |
-        ImGuiWindowFlags_NoScrollWithMouse   |
+        ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
 
     if (ImGui::Begin("##galaxy_sidebar", nullptr, sidebarFlags)) {
-
-        // ── Header ────────────────────────────────────────────────────────────
         ImGui::Spacing();
-        ImGui::TextDisabled("ASTRODEX  //  GALAXY VIEW");
+        ImGui::TextDisabled("ASTRODEX  //  EXOPLANET BROWSER");
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
 
-        // ── Search + live dropdown ─────────────────────────────────────────
-        ImGui::TextDisabled("Search Exoplanets");
+        // Search bar
+        ImGui::TextDisabled("Search (name, type, or host star)");
         ImGui::SetNextItemWidth(-1.f);
-        bool changed = ImGui::InputText("##search", m_searchBuf, sizeof(m_searchBuf));
-        if (changed) updateSearch();
-
-        // Results drop straight down from the input field
-        if (m_searchBuf[0] != '\0') {
-            if (!m_searchMatches.empty()) {
-                float dropH = std::min<float>(
-                    static_cast<float>(m_searchMatches.size()) * 22.f + 8.f, 130.f);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 6.f, 4.f });
-                if (ImGui::BeginChild("##drop", { -1.f, dropH }, true,
-                        ImGuiWindowFlags_NoScrollbar)) {
-                    for (int idx : m_searchMatches) {
-                        auto& planet  = m_planets[static_cast<size_t>(idx)];
-                        bool  isSel   = (idx == m_selectedIdx);
-                        if (ImGui::Selectable(planet.name.c_str(), isSel)) {
-                            m_selectedIdx    = idx;
-                            m_selectedName   = planet.name;
-                            m_selectedPreset = planet.presetIdx;
-                            std::memset(m_searchBuf, 0, sizeof(m_searchBuf));
-                            m_searchMatches.clear();
-                            // For exoplanets highlight a random central star
-                            // (placeholder until real galaxy positions are known)
-                            if (planet.presetIdx < 0)
-                                pickHighlightStar(planet.name);
-                            else
-                                m_highlightedStarIdx = -1;
-                        }
-                    }
-                }
-                ImGui::EndChild();
-                ImGui::PopStyleVar();
-            } else {
-                ImGui::TextDisabled("  No matches");
-            }
+        if (ImGui::InputText("##search", m_searchBuf, sizeof(m_searchBuf))) {
+            updateSearch();
         }
+        ImGui::Spacing();
 
-        // ── Solar System planets — pinned to bottom ───────────────────────────
-        // Only show preset (solar system) bodies here; exoplanet stubs are
-        // discovered exclusively via the search bar above.
-        int solarCount = 0;
-        for (auto& p : m_planets)
-            if (p.presetIdx >= 0) ++solarCount;
-
-        const float rowH          = 22.f;
-        const float sectionTopPad = 28.f;
-        float       sectionH      = sectionTopPad
-                                    + static_cast<float>(solarCount) * rowH
-                                    + 6.f;
-
-        float windowH  = ImGui::GetWindowSize().y;
-        float targetY  = windowH - sectionH - ImGui::GetStyle().WindowPadding.y;
-        float currentY = ImGui::GetCursorPosY();
-        if (targetY > currentY + 4.f)
-            ImGui::SetCursorPosY(targetY);
-
+        // Planet count
+        ImGui::TextDisabled("Showing %d of %d planets",
+                           static_cast<int>(m_filteredIndices.size()),
+                           static_cast<int>(m_planets.size()));
+        ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
-        ImGui::TextDisabled("Solar System");
+
+        // Scrollable planet list
+        float listHeight = H - 280.f;
+        if (ImGui::BeginChild("##planetlist", {-1.f, listHeight}, true)) {
+            for (size_t fi = 0; fi < m_filteredIndices.size(); ++fi) {
+                int idx = m_filteredIndices[fi];
+                auto& planet = m_planets[static_cast<size_t>(idx)];
+                bool isSel = (idx == m_selectedIdx);
+
+                ImGui::PushID(idx);
+
+                // Color indicator
+                ImVec2 cp = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddCircleFilled(
+                    {cp.x + 8.f, cp.y + 10.f}, 6.f,
+                    col32f(planet.r, planet.g, planet.b, isSel ? 1.f : 0.7f));
+
+
+                ImGui::SetCursorScreenPos({cp.x + 20.f, cp.y});
+
+                // Selectable row
+                std::string label = planet.name;
+                if (ImGui::Selectable(label.c_str(), isSel, ImGuiSelectableFlags_None, {0.f, 20.f})) {
+                    m_selectedIdx = idx;
+                    m_selectedName = planet.name;
+                    m_selectedPreset = planet.presetIdx;
+                    if (planet.presetIdx < 0)
+                        pickHighlightStar(planet.name);
+                    else
+                        m_highlightedStarIdx = -1;
+                }
+
+                // Type on same line (right-aligned)
+                ImGui::SameLine(kSidebarW - 120.f);
+                ImGui::TextDisabled("%s", planet.typeStr.c_str());
+
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::Spacing();
+        ImGui::Separator();
         ImGui::Spacing();
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { 6.f, 4.f });
-        for (int i = 0; i < static_cast<int>(m_planets.size()); ++i) {
-            auto& planet = m_planets[static_cast<size_t>(i)];
-            if (planet.presetIdx < 0) continue;   // skip exoplanet stubs
-
-            bool  isSel  = (i == m_selectedIdx);
-
-            if (isSel) {
-                ImGui::PushStyleColor(ImGuiCol_Header,
-                    ImVec4(planet.r * 0.4f, planet.g * 0.4f, planet.b * 0.4f, 0.65f));
-                ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-                    ImVec4(planet.r * 0.5f, planet.g * 0.5f, planet.b * 0.5f, 0.75f));
-            }
-
-            ImVec2 cp = ImGui::GetCursorScreenPos();
-            ImGui::GetWindowDrawList()->AddCircleFilled(
-                { cp.x + 7.f, cp.y + 9.f }, 5.f,
-                col32f(planet.r, planet.g, planet.b, isSel ? 1.f : 0.7f));
-            ImGui::SetCursorScreenPos({ cp.x + 18.f, cp.y });
-
-            if (ImGui::Selectable(planet.name.c_str(), isSel,
-                    ImGuiSelectableFlags_None, { 0.f, 18.f })) {
-                m_selectedIdx        = i;
-                m_selectedName       = planet.name;
-                m_selectedPreset     = planet.presetIdx;
-                m_highlightedStarIdx = -1;
-            }
-
-            if (isSel) ImGui::PopStyleColor(2);
+        // Catalog button
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.25f, 0.35f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.40f, 0.55f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.45f, 0.60f, 1.0f));
+        const char* catalogBtnText = m_catalogOpen ? "Close Catalog  <" : "Visual Catalog  >";
+        if (ImGui::Button(catalogBtnText, ImVec2(-1.f, 35.f))) {
+            m_catalogOpen = !m_catalogOpen;
         }
-        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+        ImGui::TextDisabled("Browse planets visually with filters");
+
+        ImGui::Spacing();
+
+        // Solar System button at bottom of sidebar
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.15f, 0.1f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.4f, 0.3f, 0.15f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5f, 0.4f, 0.2f, 1.0f));
+        if (ImGui::Button("Solar System Simulation", ImVec2(-1.f, 35.f))) {
+            m_solarSystemRequested = true;
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::TextDisabled("View the full solar system with orbits");
     }
     ImGui::End();
 
-    // ── Fact file card (upper right) ──────────────────────────────────────────
-    if (!m_planets.empty()) {
-        auto& sel   = m_planets[static_cast<size_t>(m_selectedIdx)];
-        float cardX = W - 280.f;
+    // Render catalog panel if open or animating
+    if (m_catalogSlideAnim > 0.01f) {
+        renderCatalogPanel(W, H);
+    }
+
+    // Fact card (upper right)
+    if (!m_planets.empty() && m_selectedIdx < static_cast<int>(m_planets.size())) {
+        auto& sel = m_planets[static_cast<size_t>(m_selectedIdx)];
+        float cardX = W - 300.f;
         float cardY = 35.f;
 
-        ImGui::SetNextWindowPos({ cardX, cardY }, ImGuiCond_Always);
-        ImGui::SetNextWindowSize({ 265.f, 205.f }, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(-1.f);
+        ImGui::SetNextWindowPos({cardX, cardY}, ImGuiCond_Always);
+        ImGui::SetNextWindowSize({285.f, 320.f}, ImGuiCond_Always);
 
         if (ImGui::Begin("##factcard", nullptr,
-                ImGuiWindowFlags_NoDecoration        |
-                ImGuiWindowFlags_NoMove              |
-                ImGuiWindowFlags_NoSavedSettings     |
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings |
                 ImGuiWindowFlags_NoBringToFrontOnFocus)) {
 
             ImGui::Spacing();
+
+            // Planet name with color
             ImGui::PushStyleColor(ImGuiCol_Text,
                 ImVec4(sel.r * 0.85f + 0.15f, sel.g * 0.85f + 0.15f, sel.b * 0.85f + 0.15f, 1.f));
             ImGui::Text("%s", sel.name.c_str());
@@ -559,24 +746,109 @@ bool GalaxyView::renderUI(float W, float H) {
             ImGui::Separator();
             ImGui::Spacing();
 
-            ImGui::TextDisabled("Type");     ImGui::SameLine(80.f); ImGui::Text("%s", sel.typeStr.c_str());
-            ImGui::TextDisabled("Distance"); ImGui::SameLine(80.f);
-            if (sel.presetIdx >= 0 && sel.distanceLY <= 0.f)
-                ImGui::Text("—");
-            else
+            // Properties
+            ImGui::TextDisabled("Type");
+            ImGui::SameLine(90.f);
+            ImGui::Text("%s", sel.typeStr.c_str());
+
+            if (!sel.hostStar.empty()) {
+                ImGui::TextDisabled("Host Star");
+                ImGui::SameLine(90.f);
+                ImGui::Text("%s", sel.hostStar.c_str());
+            }
+
+            if (!sel.gaiaDr3Id.empty()) {
+                ImGui::TextDisabled("Gaia DR3");
+                ImGui::SameLine(90.f);
+                // Truncate long IDs for display
+                if (sel.gaiaDr3Id.length() > 20) {
+                    ImGui::Text("%s...", sel.gaiaDr3Id.substr(0, 17).c_str());
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", sel.gaiaDr3Id.c_str());
+                    }
+                } else {
+                    ImGui::Text("%s", sel.gaiaDr3Id.c_str());
+                }
+            }
+
+            ImGui::TextDisabled("Distance");
+            ImGui::SameLine(90.f);
+            if (sel.distanceLY > 0.f)
                 ImGui::Text("%.1f ly", sel.distanceLY);
-            ImGui::TextDisabled("Source");   ImGui::SameLine(80.f);
-            ImGui::Text("%s", sel.presetIdx >= 0 ? "Preset" : "NASA Archive");
+            else if (sel.presetIdx >= 0)
+                ImGui::Text("Solar System");
+            else
+                ImGui::TextDisabled("Unknown");
+
+            if (sel.radiusEarth > 0.f) {
+                ImGui::TextDisabled("Radius");
+                ImGui::SameLine(90.f);
+                ImGui::Text("%.2f Earth", sel.radiusEarth);
+            }
+
+            if (sel.massEarth > 0.f) {
+                ImGui::TextDisabled("Mass");
+                ImGui::SameLine(90.f);
+                ImGui::Text("%.2f Earth", sel.massEarth);
+            }
+
+            if (sel.tempK > 0.f) {
+                ImGui::TextDisabled("Temp");
+                ImGui::SameLine(90.f);
+                ImGui::Text("%.0f K", sel.tempK);
+            }
+
+            ImGui::TextDisabled("Source");
+            ImGui::SameLine(90.f);
+            if (sel.presetIdx == -2)
+                ImGui::Text("System Preset");
+            else if (sel.presetIdx >= 0)
+                ImGui::Text("Preset");
+            else
+                ImGui::Text("NASA Archive");
+
+            // Show fetch metadata button if needed
+            bool needsMetadata = (sel.presetIdx < 0 && sel.distanceLY == 0.f &&
+                                  sel.radiusEarth == 0.f && sel.massEarth == 0.f);
+            if (needsMetadata && !m_fetchingMetadata) {
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.4f, 0.6f, 0.8f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.5f, 0.7f, 0.9f));
+                if (ImGui::Button("Fetch Metadata", {-1.f, 24.f})) {
+                    if (m_fetchMetadataCallback) {
+                        m_fetchMetadataCallback(sel.name);
+                    }
+                }
+                ImGui::PopStyleColor(2);
+            } else if (m_fetchingMetadata) {
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Fetching metadata...");
+            }
 
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
 
+            // Status indicator
+            if (sel.presetIdx == -2) {
+                ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "Full system simulation");
+            } else if (sel.presetIdx >= 0) {
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Ready to view");
+            } else {
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Ready to view");
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Expand button
             ImGui::PushStyleColor(ImGuiCol_Button,
                 ImVec4(sel.r * 0.25f, sel.g * 0.25f, sel.b * 0.35f, 0.80f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
                 ImVec4(sel.r * 0.40f, sel.g * 0.40f, sel.b * 0.50f, 0.90f));
-            if (ImGui::Button("  EXPAND  \xe2\x96\xb6", { -1.f, 32.f })) {
+            const char* btnText = (sel.presetIdx == -2) ? "  ENTER SYSTEM  >" : "  VIEW PLANET  >";
+            if (ImGui::Button(btnText, {-1.f, 36.f})) {
                 expandPressed = true;
                 triggerExplosion();
             }
@@ -588,26 +860,20 @@ bool GalaxyView::renderUI(float W, float H) {
     return expandPressed;
 }
 
-// ── Border-assemble transition ────────────────────────────────────────────────
-// Particles seeded along the constellation line spring to the planet-editor
-// panel border, glow for a beat, then fade — signalling the screen switch.
-
 void GalaxyView::triggerTransition(float W, float H) {
     m_transParts.clear();
 
     if (m_planets.empty()) { m_transDone = true; return; }
 
-    auto& sel    = m_planets[static_cast<size_t>(m_selectedIdx)];
-    float cardX  = W - 280.f;
-    float cardY  = 35.f;
-    float nodeX  = cardX - 42.f;
-    float nodeY  = sel.y * 0.38f + (cardY + 100.f) * 0.62f;
+    auto& sel = m_planets[static_cast<size_t>(m_selectedIdx)];
+    float cardX = W - 300.f;
+    float cardY = 35.f;
+    float nodeX = cardX - 42.f;
+    float nodeY = sel.y * 0.38f + (cardY + 100.f) * 0.62f;
 
-    // Panel border — must match UIManager::render() SetNextWindowPos/Size exactly.
     const float pX = 10.f, pY = 10.f, pW = 340.f, pH = H - 20.f;
-    const float rr = 10.f;   // WindowRounding
+    const float rr = 10.f;
 
-    // Perimeter helper
     float sTop   = (pX + pW - rr) - (pX + rr);
     float sRight = (pY + pH - rr) - (pY + rr);
     float arcLen = rr * 1.5708f;
@@ -619,16 +885,13 @@ void GalaxyView::triggerTransition(float W, float H) {
         return lo + std::uniform_real_distribution<float>(0.f, 1.f)(rng) * (hi - lo);
     };
 
-    // Lengths of the two constellation segments
-    float seg1Len = std::sqrt((nodeX - sel.x) * (nodeX - sel.x) +
-                              (nodeY - sel.y) * (nodeY - sel.y));
+    float seg1Len = std::sqrt((nodeX - sel.x) * (nodeX - sel.x) + (nodeY - sel.y) * (nodeY - sel.y));
     float seg2Len = std::abs(cardX - nodeX);
     float totalLen = seg1Len + seg2Len;
 
     for (int i = 0; i < N; ++i) {
-        float t = static_cast<float>(i) / N;
+        float t = static_cast<float>(i) / static_cast<float>(N);
 
-        // ── Start: along the two constellation segments ──────────────────
         float sx, sy;
         float d = t * totalLen;
         if (d < seg1Len) {
@@ -641,7 +904,6 @@ void GalaxyView::triggerTransition(float W, float H) {
             sy = nodeY;
         }
 
-        // ── Target: evenly around the rounded-rect border ────────────────
         float bt = t * perim;
         float tx, ty;
         float x0 = pX, y0 = pY, x1 = pX + pW, y1 = pY + pH;
@@ -669,12 +931,12 @@ void GalaxyView::triggerTransition(float W, float H) {
         }
 
         TransPart p;
-        p.x     = sx + frand(-4.f, 4.f);
-        p.y     = sy + frand(-4.f, 4.f);
-        p.tx    = tx;
-        p.ty    = ty;
+        p.x = sx + frand(-4.f, 4.f);
+        p.y = sy + frand(-4.f, 4.f);
+        p.tx = tx;
+        p.ty = ty;
         p.alpha = 1.f;
-        p.size  = frand(1.6f, 3.2f);
+        p.size = frand(1.6f, 3.2f);
         float cr = frand(0.f, 1.f);
         if      (cr < 0.55f) { p.r = 0.45f; p.g = 0.76f; p.b = 1.00f; }
         else if (cr < 0.82f) { p.r = 0.68f; p.g = 0.90f; p.b = 1.00f; }
@@ -683,33 +945,29 @@ void GalaxyView::triggerTransition(float W, float H) {
     }
 
     m_transitioning = true;
-    m_transTimer    = 0.f;
-    m_transDone     = false;
+    m_transTimer = 0.f;
+    m_transDone = false;
 }
 
 void GalaxyView::updateTransition(float dt) {
     if (!m_transitioning) return;
     m_transTimer += dt;
 
-    constexpr float kAssemble  = 0.60f;   // particles spring to border
-    constexpr float kFadeDur   = 0.35f;   // fade-out duration after releaseBorder()
+    constexpr float kAssemble = 0.60f;
+    constexpr float kFadeDur = 0.35f;
 
     if (m_transTimer < kAssemble) {
-        // Spring toward border targets
         float spring = 5.f + m_transTimer * 7.f;
         for (auto& p : m_transParts) {
             p.x += (p.tx - p.x) * spring * dt;
             p.y += (p.ty - p.y) * spring * dt;
         }
     } else if (!m_borderFading) {
-        // Particles have assembled — lock on border and hold indefinitely
-        // until releaseBorder() is called by the Application.
         m_borderAssembled = true;
         for (auto& p : m_transParts) {
             p.x = p.tx; p.y = p.ty; p.alpha = 1.f;
         }
     } else {
-        // releaseBorder() was called — fade out and finish
         float f = (m_transTimer - m_borderFadeStart) / kFadeDur;
         for (auto& p : m_transParts) {
             p.x = p.tx; p.y = p.ty;
@@ -717,49 +975,387 @@ void GalaxyView::updateTransition(float dt) {
         }
         if (f >= 1.f) {
             m_transitioning = false;
-            m_transDone     = true;
+            m_transDone = true;
         }
     }
 }
 
 void GalaxyView::releaseBorder() {
     if (m_transitioning && !m_borderFading) {
-        m_borderFading    = true;
+        m_borderFading = true;
         m_borderFadeStart = m_transTimer;
     }
 }
 
 void GalaxyView::drawTransitionParticles(ImDrawList* dl) {
-    // While particles are locked on the border (assembled, not yet fading),
-    // use a gentle breathing glow so the border looks alive.
-    bool  assembled  = (m_borderAssembled && !m_borderFading);
-    float glowScale  = assembled
-        ? (1.f + 0.55f * std::sin(m_transTimer * 5.0f))
-        : 1.f;
+    bool assembled = (m_borderAssembled && !m_borderFading);
+    float glowScale = assembled ? (1.f + 0.55f * std::sin(m_transTimer * 5.0f)) : 1.f;
 
     for (auto& p : m_transParts) {
         if (p.alpha <= 0.01f) continue;
         float sz = p.size * glowScale;
-        // Outer halo
-        dl->AddCircleFilled({ p.x, p.y }, sz + 4.f,
-            col32f(p.r * 0.45f, p.g * 0.60f, p.b, 0.14f * p.alpha));
-        // Mid glow
-        dl->AddCircleFilled({ p.x, p.y }, sz + 1.8f,
-            col32f(p.r * 0.75f, p.g * 0.85f, p.b, 0.35f * p.alpha));
-        // Core
-        dl->AddCircleFilled({ p.x, p.y }, sz,
-            col32f(p.r, p.g, p.b, 0.92f * p.alpha));
+        dl->AddCircleFilled({p.x, p.y}, sz + 4.f, col32f(p.r * 0.45f, p.g * 0.60f, p.b, 0.14f * p.alpha));
+        dl->AddCircleFilled({p.x, p.y}, sz + 1.8f, col32f(p.r * 0.75f, p.g * 0.85f, p.b, 0.35f * p.alpha));
+        dl->AddCircleFilled({p.x, p.y}, sz, col32f(p.r, p.g, p.b, 0.92f * p.alpha));
     }
 }
 
-// ── Callbacks ─────────────────────────────────────────────────────────────────
+void GalaxyView::updatePlanetMetadata(const std::string& name, const std::string& hostStar,
+                                       float distanceLY, float radiusEarth, float massEarth,
+                                       float tempK, const std::string& gaiaDr3Id) {
+    for (auto& p : m_planets) {
+        if (p.name == name) {
+            if (!hostStar.empty()) p.hostStar = hostStar;
+            if (distanceLY > 0.f) p.distanceLY = distanceLY;
+            if (radiusEarth > 0.f) p.radiusEarth = radiusEarth;
+            if (massEarth > 0.f) p.massEarth = massEarth;
+            if (tempK > 0.f) p.tempK = tempK;
+            if (!gaiaDr3Id.empty()) p.gaiaDr3Id = gaiaDr3Id;
+            break;
+        }
+    }
+}
+
+bool GalaxyView::selectedNeedsMetadata() const {
+    if (m_selectedIdx < 0 || m_selectedIdx >= static_cast<int>(m_planets.size()))
+        return false;
+    const auto& sel = m_planets[static_cast<size_t>(m_selectedIdx)];
+    // Presets don't need metadata fetch
+    if (sel.presetIdx >= 0) return false;
+    // Check if we're missing key metadata
+    return sel.distanceLY == 0.f && sel.radiusEarth == 0.f && sel.massEarth == 0.f;
+}
 
 void GalaxyView::setExoplanetCallback(std::function<void(const std::string&)> cb) {
     m_exoCallback = std::move(cb);
 }
 
+void GalaxyView::setFetchMetadataCallback(std::function<void(const std::string&)> cb) {
+    m_fetchMetadataCallback = std::move(cb);
+}
+
 void GalaxyView::setExoplanetStatus(const std::string& status) {
     m_exoStatus = status;
+}
+
+bool GalaxyView::planetPassesFilter(int planetIdx) const {
+    if (planetIdx < 0 || planetIdx >= static_cast<int>(m_planets.size()))
+        return false;
+
+    const auto& planet = m_planets[static_cast<size_t>(planetIdx)];
+
+    // Type filter
+    if (!m_catalogTypeFilter.empty()) {
+        // Convert both to lowercase for case-insensitive comparison
+        std::string typeStr = planet.typeStr;
+        std::string filter = m_catalogTypeFilter;
+        for (auto& c : typeStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        for (auto& c : filter) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (typeStr.find(filter) == std::string::npos) {
+            return false;
+        }
+    }
+
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+#if 0
+    // Atmosphere filter
+    if (m_filterAtmosphereEnabled && m_thumbnailRenderer) {
+        const auto* info = m_thumbnailRenderer->getThumbnailInfo(planet.name);
+        if (info) {
+            if (m_filterHasAtmosphere && !info->hasAtmosphere) return false;
+            if (!m_filterHasAtmosphere && info->hasAtmosphere) return false;
+        }
+    }
+
+    // Hue filter (only if thumbnail is cached)
+    if (m_thumbnailRenderer && (m_filterHueMin > 0.01f || m_filterHueMax < 0.99f)) {
+        const auto* info = m_thumbnailRenderer->getThumbnailInfo(planet.name);
+        if (info) {
+            float hue = info->dominantHue.x;  // 0-1 range
+            if (hue < m_filterHueMin || hue > m_filterHueMax) {
+                return false;
+            }
+        }
+    }
+
+    // Brightness filter
+    if (m_thumbnailRenderer && (m_filterBrightnessMin > 0.01f || m_filterBrightnessMax < 0.99f)) {
+        const auto* info = m_thumbnailRenderer->getThumbnailInfo(planet.name);
+        if (info) {
+            if (info->avgBrightness < m_filterBrightnessMin ||
+                info->avgBrightness > m_filterBrightnessMax) {
+                return false;
+            }
+        }
+    }
+#endif
+
+    return true;
+}
+
+void GalaxyView::renderCatalogPanel(float W, float H) {
+    // Panel slides out from the left sidebar
+    const float sidebarRight = kSidebarX + kSidebarW;
+    const float minWidth = 300.f;
+    const float maxWidth = W - sidebarRight - 320.f;  // Leave room for fact card
+    m_catalogPanelWidth = std::clamp(m_catalogPanelWidth, minWidth, maxWidth);
+
+    float slideOffset = sidebarRight + (m_catalogPanelWidth * (m_catalogSlideAnim - 1.0f));
+
+    // Position and size - allow horizontal resize
+    ImGui::SetNextWindowPos({slideOffset, 10.f}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({m_catalogPanelWidth, H - 20.f}, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.95f);
+    ImGui::SetNextWindowSizeConstraints({minWidth, H - 20.f}, {maxWidth, H - 20.f});
+
+    ImGuiWindowFlags panelFlags =
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings;
+
+    // Use slide animation for alpha too
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, m_catalogSlideAnim);
+
+    if (ImGui::Begin("##catalog_panel", nullptr, panelFlags)) {
+        // Update width if user resized
+        m_catalogPanelWidth = ImGui::GetWindowWidth();
+
+        // Header with close button
+        ImGui::TextDisabled("VISUAL CATALOG");
+        ImGui::SameLine(m_catalogPanelWidth - 80.f);
+        if (ImGui::SmallButton("Close X")) {
+            m_catalogOpen = false;
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // Filter controls
+        ImGui::TextDisabled("Filters");
+
+        // Type filter dropdown
+        ImGui::SetNextItemWidth(120.f);
+        if (ImGui::BeginCombo("##typefilter",
+                              m_catalogTypeFilter.empty() ? "All Types" : m_catalogTypeFilter.c_str())) {
+            if (ImGui::Selectable("All Types", m_catalogTypeFilter.empty())) {
+                m_catalogTypeFilter.clear();
+            }
+            const char* types[] = {"Rocky", "Terrestrial", "Super-Earth", "Gas Giant", "Ice Giant",
+                                   "Neptune", "Ocean", "Lava", "Desert"};
+            for (const char* type : types) {
+                if (ImGui::Selectable(type, m_catalogTypeFilter == type)) {
+                    m_catalogTypeFilter = type;
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::SameLine();
+        ImGui::Checkbox("Has Atmosphere", &m_filterHasAtmosphere);
+        if (ImGui::IsItemClicked()) {
+            m_filterAtmosphereEnabled = true;
+        }
+
+        // Hue range slider
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::SliderFloat2("Hue Range", &m_filterHueMin, 0.0f, 1.0f, "%.2f");
+
+        // Brightness range slider
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::SliderFloat2("Brightness", &m_filterBrightnessMin, 0.0f, 1.0f, "%.2f");
+
+        // Reset filters button
+        if (ImGui::SmallButton("Reset Filters")) {
+            m_catalogTypeFilter.clear();
+            m_filterHueMin = 0.0f;
+            m_filterHueMax = 1.0f;
+            m_filterBrightnessMin = 0.0f;
+            m_filterBrightnessMax = 1.0f;
+            m_filterAtmosphereEnabled = false;
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // Calculate visible area
+        float scrollRegionHeight = H - 240.f;
+        ImGui::BeginChild("##catalog_grid", {-1.f, scrollRegionHeight}, true,
+                          ImGuiWindowFlags_HorizontalScrollbar);
+
+        // Grid layout
+        const float tileSize = static_cast<float>(m_catalogTileSize);
+        const float tilePadding = 8.f;
+        const float totalTileSize = tileSize + tilePadding;
+        const int columns = std::max(1, static_cast<int>((m_catalogPanelWidth - 30.f) / totalTileSize));
+
+        // Build filtered list
+        std::vector<int> visiblePlanets;
+        for (int i = 0; i < static_cast<int>(m_planets.size()); ++i) {
+            if (m_planets[static_cast<size_t>(i)].isCached && planetPassesFilter(i)) {
+                visiblePlanets.push_back(i);
+            }
+        }
+
+        // Virtualization: only render visible tiles
+        float scrollY = ImGui::GetScrollY();
+        float windowHeight = ImGui::GetWindowHeight();
+        int firstVisibleRow = std::max(0, static_cast<int>(scrollY / totalTileSize) - 1);
+        int lastVisibleRow = static_cast<int>((scrollY + windowHeight) / totalTileSize) + 1;
+
+        int totalRows = (static_cast<int>(visiblePlanets.size()) + columns - 1) / columns;
+
+        // Add invisible spacer for scroll area
+        ImGui::Dummy({0.f, static_cast<float>(totalRows) * totalTileSize});
+        ImGui::SetCursorPosY(static_cast<float>(firstVisibleRow) * totalTileSize);
+
+        for (int row = firstVisibleRow; row <= lastVisibleRow && row < totalRows; ++row) {
+            for (int col = 0; col < columns; ++col) {
+                int idx = row * columns + col;
+                if (idx >= static_cast<int>(visiblePlanets.size())) break;
+
+                int planetIdx = visiblePlanets[static_cast<size_t>(idx)];
+                float x = static_cast<float>(col) * totalTileSize;
+                float y = static_cast<float>(row) * totalTileSize;
+
+                ImGui::SetCursorPos({x, y});
+                renderCatalogTile(planetIdx, x, y, tileSize);
+            }
+        }
+
+        ImGui::EndChild();
+
+        // Stats
+        ImGui::Spacing();
+        ImGui::TextDisabled("Showing %d of %d cached planets",
+                           static_cast<int>(visiblePlanets.size()),
+                           static_cast<int>(std::count_if(m_planets.begin(), m_planets.end(),
+                               [](const GalaxyPlanet& p) { return p.isCached; })));
+        // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+#if 0
+        if (m_thumbnailRenderer) {
+            ImGui::TextDisabled("Cache: %d | Queue: %d",
+                               m_thumbnailRenderer->getCacheSize(),
+                               m_thumbnailRenderer->getQueueSize());
+        }
+#endif
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void GalaxyView::renderCatalogTile(int planetIdx, float /*x*/, float /*y*/, float size) {
+    if (planetIdx < 0 || planetIdx >= static_cast<int>(m_planets.size()))
+        return;
+
+    const auto& planet = m_planets[static_cast<size_t>(planetIdx)];
+    bool isSelected = (planetIdx == m_selectedIdx);
+
+    ImGui::PushID(planetIdx);
+
+    // Load planet params from cache
+    auto cachedParams = ExoplanetConverter::loadCachedParams(planet.name);
+    if (!cachedParams) {
+        // Show placeholder for non-cached planets
+        ImGui::BeginGroup();
+        ImGui::Dummy({size, size});
+        ImVec2 min = ImGui::GetItemRectMin();
+        ImVec2 max = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRectFilled(min, max,
+            col32f(planet.r * 0.3f, planet.g * 0.3f, planet.b * 0.3f, 0.5f), 6.f);
+        ImGui::GetWindowDrawList()->AddRect(min, max,
+            col32f(planet.r, planet.g, planet.b, 0.8f), 6.f, 0, 2.f);
+
+        // Planet name centered
+        ImVec2 textSize = ImGui::CalcTextSize(planet.name.c_str());
+        float textX = min.x + (size - textSize.x) * 0.5f;
+        float textY = min.y + (size - textSize.y) * 0.5f;
+        ImGui::GetWindowDrawList()->AddText({textX, textY},
+            IM_COL32(200, 200, 200, 200), planet.name.c_str());
+
+        ImGui::EndGroup();
+
+        if (ImGui::IsItemClicked()) {
+            m_selectedIdx = planetIdx;
+            m_selectedName = planet.name;
+            m_selectedPreset = planet.presetIdx;
+        }
+
+        ImGui::PopID();
+        return;
+    }
+
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    unsigned int texId = 0;
+    // if (m_thumbnailRenderer) {
+    //     texId = m_thumbnailRenderer->getThumbnail(planet.name, *cachedParams);
+    // }
+
+    ImGui::BeginGroup();
+
+    if (texId != 0) {
+        // Draw the thumbnail
+        ImGui::Image(static_cast<ImTextureID>(texId),
+                     {size, size}, {0, 1}, {1, 0});  // Flip V for OpenGL
+    } else {
+        // Loading placeholder
+        ImGui::Dummy({size, size});
+        ImVec2 min = ImGui::GetItemRectMin();
+        ImVec2 max = ImGui::GetItemRectMax();
+
+        // Animated loading indicator
+        float pulse = 0.5f + 0.3f * std::sin(m_time * 3.0f);
+        ImGui::GetWindowDrawList()->AddRectFilled(min, max,
+            col32f(planet.r * 0.2f, planet.g * 0.2f, planet.b * 0.25f, pulse), 6.f);
+
+        // Loading text
+        const char* loadingText = "...";
+        ImVec2 textSize = ImGui::CalcTextSize(loadingText);
+        float textX = min.x + (size - textSize.x) * 0.5f;
+        float textY = min.y + (size - textSize.y) * 0.5f;
+        ImGui::GetWindowDrawList()->AddText({textX, textY},
+            IM_COL32(150, 180, 200, 200), loadingText);
+    }
+
+    // Selection highlight
+    ImVec2 min = ImGui::GetItemRectMin();
+    ImVec2 max = ImGui::GetItemRectMax();
+    if (isSelected) {
+        ImGui::GetWindowDrawList()->AddRect(min, max,
+            col32f(0.4f, 0.8f, 1.0f, 0.9f), 6.f, 0, 3.f);
+    } else if (ImGui::IsItemHovered()) {
+        ImGui::GetWindowDrawList()->AddRect(min, max,
+            col32f(0.6f, 0.7f, 0.8f, 0.6f), 6.f, 0, 2.f);
+    }
+
+    ImGui::EndGroup();
+
+    // Tooltip with planet info
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(planet.r, planet.g, planet.b, 1.0f));
+        ImGui::Text("%s", planet.name.c_str());
+        ImGui::PopStyleColor();
+        ImGui::TextDisabled("%s", planet.typeStr.c_str());
+        if (!planet.hostStar.empty()) {
+            ImGui::TextDisabled("Host: %s", planet.hostStar.c_str());
+        }
+        ImGui::EndTooltip();
+    }
+
+    // Click to select
+    if (ImGui::IsItemClicked()) {
+        m_selectedIdx = planetIdx;
+        m_selectedName = planet.name;
+        m_selectedPreset = planet.presetIdx;
+    }
+
+    // Double-click to view
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        triggerExplosion();
+    }
+
+    ImGui::PopID();
 }
 
 }  // namespace astrocore

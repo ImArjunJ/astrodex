@@ -1,8 +1,8 @@
 #include "intro/IntroAnimation.hpp"
 #include <imgui.h>
 #include <cmath>
-#include <cstdint>
 #include <cstdlib>
+#include <cstdint>
 #include <algorithm>
 #include <numeric>
 
@@ -78,10 +78,10 @@ void IntroAnimation::initParticles(float W, float H) {
                 p.col          = bit;
 
                 float t = frand();
-                if      (t < 0.25f) { p.r = 0.88f; p.g = 0.92f; p.b = 1.00f; }
-                else if (t < 0.55f) { p.r = 0.50f; p.g = 0.70f; p.b = 1.00f; }
-                else if (t < 0.80f) { p.r = 0.30f; p.g = 0.52f; p.b = 0.95f; }
-                else                { p.r = 0.62f; p.g = 0.82f; p.b = 1.00f; }
+                if      (t < 0.25f) { p.r = 0.88f; p.g = 0.95f; p.b = 1.00f; }  // near-white cool blue
+                else if (t < 0.55f) { p.r = 0.55f; p.g = 0.82f; p.b = 1.00f; }  // atmosphere rim blue
+                else if (t < 0.80f) { p.r = 0.32f; p.g = 0.62f; p.b = 0.95f; }  // deeper atmospheric
+                else                { p.r = 0.70f; p.g = 0.88f; p.b = 1.00f; }  // light sky blue
 
                 m_particles.push_back(p);
             }
@@ -122,12 +122,12 @@ void IntroAnimation::initParticles(float W, float H) {
         p.row          = 0;
         p.col          = 0;
 
-        // Dimmer deep-blue debris
+        // Debris — deep space blue matching atmosphere glow
         float t = frand();
-        if      (t < 0.40f) { p.r = 0.15f; p.g = 0.25f; p.b = 0.75f; }
-        else if (t < 0.70f) { p.r = 0.25f; p.g = 0.40f; p.b = 0.88f; }
-        else if (t < 0.90f) { p.r = 0.40f; p.g = 0.58f; p.b = 0.95f; }
-        else                { p.r = 0.72f; p.g = 0.85f; p.b = 1.00f; } // rare bright
+        if      (t < 0.40f) { p.r = 0.12f; p.g = 0.28f; p.b = 0.78f; }  // deep navy
+        else if (t < 0.70f) { p.r = 0.25f; p.g = 0.50f; p.b = 0.90f; }  // mid atmospheric
+        else if (t < 0.90f) { p.r = 0.40f; p.g = 0.68f; p.b = 0.96f; }  // lighter atmospheric
+        else                { p.r = 0.75f; p.g = 0.90f; p.b = 1.00f; }  // rare bright rim flash
 
         m_particles.push_back(p);
     }
@@ -263,8 +263,9 @@ void IntroAnimation::assignBorderTargets() {
 // Layered ambient halo centred on the whole ASTRODEX title block.
 
 void IntroAnimation::drawTitleGlow(ImDrawList* dl) {
-    // Only shown while the title is on screen
-    if (m_phase == IntroPhase::BorderAssemble ||
+    // Only shown while the title is on screen; hide during and after explosion
+    if (m_phase == IntroPhase::ExplodeOut    ||
+        m_phase == IntroPhase::BorderAssemble ||
         m_phase == IntroPhase::BorderFade     ||
         m_phase == IntroPhase::Done) return;
 
@@ -306,7 +307,7 @@ void IntroAnimation::drawTitleGlow(ImDrawList* dl) {
     for (const auto& L : kLayers) {
         int alpha = (int)(L.a * pulse * masterAlpha);
         if (alpha <= 0) continue;
-        ImU32 col = IM_COL32(30, 80, 220, alpha);
+        ImU32 col = IM_COL32(20, 80, 200, alpha);
         dl->AddRectFilled(
             { cx - hw - L.pad, cy - hh - L.pad },
             { cx + hw + L.pad, cy + hh + L.pad },
@@ -346,7 +347,7 @@ void IntroAnimation::drawConstellations(ImDrawList* dl) {
         // Outermost halo — very wide, very soft
         ImU32 haloCol = IM_COL32(
             (int)(mr * 60),
-            (int)(mg * 90),
+            (int)(mg * 120),
             (int)(mb * 200),
             (int)(lineAlpha * 18));
         dl->AddLine({ pa.x, pa.y }, { pb.x, pb.y }, haloCol, 8.0f);
@@ -354,7 +355,7 @@ void IntroAnimation::drawConstellations(ImDrawList* dl) {
         // Glow pass — wider, dimmer
         ImU32 glowCol = IM_COL32(
             (int)(mr * 120),
-            (int)(mg * 150),
+            (int)(mg * 180),
             (int)(mb * 255),
             (int)(lineAlpha * 55));
         dl->AddLine({ pa.x, pa.y }, { pb.x, pb.y }, glowCol, 3.5f);
@@ -362,7 +363,7 @@ void IntroAnimation::drawConstellations(ImDrawList* dl) {
         // Core line — thin, brighter
         ImU32 lineCol = IM_COL32(
             (int)(mr * 210),
-            (int)(mg * 230),
+            (int)(mg * 235),
             (int)(mb * 255),
             (int)(lineAlpha * 110));
         dl->AddLine({ pa.x, pa.y }, { pb.x, pb.y }, lineCol, 1.2f);
@@ -372,9 +373,9 @@ void IntroAnimation::drawConstellations(ImDrawList* dl) {
 // ── getUIAlpha ────────────────────────────────────────────────────────────────
 
 float IntroAnimation::getUIAlpha() const {
-    if (m_phase != IntroPhase::BorderFade && m_phase != IntroPhase::Done) return 0.f;
-    // Fade in the UI over the first 1.0 s of BorderFade
-    return std::min(m_borderTime / 1.0f, 1.f);
+    // The intro no longer transitions into the planet UI panel.
+    // The galaxy screen handles its own fade-in via Application.
+    return 0.f;
 }
 
 // ── syncBorderToWindow ────────────────────────────────────────────────────────
@@ -385,7 +386,7 @@ float IntroAnimation::getUIAlpha() const {
 void IntroAnimation::syncBorderToWindow(float x, float y, float w, float h) {
     const float dx = x - m_borderX;
     const float dy = y - m_borderY;
-    if (std::fabs(dx) < 0.5f && std::fabs(dy) < 0.5f) return; // already aligned
+    if (std::fabsf(dx) < 0.5f && std::fabsf(dy) < 0.5f) return; // already aligned
 
     for (auto& p : m_particles) {
         if (!p.goToBorder) continue;
@@ -452,12 +453,30 @@ void IntroAnimation::update(float dt) {
             p.x += p.vx * dt;
             p.y += p.vy * dt;
         }
-        // Once particles have had time to fly out, redirect them to the UI border
-        if (m_scatterTime > 0.72f) {
-            assignBorderTargets();
+        // After the initial burst, switch to ExplodeOut — all particles fly
+        // off-screen to the sides, then the galaxy fades in.
+        if (m_scatterTime > 0.55f) {
             m_borderTime = 0.f;
-            m_phase = IntroPhase::BorderAssemble;
+            m_phase = IntroPhase::ExplodeOut;
         }
+        break;
+    }
+
+    case IntroPhase::ExplodeOut: {
+        m_borderTime += dt;
+        const float margin = 80.f;
+        bool anyVisible = false;
+        for (auto& p : m_particles) {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            bool off = (p.x < -margin || p.x > m_W + margin ||
+                        p.y < -margin || p.y > m_H + margin);
+            if (off)
+                p.alpha = std::max(p.alpha - dt * 2.5f, 0.f);
+            if (p.alpha > 0.01f) anyVisible = true;
+        }
+        if (!anyVisible || m_borderTime > 1.8f)
+            m_phase = IntroPhase::Done;
         break;
     }
 
@@ -537,7 +556,7 @@ void IntroAnimation::drawParticles(ImDrawList* dl) {
                 float burstR = sz + 5.f + spike * 8.f;
                 float bh     = burstR * 0.5f;
                 ImU32 bc = IM_COL32(
-                    (int)(p.r * 140),
+                    (int)(p.r * 120),
                     (int)(p.g * 170),
                     (int)(p.b * 255),
                     (int)(spike * 70 * p.alpha));
@@ -558,7 +577,7 @@ void IntroAnimation::drawParticles(ImDrawList* dl) {
             float gh  = gs * 0.5f;
             ImU32 gc  = IM_COL32(
                 (int)(p.r * 120),
-                (int)(p.g * 150),
+                (int)(p.g * 160),
                 (int)(p.b * 255),
                 (int)(alp * 55));
             dl->AddRectFilled({ p.x - gh, p.y - gh }, { p.x + gh, p.y + gh }, gc);
@@ -587,21 +606,21 @@ void IntroAnimation::drawStartButton(ImDrawList* dl, float W, float H, float alp
 
     const float blink = 0.55f + 0.45f * sinf(m_time * 3.5f);
 
-    // Background
+    // Background — dark navy
     dl->AddRectFilled({ bx, by }, { bx + bw, by + bh },
         IM_COL32(5, 10, 40, (int)(180 * alpha)));
 
-    // Animated border
+    // Animated border — atmosphere blue
     const float bt = 3.f;
-    const ImU32 bc = IM_COL32(80, 130, 255, (int)(210 * blink * alpha));
+    const ImU32 bc = IM_COL32(80, 150, 255, (int)(210 * blink * alpha));
     dl->AddRectFilled({ bx,           by           }, { bx + bw,      by + bt      }, bc);
     dl->AddRectFilled({ bx,           by + bh - bt }, { bx + bw,      by + bh      }, bc);
     dl->AddRectFilled({ bx,           by           }, { bx + bt,       by + bh      }, bc);
     dl->AddRectFilled({ bx + bw - bt, by           }, { bx + bw,      by + bh      }, bc);
 
-    // Corner accents
+    // Corner accents — bright atmosphere blue
     const float cs = 6.f;
-    const ImU32 cc = IM_COL32(100, 160, 255, (int)(255 * alpha));
+    const ImU32 cc = IM_COL32(100, 180, 255, (int)(255 * alpha));
     dl->AddRectFilled({ bx,           by           }, { bx + cs, by + cs }, cc);
     dl->AddRectFilled({ bx + bw - cs, by           }, { bx + bw, by + cs }, cc);
     dl->AddRectFilled({ bx,           by + bh - cs }, { bx + cs, by + bh }, cc);
@@ -616,9 +635,9 @@ void IntroAnimation::drawStartButton(ImDrawList* dl, float W, float H, float alp
         for (int oy = -1; oy <= 1; ++oy)
             if (ox || oy)
                 dl->AddText({ tx + ox, ty + oy },
-                    IM_COL32(40, 80, 200, (int)(80 * alpha)), txt);
+                    IM_COL32(40, 100, 220, (int)(80 * alpha)), txt);
     dl->AddText({ tx, ty },
-        IM_COL32(140, 190, 255, (int)(255 * alpha)), txt);
+        IM_COL32(160, 210, 255, (int)(255 * alpha)), txt);
 
     // Click detection
     if (m_phase == IntroPhase::Idle && alpha > 0.5f) {
@@ -655,6 +674,24 @@ void IntroAnimation::render(ImDrawList* dl, float W, float H) {
     if (!m_initialized) {
         initParticles(W, H);
         m_initialized = true;
+    } else if (std::abs(W - m_W) > 1.f || std::abs(H - m_H) > 1.f) {
+        // Window was resized - scale all positions proportionally
+        float scaleX = W / m_W;
+        float scaleY = H / m_H;
+        for (auto& p : m_particles) {
+            p.x *= scaleX;
+            p.y *= scaleY;
+            p.tx *= scaleX;
+            p.ty *= scaleY;
+        }
+        m_centerX *= scaleX;
+        m_centerY *= scaleY;
+        m_titleW *= scaleX;
+        m_titleH *= scaleY;
+        m_borderX *= scaleX;
+        m_borderY *= scaleY;
+        m_borderW *= scaleX;
+        m_borderH *= scaleY;
     }
     m_W = W; m_H = H;
 

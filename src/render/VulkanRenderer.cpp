@@ -166,6 +166,12 @@ struct VulkanRenderer::Impl {
     bool         framebufferResized = false;
     GLFWwindow*  window = nullptr;
 
+    // Blackhole branch extensions
+    glm::vec3    planetPosition{0.0f, 0.0f, -10.0f};
+    bool         paused = false;
+    float        timeScale = 1.0f;
+    bool         emissive = false;
+
     // Methods
     void createSwapchain(int w, int h);
     void createFramebuffers();
@@ -1057,7 +1063,9 @@ void VulkanRenderer::render(const Camera& camera) {
     uint32_t f = m_impl->currentFrame;
     VkCommandBuffer cmd = m_impl->commandBuffers[f];
 
-    m_impl->time += 0.016f;
+    if (!m_impl->paused) {
+        m_impl->time += 0.016f * m_impl->timeScale;
+    }
 
     // Fill UBO
     PlanetUniformsVk u{};
@@ -1077,7 +1085,9 @@ void VulkanRenderer::render(const Camera& camera) {
     u.camPosX = cam.x; u.camPosY = cam.y; u.camPosZ = cam.z;
     u.time = m_impl->time;
 
-    u.planetX = 0.f; u.planetY = 0.f; u.planetZ = -10.f;
+    u.planetX = m_impl->planetPosition.x;
+    u.planetY = m_impl->planetPosition.y;
+    u.planetZ = m_impl->planetPosition.z;
     u.radius  = m_impl->params.radius;
 
     u.resX = float(m_impl->width); u.resY = float(m_impl->height);
@@ -1144,6 +1154,11 @@ void VulkanRenderer::render(const Camera& camera) {
     u.bhDopplerStrength = m_impl->params.bhDopplerStrength;
     u.bhRaySteps        = float(m_impl->params.bhRaySteps);
     v3(&u.bhDiskTintR, m_impl->params.bhDiskTint);
+
+    // Extra params (blackhole branch additions)
+    u.noiseType     = float(static_cast<int>(m_impl->params.noiseType));
+    u.continentBlend = m_impl->params.continentBlend;
+    u.isEmissive    = m_impl->emissive ? 1.0f : 0.0f;
 
     std::memcpy(m_impl->uniformMapped[f], &u, sizeof(u));
 
@@ -1214,7 +1229,14 @@ void* VulkanRenderer::getRenderPass()           { return m_impl->renderPass; }
 void* VulkanRenderer::getDescriptorPool()       { return m_impl->imguiDescriptorPool; }
 void* VulkanRenderer::getCurrentCommandBuffer() { return m_impl->commandBuffers[m_impl->currentFrame]; }
 uint32_t VulkanRenderer::getSwapchainImageCount() { return uint32_t(m_impl->swapchainImages.size()); }
-void* VulkanRenderer::getAllocator()             { return m_impl->allocator; }
-void* VulkanRenderer::getCommandPool()           { return m_impl->commandPools[m_impl->currentFrame]; }
+
+// ── Blackhole branch extensions ──────────────────────────────────────────────
+
+void VulkanRenderer::setPlanetPosition(const glm::vec3& pos) { m_impl->planetPosition = pos; }
+void VulkanRenderer::setPaused(bool paused) { m_impl->paused = paused; }
+bool VulkanRenderer::isPaused() const { return m_impl->paused; }
+void VulkanRenderer::setTimeScale(float scale) { m_impl->timeScale = scale; }
+float VulkanRenderer::timeScale() const { return m_impl->timeScale; }
+void VulkanRenderer::setEmissive(bool emissive) { m_impl->emissive = emissive; }
 
 } // namespace astrocore

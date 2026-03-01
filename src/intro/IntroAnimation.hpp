@@ -4,7 +4,7 @@
 
 namespace astrocore {
 
-enum class IntroPhase { Assemble, Idle, Scatter, BorderAssemble, BorderFade, Done };
+enum class IntroPhase { Assemble, Idle, Scatter, ExplodeOut, BorderAssemble, BorderFade, Done };
 
 struct Particle {
     float x, y;          // current position
@@ -34,9 +34,9 @@ public:
     void  update(float dt);
     void  render(ImDrawList* dl, float W, float H);
     bool  isDone()      const { return m_phase == IntroPhase::Done; }
-    // Returns 0 until the UI border is assembled, then ramps 0→1 over ~1 s
+    // Returns 0 until the UI border is assembled, then ramps 0->1 over ~1 s
     float getUIAlpha()  const;
-    // Called once the real ImGui window rect is known — snaps border particles
+    // Called once the real ImGui window rect is known - snaps border particles
     // to match it exactly (handles any imgui.ini saved offset)
     void  syncBorderToWindow(float x, float y, float w, float h);
 

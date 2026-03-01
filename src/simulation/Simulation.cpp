@@ -1,4 +1,6 @@
 #include "simulation/Simulation.hpp"
+#include "config/SystemConfig.hpp"
+#include "config/PresetManager.hpp"
 #include "render/Camera.hpp"
 #include "core/Logger.hpp"
 #include <limits>
@@ -38,32 +40,11 @@ void Simulation::update(float realDeltaTime) {
     }
 }
 
-void Simulation::renderOrbits(Renderer& renderer, const Camera& camera) {
-    // Clear trails if requested (e.g., after loading new simulation)
+void Simulation::renderOrbits() {
+    // Stubbed — OrbitRenderer not yet ported to Vulkan
     if (m_orbitTrailsNeedClear) {
-        renderer.orbitRenderer().clear();
         m_orbitTrailsNeedClear = false;
     }
-
-    // Get focus position for rendering
-    glm::dvec3 focusPos = m_focusBody ? m_focusBody->position() : glm::dvec3(0.0);
-
-    // Record orbit trail positions in PHYSICS coordinates
-    for (const auto& body : m_world.bodies()) {
-        if (body->isEmissive()) continue;  // Skip sun/stars
-
-        // Get body color for trail
-        glm::vec3 color(0.5f, 0.5f, 0.5f);
-        if (hasAppearance(body->id())) {
-            color = m_appearances.at(body->id()).sandColor;
-        }
-
-        // Record physics position - converted to render coords at draw time
-        renderer.orbitRenderer().recordPosition(body->id(), body->position(), color * 0.7f);
-    }
-
-    // Render orbit trails - pass focus and scale for coordinate conversion
-    renderer.orbitRenderer().render(camera.getViewProjectionMatrix(), focusPos, m_scaleFactor);
 }
 
 glm::vec3 Simulation::physicsToRender(const glm::dvec3& physPos) const {
@@ -197,6 +178,62 @@ void Simulation::loadRandomSystem(int numBodies) {
     m_world = PhysicsWorld::createRandomSystem(numBodies, regionSize, totalMass);
     setupDefaultAppearances();
     m_scaleFactor = 1.0 / constants::AU * 5.0;
+}
+
+void Simulation::loadFromConfig(const SystemConfig& config) {
+    // Clear current state
+    m_appearances.clear();
+    m_ringParams.clear();
+    m_focusBody = nullptr;
+    m_selectedBody = nullptr;
+
+    // Apply config to physics world
+    PresetManager pm;
+    pm.applyConfigToWorld(config, m_world);
+
+    // Set scale factor from config
+    m_scaleFactor = config.visualScale;
+
+    // Setup appearances for all bodies
+    setupDefaultAppearances();
+
+    // Focus on first emissive body (star) or first body
+    for (const auto& body : m_world.bodies()) {
+        if (body->isEmissive()) {
+            setFocusBody(body->id());
+            break;
+        }
+    }
+    if (!m_focusBody && !m_world.bodies().empty()) {
+        setFocusBody(m_world.bodies()[0]->id());
+    }
+
+    // Time scale: 1 day per second for orbital motion
+    m_timeScale = config.defaultTimestep;
+
+    // Clear orbit trails
+    m_orbitTrailsNeedClear = true;
+
+    LOG_INFO("Loaded system '{}' with {} bodies", config.name, m_world.bodyCount());
+}
+
+void Simulation::clear() {
+    // Clear physics world
+    m_world = PhysicsWorld();
+    m_world.setIntegrator(IntegratorType::Verlet);
+
+    // Clear visual data
+    m_appearances.clear();
+    m_ringParams.clear();
+
+    // Clear focus/selection
+    m_focusBody = nullptr;
+    m_selectedBody = nullptr;
+
+    // Flag to clear orbit trails on next render
+    m_orbitTrailsNeedClear = true;
+
+    LOG_INFO("Simulation cleared");
 }
 
 Simulation::Stats Simulation::getStats() const {

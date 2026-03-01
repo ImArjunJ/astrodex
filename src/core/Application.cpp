@@ -1,50 +1,35 @@
 #include "core/Application.hpp"
 #include "core/Logger.hpp"
-#include "render/Camera.hpp"
-#include "render/ThumbnailRenderer.hpp"
-#include "intro/IntroAnimation.hpp"
+#include "config/SystemConfig.hpp"
 #include "render/VulkanRenderer.hpp"
-#include "data/SolarSystemDatabase.hpp"
+#include "render/Camera.hpp"
+#include "render/ExoplanetConverter.hpp"
+#include "intro/IntroAnimation.hpp"
 #include <imgui.h>
-#include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
-#include <vulkan/vulkan.h>
-#include <vk_mem_alloc.h>
-#include <chrono>
-#include <filesystem>
-#include <spdlog/fmt/fmt.h>
-#include <set>
 #include <algorithm>
-#include <cctype>
-#include <cstring>
-
-// stb_image for loading cached PNG thumbnails (IMPLEMENTATION defined in VulkanRenderer.cpp)
-#include "../../external/stb_image.h"
+#include <chrono>
+#include <thread>
 
 namespace astrocore {
 
-// Pipeline stage display messages (indexed by PipelineStage enum)
-static constexpr const char* kStageMessages[] = {
-    "",                          // Idle
-    "Querying catalogs...",      // QueryingSources (NASA + OEC + Gaia + CDS)
-    "Inferring visuals...",      // InferringVisuals
-    "Mapping parameters...",     // MappingParams
-    "Done",                      // Done
-    "Error"                      // Failed
-};
+Application::Application() {
+    init();
+}
 
-Application::Application() { init(); }
-Application::~Application() { shutdown(); }
+Application::~Application() {
+    shutdown();
+}
 
 void Application::init() {
     Logger::init();
     LOG_INFO("AstroSplat starting...");
 
     WindowConfig config;
-    config.title  = "AstroSplat - Procedural Planet Generator";
-    config.width  = 1280;
+    config.title = "AstroSplat - Procedural Planet Generator";
+    config.width = 1280;
     config.height = 720;
-    config.vsync  = true;
+    config.vsync = true;
     m_window = std::make_unique<Window>(config);
 
     m_camera = std::make_unique<Camera>();
@@ -67,92 +52,93 @@ void Application::init() {
                      m_window->getHandle());
 
     m_ui = std::make_unique<UIManager>();
-    m_ui->init(m_window->getHandle(),
-               static_cast<VulkanRenderer*>(m_renderer.get()));
+    m_ui->init(m_window->getHandle(), m_renderer.get());
 
-    // ML pipeline
-    m_dataFusion   = std::make_unique<DataFusionEngine>();
-    m_inference    = std::make_unique<InferenceEngine>();
-    m_cacheManager = std::make_unique<CacheManager>();
-
-    m_ui->setExoplanetCallback([this](const std::string& name) {
-        loadPlanet(name);
-    });
-
-    // Seed autocomplete name list from solar system database + cache
-    buildPlanetNameList();
-
-    // ── Catalogue initialization ─────────────────────────────────────────
-    m_catalogue = std::make_unique<CatalogueView>();
-    m_catalogue->init();
-    m_catalogue->setPlanetCallback([this](const std::string& name) {
-        onCataloguePlanetClicked(name);
-    });
-    m_catalogue->setEditorCallback([this]() {
-        m_catalogueMode = false;
-    });
-
-    // Load cached records immediately for offline-first catalogue display
-    {
-        auto cachedNames = m_cacheManager->listCached();
-        for (const auto& cn : cachedNames) {
-            auto data = m_cacheManager->retrieve(cn);
-            if (data.has_value() && !data->name.empty()) {
-                m_catalogueData.push_back(std::move(*data));
-            }
-        }
-        if (!m_catalogueData.empty()) {
-            LOG_INFO("Catalogue: {} cached records loaded instantly", m_catalogueData.size());
-        }
+    // Preset manager
+    m_presetManager.setPresetsDirectory("configs");
+    m_presetManager.scanPresets();
+    if (m_presetManager.getAvailablePresets().empty()) {
+        m_presetManager.generateBuiltInPresets();
     }
 
-    // Launch background prefetch of 500 notable exoplanets
-    m_prefetchProgress = std::make_shared<std::atomic<int>>(0);
-    m_prefetchFuture = m_dataFusion->prefetchNotable(500);
-    m_prefetchComplete = false;
-    m_catalogueMode = true;
+    // Exoplanet data aggregator
+    AggregatorConfig aggConfig;
+    aggConfig.query_nasa = true;
+    aggConfig.query_exomast = true;
+    aggConfig.query_exoplanet_eu = true;
+    m_dataAggregator = std::make_unique<ExoplanetDataAggregator>(aggConfig);
+    m_dataAggregator->preloadExoplanetEuCatalog();
 
-    // ── Thumbnail renderer initialization ────────────────────────────────
-    initThumbnailRenderer();
-    loadThumbnailsFromCache();
+    // AI inference engine
+    m_inferenceEngine = std::make_unique<InferenceEngine>();
+    if (m_inferenceEngine->isAvailable()) {
+        LOG_INFO("AI inference available");
+    }
+
+    // Galaxy view setup
+    m_galaxy = std::make_unique<GalaxyView>();
+    m_galaxy->setExoplanetCallback([this](const std::string& name) {
+        loadPlanet(name);
+    });
+    m_galaxy->setFetchMetadataCallback([this](const std::string& name) {
+        m_galaxy->setFetchingMetadata(true);
+        std::thread([this, name]() {
+            try {
+                auto result = m_dataAggregator->queryPlanetSync(name);
+                const auto& d = result.data;
+
+                float distLY = 0.f;
+                if (d.distance_ly.hasValue()) {
+                    distLY = static_cast<float>(d.distance_ly.value);
+                } else if (d.host_star.distance_pc.hasValue()) {
+                    distLY = static_cast<float>(d.host_star.distance_pc.value * 3.26156);
+                }
+
+                m_galaxy->updatePlanetMetadata(
+                    name,
+                    d.host_star.name,
+                    distLY,
+                    d.radius_earth.hasValue() ? static_cast<float>(d.radius_earth.value) : 0.f,
+                    d.mass_earth.hasValue() ? static_cast<float>(d.mass_earth.value) : 0.f,
+                    d.equilibrium_temp_k.hasValue() ? static_cast<float>(d.equilibrium_temp_k.value) : 0.f,
+                    d.host_star.gaia_dr3_id
+                );
+                LOG_INFO("Fetched metadata for {}: host={}, dist={:.1f}ly, gaia={}",
+                         name, d.host_star.name, distLY, d.host_star.gaia_dr3_id);
+            } catch (const std::exception& e) {
+                LOG_WARN("Failed to fetch metadata for {}: {}", name, e.what());
+            }
+            m_galaxy->setFetchingMetadata(false);
+        }).detach();
+    });
+
+    // Load cached planets into galaxy view
+    auto cachedPlanets = ExoplanetConverter::listCachedPlanets();
+    for (const auto& planet : cachedPlanets) {
+        m_galaxy->addExoplanet(planet.name, planet.type, 0.0f);
+    }
+    LOG_INFO("Added {} cached planets to galaxy view", cachedPlanets.size());
+
+    // Initialize simulation and load solar system
+    m_simulation.init();
+    m_simulation.loadSolarSystem();
+    m_simulation.setFocusBody("Earth");
+
+    // Create blank cursor for mouse lock
+    unsigned char pixels[4] = {0, 0, 0, 0};
+    GLFWimage image = {1, 1, pixels};
+    m_blankCursor = glfwCreateCursor(&image, 0, 0);
 
     m_lastFrameTime = m_window->getTime();
     LOG_INFO("Ready");
 }
 
-void Application::buildPlanetNameList() {
-    m_knownNames.clear();
-
-    // Seed from solar system database
-    for (const auto& entry : SolarSystemDatabase::instance().entries()) {
-        m_knownNames.insert(entry.name);
-    }
-
-    // Add cached exoplanet names — retrieve proper casing from cached JSON
-    auto cached = m_cacheManager->listCached();
-    for (const auto& cachedName : cached) {
-        auto data = m_cacheManager->retrieve(cachedName);
-        if (data && !data->name.empty()) {
-            m_knownNames.insert(data->name);
-        } else {
-            m_knownNames.insert(cachedName);
-        }
-    }
-
-    // Convert to sorted vector and pass to UI
-    std::vector<std::string> sortedNames(m_knownNames.begin(), m_knownNames.end());
-    std::sort(sortedNames.begin(), sortedNames.end());
-    m_ui->setCachedNames(sortedNames);
-
-    LOG_INFO("Autocomplete: {} planet names loaded", sortedNames.size());
-}
-
 void Application::runIntro() {
-    // Hide the raymarched planet body while keeping the procedural starfield live
-    auto savedParams               = m_renderer->params();
-    m_renderer->params().radius            = 0.001f;
+    // Hide the planet during intro
+    auto savedParams = m_renderer->params();
+    m_renderer->params().radius = 0.001f;
     m_renderer->params().atmosphereDensity = 0.0f;
-    m_renderer->params().cloudsDensity     = 0.0f;
+    m_renderer->params().cloudsDensity = 0.0f;
 
     IntroAnimation intro;
     bool borderSynced = false;
@@ -160,16 +146,16 @@ void Application::runIntro() {
 
     while (!m_window->shouldClose() && !intro.isDone()) {
         double currentTime = m_window->getTime();
-        float  dt          = static_cast<float>(currentTime - m_lastFrameTime);
-        m_lastFrameTime    = currentTime;
-        dt = std::min(dt, 0.05f);   // clamp to avoid spiral-of-death on stall
+        float dt = static_cast<float>(currentTime - m_lastFrameTime);
+        m_lastFrameTime = currentTime;
+        dt = std::min(dt, 0.05f);
 
         m_window->pollEvents();
 
-        // Skip on Escape
+        // Skip on Escape or Space
         GLFWwindow* w = m_window->getHandle();
         if (glfwGetKey(w, GLFW_KEY_ESCAPE) == GLFW_PRESS ||
-            glfwGetKey(w, GLFW_KEY_SPACE)  == GLFW_PRESS)
+            glfwGetKey(w, GLFW_KEY_SPACE) == GLFW_PRESS)
             break;
 
         intro.update(dt);
@@ -180,14 +166,13 @@ void Application::runIntro() {
         m_ui->beginFrame();
         ImGuiIO& io = ImGui::GetIO();
 
-        // ── Fade in the real UI panel once the border is assembled ────────────
+        // Fade in planet with UI
         float uiAlpha = intro.getUIAlpha();
         {
-            // Lerp planet params hidden→visible so the planet fades in with the UI
             auto& rp = m_renderer->params();
-            rp.radius            = savedParams.radius            * uiAlpha;
+            rp.radius = savedParams.radius * uiAlpha;
             rp.atmosphereDensity = savedParams.atmosphereDensity * uiAlpha;
-            rp.cloudsDensity     = savedParams.cloudsDensity     * uiAlpha;
+            rp.cloudsDensity = savedParams.cloudsDensity * uiAlpha;
         }
         if (uiAlpha > 0.f) {
             ImVec2 winPos, winSize;
@@ -195,33 +180,32 @@ void Application::runIntro() {
             m_ui->render(m_renderer->params(), &winPos, &winSize);
             ImGui::PopStyleVar();
 
-            // Snap the constellation border to wherever ImGui actually placed the panel
             if (!borderSynced) {
                 intro.syncBorderToWindow(winPos.x, winPos.y, winSize.x, winSize.y);
                 borderSynced = true;
             }
         }
 
-        // ── Full-screen transparent overlay (particles drawn on top of UI) ───
-        ImGui::SetNextWindowPos({ 0.f, 0.f });
+        // Full-screen overlay for intro particles
+        ImGui::SetNextWindowPos({0.f, 0.f});
         ImGui::SetNextWindowSize(io.DisplaySize);
         ImGui::SetNextWindowBgAlpha(0.f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 0.f, 0.f });
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
         if (ImGui::Begin("##intro_overlay", nullptr,
-                ImGuiWindowFlags_NoDecoration        |
-                ImGuiWindowFlags_NoMove              |
-                ImGuiWindowFlags_NoScrollbar         |
-                ImGuiWindowFlags_NoSavedSettings     |
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoMouseInputs |
                 ImGuiWindowFlags_NoBringToFrontOnFocus)) {
             ImGui::PopStyleVar();
-            intro.render(ImGui::GetWindowDrawList(),
-                         io.DisplaySize.x, io.DisplaySize.y);
+            intro.render(ImGui::GetWindowDrawList(), io.DisplaySize.x, io.DisplaySize.y);
         } else {
             ImGui::PopStyleVar();
         }
         ImGui::End();
 
-        m_ui->endFrame(static_cast<VulkanRenderer*>(m_renderer.get()));
+        m_ui->endFrame(m_renderer.get());
         m_renderer->endFrame();
         m_window->swapBuffers();
     }
@@ -231,660 +215,640 @@ void Application::runIntro() {
 }
 
 void Application::run() {
+    // Run intro animation
     runIntro();
+
+    // Start in galaxy mode with planet hidden
+    m_savedParams = m_renderer->params();
+    m_renderer->params().radius = 0.001f;
+    m_renderer->params().atmosphereDensity = 0.0f;
+    m_renderer->params().cloudsDensity = 0.0f;
+    m_screen = AppScreen::Galaxy;
+    m_galaxyFadeTimer = 0.f;
+
     while (!m_window->shouldClose() && m_running) {
         double currentTime = m_window->getTime();
-        float  deltaTime   = static_cast<float>(currentTime - m_lastFrameTime);
-        m_lastFrameTime    = currentTime;
+        float deltaTime = std::min(static_cast<float>(currentTime - m_lastFrameTime), 0.05f);
+        m_lastFrameTime = currentTime;
 
         m_window->pollEvents();
-        update(deltaTime);
-        render();
+
+        if (m_screen == AppScreen::Galaxy) {
+            renderGalaxy(deltaTime);
+        } else if (m_screen == AppScreen::SolarSystem) {
+            handleSolarSystemInput();
+            m_simulation.update(deltaTime);
+            renderSolarSystem(deltaTime);
+        } else {
+            handleInput();
+            update(deltaTime);
+            render(deltaTime);
+        }
+
         m_window->swapBuffers();
     }
+}
+
+void Application::renderGalaxy(float dt) {
+    // 'S' key switches to solar system view
+    GLFWwindow* w = m_window->getHandle();
+    static bool sWasPressed = false;
+    bool sPressed = glfwGetKey(w, GLFW_KEY_S) == GLFW_PRESS;
+    if (sPressed && !sWasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
+        m_simulation.loadSolarSystem();
+        m_simulation.resume();
+        m_camera->setPosition(glm::vec3(0.0f, 50.0f, 100.0f));
+        m_camera->setTarget(glm::vec3(0.0f));
+        m_screen = AppScreen::SolarSystem;
+        return;
+    }
+    sWasPressed = sPressed;
+
+    m_renderer->beginFrame();
+    m_renderer->render(*m_camera);
+
+    m_ui->beginFrame();
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (!m_galaxy->isInitialized())
+        m_galaxy->init(io.DisplaySize.x, io.DisplaySize.y);
+
+    m_galaxy->update(dt, io.DisplaySize.x, io.DisplaySize.y);
+
+    // Fade-in timer
+    m_galaxyFadeTimer += dt;
+    const float kFadeDur = 1.5f;
+    const float fadeAlpha = std::min(m_galaxyFadeTimer / kFadeDur, 1.f);
+
+    bool switching = m_galaxy->isExplosionDone();
+
+    if (!switching) {
+        // Full-screen overlay for star field
+        ImGui::SetNextWindowPos({0.f, 0.f});
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::SetNextWindowBgAlpha(0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
+        if (ImGui::Begin("##galaxy_bg", nullptr,
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoMouseInputs |
+                ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+            ImGui::PopStyleVar();
+            m_galaxy->renderBackground(ImGui::GetWindowDrawList(),
+                                       io.DisplaySize.x, io.DisplaySize.y);
+        } else {
+            ImGui::PopStyleVar();
+        }
+        ImGui::End();
+
+        m_galaxy->renderUI(io.DisplaySize.x, io.DisplaySize.y);
+    }
+
+    // Theme toggle always visible
+    if (!switching)
+        m_ui->renderThemeToggle();
+
+    // Fade-in overlay
+    if (fadeAlpha < 1.f) {
+        int blackAlpha = static_cast<int>((1.f - fadeAlpha) * 255);
+        ImGui::GetForegroundDrawList()->AddRectFilled(
+            {0.f, 0.f}, io.DisplaySize,
+            IM_COL32(0, 0, 0, blackAlpha));
+    }
+
+    m_ui->endFrame(m_renderer.get());
+    m_renderer->endFrame();
+
+    // Check for solar system button click
+    if (m_galaxy->wasSolarSystemRequested()) {
+        m_simulation.loadSolarSystem();
+        m_simulation.resume();
+        m_camera->setPosition(glm::vec3(0.0f, 50.0f, 100.0f));
+        m_camera->setTarget(glm::vec3(0.0f));
+        m_screen = AppScreen::SolarSystem;
+        LOG_INFO("Switching to Solar System simulation");
+        return;
+    }
+
+    if (switching) {
+        const std::string name = m_galaxy->selectedName();
+        const int preset = m_galaxy->selectedPreset();
+
+        if (preset >= 0) {
+            m_renderer->params() = UIManager::getPreset(preset);
+            m_currentStatus = name + "  |  Preset";
+            m_ui->setExoplanetStatus(m_currentStatus);
+            LOG_INFO("Galaxy expand (preset): {}", name);
+        } else {
+            m_renderer->params() = m_savedParams;
+            loadPlanet(name);
+        }
+
+        m_borderFadeTimer = 0.f;
+        m_borderReleased = false;
+        m_planetDetailFadeIn = 0.f;
+
+        // Reset camera to default planet viewing position
+        m_camera->setPosition(glm::vec3(0.0f, 0.0f, 15.0f));
+        m_camera->setTarget(glm::vec3(0.0f));
+        m_renderer->setPlanetPosition(glm::vec3(0.0f, 0.0f, -10.0f));
+        m_mouseLocked = false;
+        glfwSetInputMode(m_window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+        // Clear simulation state from solar system mode
+        m_simulation.clear();
+
+        m_screen = AppScreen::PlanetDetail;
+        LOG_INFO("Switching to PlanetDetail for: {}", name);
+    }
+}
+
+void Application::handleSolarSystemInput() {
+    GLFWwindow* window = m_window->getHandle();
+
+    // Tab - toggle mouse lock
+    static bool tabWasPressed = false;
+    bool tabPressed = glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS;
+    if (tabPressed && !tabWasPressed) {
+        m_mouseLocked = !m_mouseLocked;
+        if (m_mouseLocked) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            if (glfwRawMouseMotionSupported()) {
+                glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+            }
+            glfwGetCursorPos(window, &m_lastMouseX, &m_lastMouseY);
+        } else {
+            glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+    }
+    tabWasPressed = tabPressed;
+
+    // FPS mouse look
+    if (m_mouseLocked) {
+        double x, y;
+        glfwGetCursorPos(window, &x, &y);
+        float dx = static_cast<float>(x - m_lastMouseX);
+        float dy = static_cast<float>(y - m_lastMouseY);
+        m_lastMouseX = x;
+        m_lastMouseY = y;
+        m_camera->rotate(-dx * 0.003f, dy * 0.003f);
+    }
+
+    // Skip other input if ImGui wants keyboard
+    if (ImGui::GetIO().WantCaptureKeyboard && !m_mouseLocked) return;
+
+    // WASD/QE movement
+    float moveSpeed = m_cameraSpeed * 0.016f;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) moveSpeed *= 5.0f;
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) m_camera->moveForward(moveSpeed);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) m_camera->moveForward(-moveSpeed);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) m_camera->moveRight(-moveSpeed);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) m_camera->moveRight(moveSpeed);
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) m_camera->moveUp(-moveSpeed);
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) m_camera->moveUp(moveSpeed);
+
+    // Space - toggle pause
+    static bool spaceWasPressed = false;
+    bool spacePressed = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+    if (spacePressed && !spaceWasPressed) {
+        m_simulation.togglePause();
+    }
+    spaceWasPressed = spacePressed;
+
+    // +/= increase time scale
+    static bool plusWasPressed = false;
+    bool plusPressed = glfwGetKey(window, GLFW_KEY_EQUAL) == GLFW_PRESS;
+    if (plusPressed && !plusWasPressed) {
+        m_simulation.setTimeScale(m_simulation.timeScale() * 2.0);
+    }
+    plusWasPressed = plusPressed;
+
+    // - decrease time scale
+    static bool minusWasPressed = false;
+    bool minusPressed = glfwGetKey(window, GLFW_KEY_MINUS) == GLFW_PRESS;
+    if (minusPressed && !minusWasPressed) {
+        m_simulation.setTimeScale(m_simulation.timeScale() * 0.5);
+    }
+    minusWasPressed = minusPressed;
+
+    // 1-5 focus on bodies
+    static int lastKey = 0;
+    int key = 0;
+    if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) key = 1;
+    else if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) key = 2;
+    else if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) key = 3;
+    else if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS) key = 4;
+    else if (glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS) key = 5;
+
+    if (key != 0 && key != lastKey) {
+        const char* names[] = {"", "Sun", "Earth", "Mars", "Jupiter", "Moon"};
+        if (key <= 5) {
+            m_simulation.setFocusBody(names[key]);
+            auto* focus = m_simulation.focusBody();
+            if (focus) {
+                if (m_simulation.hasAppearance(focus->id())) {
+                    m_renderer->params() = m_simulation.getBodyAppearance(focus->id());
+                }
+                float viewDistance = focus->renderRadius() * 4.0f;
+                m_camera->transitionTo(glm::vec3(0.0f), 1.5f, viewDistance);
+            }
+        }
+    }
+    lastKey = key;
+
+    // Escape - back to galaxy
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        m_screen = AppScreen::Galaxy;
+        m_galaxyFadeTimer = 0.f;
+    }
+}
+
+void Application::renderSolarSystem(float dt) {
+    m_camera->update(dt);
+
+    m_renderer->beginFrame();
+
+    // Starfield is now part of the main shader (cubemap background)
+    // m_renderer->renderStarfield(*m_camera);  -- no-op in Vulkan
+
+    // Get focus position for coordinate conversion
+    glm::dvec3 focusPos = m_simulation.focusBody() ?
+        m_simulation.focusBody()->position() : glm::dvec3(0.0);
+
+    // Render all bodies
+    for (const auto& body : m_simulation.world().bodies()) {
+        glm::dvec3 relPos = body->position() - focusPos;
+        glm::vec3 renderPos = m_simulation.physicsToRender(relPos);
+
+        m_renderer->setPlanetPosition(renderPos);
+        m_renderer->params() = m_simulation.getBodyAppearance(body->id());
+
+        // Set emissive flag for stars
+        m_renderer->setEmissive(body->isEmissive());
+        m_renderer->render(*m_camera);
+
+        // Ring rendering stubbed — needs Vulkan particle pipeline
+    }
+
+    // Orbit trails stubbed — OrbitRenderer not yet ported
+    m_simulation.renderOrbits();
+
+    // UI
+    m_ui->beginFrame();
+
+    // Left sidebar with body list
+    ImGui::SetNextWindowPos(ImVec2(10, 10));
+    ImGui::SetNextWindowSize(ImVec2(200, 400));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    if (ImGui::Begin("##solar_sidebar", nullptr,
+            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoSavedSettings)) {
+        ImGui::Text("Solar System");
+        ImGui::Separator();
+
+        auto stats = m_simulation.getStats();
+        ImGui::TextDisabled("Time: %.1f days", stats.simulationTime / 86400.0);
+        ImGui::TextDisabled("Speed: %.0fx", stats.timeScale);
+        ImGui::Text(stats.paused ? "PAUSED" : "Running");
+        ImGui::Separator();
+
+        // Clickable body list
+        ImGui::TextDisabled("Bodies");
+        if (ImGui::BeginChild("##bodylist", ImVec2(-1, 200), true)) {
+            for (const auto& body : m_simulation.world().bodies()) {
+                bool isFocused = (m_simulation.focusBody() == body.get());
+                if (ImGui::Selectable(body->name().c_str(), isFocused)) {
+                    m_simulation.setFocusBody(body->id());
+                    if (m_simulation.hasAppearance(body->id())) {
+                        m_renderer->params() = m_simulation.getBodyAppearance(body->id());
+                    }
+                    float viewDist = body->renderRadius() * 4.0f;
+                    m_camera->transitionTo(glm::vec3(0.0f), 1.0f, viewDist);
+                }
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Controls");
+        ImGui::TextDisabled("WASD/QE: Move");
+        ImGui::TextDisabled("Tab: Mouse lock");
+        ImGui::TextDisabled("Space: Pause");
+        ImGui::TextDisabled("+/-: Speed");
+
+        ImGui::Spacing();
+        if (ImGui::Button("Back to Galaxy", ImVec2(-1, 0))) {
+            m_screen = AppScreen::Galaxy;
+            m_galaxyFadeTimer = 0.f;
+        }
+    }
+    ImGui::End();
+
+    m_ui->renderThemeToggle();
+    m_ui->endFrame(m_renderer.get());
+
+    m_renderer->endFrame();
 }
 
 void Application::loadPlanet(const std::string& name) {
     if (m_planetLoading) return;
     LOG_INFO("Loading planet: {}", name);
 
-    // ── Step 1: Solar system direct lookup ────────────────────────────────────
-    // Resolve synchronously (instant) so the renderer updates this frame.
-    // Then optionally fire a background AI validation run.
-    const auto* solarEntry = SolarSystemDatabase::instance().findByName(name);
-    if (solarEntry) {
-        LOG_INFO("Solar system match: {}", solarEntry->name);
-        std::string cat = ExoplanetMapper::categoryName(
-            ExoplanetMapper::classify(solarEntry->physicalData));
-        m_currentStatus = solarEntry->name + "  |  " + cat + "  |  Solar System";
+    // First check if it's cached
+    auto cachedParams = ExoplanetConverter::loadCachedParams(name);
+    if (cachedParams) {
+        m_renderer->params() = *cachedParams;
+        m_currentStatus = name;
         m_ui->setExoplanetStatus(m_currentStatus);
+        LOG_INFO("Loaded cached params for {}", name);
 
-        // Store ExoplanetData for the info panel
-        m_loadedExoData = solarEntry->physicalData;
-        m_ui->setExoplanetData(&(*m_loadedExoData));
-
-        // Start fade transition instead of direct assignment
-        m_targetParams = solarEntry->visualParams;
-        m_savedBaseParams = solarEntry->visualParams;
-        m_transitioning = true;
-        m_transitionShrinking = true;
-        m_transitionAlpha = 1.0f;
-
-        // ── Background validation: run AI pipeline on known physical data ──
-        // Compares AI output to our hand-tuned visual params → accuracy score.
-        if (m_inference->isAvailable() && !m_validationRunning) {
-            m_validationRunning = true;
-            auto entry = solarEntry;  // pointer to static storage, safe to capture
-            m_validationFuture = std::async(std::launch::async,
-                [this, entry]() -> std::string {
-                    auto data = entry->physicalData;
-                    data = m_inference->fillMissingParametersSync(std::move(data));
-
-                    std::set<std::string> physicsFields;
-                    ExoplanetMapper::toPlanetParams(data, &physicsFields, nullptr);
-
-                    // Exclude the planet itself from analog matching
-                    std::string analogContext;
-                    if (data.mass_earth.hasValue() && data.radius_earth.hasValue() &&
-                        data.equilibrium_temp_k.hasValue()) {
-                        auto analog = SolarSystemDatabase::instance().findClosestAnalog(
-                            data.mass_earth.value, data.radius_earth.value,
-                            data.equilibrium_temp_k.value, 0.35f,
-                            entry->name);  // exclude self
-                        if (analog) {
-                            analogContext = fmt::format(
-                                "{} (similarity {:.0f}%) — {}",
-                                analog->entry->name, analog->score * 100.0f,
-                                analog->entry->description);
-                        }
-                    }
-
-                    auto aiJson = m_inference->inferRenderParamsSync(
-                        data, analogContext, physicsFields);
-
-                    // Build predicted params from physics base + AI (no analog visual base)
-                    PlanetParams predicted = ExoplanetMapper::toPlanetParams(data, nullptr, nullptr);
-                    ExoplanetMapper::applyAIRenderOverrides(predicted, aiJson, physicsFields);
-
-                    auto report = ExoplanetMapper::validate(predicted, entry->visualParams);
-
-                    LOG_INFO("[Validation] {} → overall {:.1f}%",
-                             entry->name, report.overall_score * 100.0f);
-                    for (auto& [field, score] : report.field_scores)
-                        LOG_DEBUG("  {:<20s} {:.0f}%", field, score * 100.0f);
-
-                    return fmt::format("AI acc: {:.0f}%", report.overall_score * 100.0f);
-                });
-        }
+        std::thread([this, name]() {
+            try {
+                auto result = m_dataAggregator->queryPlanetSync(name);
+                m_ui->setCurrentExoplanetData(result.data);
+            } catch (...) {
+            }
+        }).detach();
         return;
     }
 
-    // ── Multi-source exoplanet pipeline (NASA + OEC + Gaia + CDS + AI) ────────
+    // Otherwise, start async load
     m_planetLoading = true;
-    m_ui->setLoading(true);
     m_ui->setExoplanetStatus("Searching...");
-    m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingSources));
+    m_ui->clearCurrentExoplanetData();
 
     m_planetFuture = std::async(std::launch::async,
         [this, name]() -> LoadResult {
+            LoadResult result;
+            result.hasExoData = false;
 
-            // ── Step 1: Multi-source data fusion ────────────────────────────
-            // Queries NASA, OEC, resolves host star via CDS/SIMBAD,
-            // enriches with Gaia DR3 + VizieR, merges by priority,
-            // then AI-fills missing physical fields.
-            m_pipelineStage.store(static_cast<int>(PipelineStage::QueryingSources));
-            auto data = m_dataFusion->fetchAndFuseSync(name);
-            if (data.name.empty()) {
-                m_pipelineStage.store(static_cast<int>(PipelineStage::Failed));
-                return {std::nullopt, "Not found: \"" + name + "\"", std::nullopt};
+            auto results = m_dataAggregator->getNasaClient().queryByNameSync(name);
+            if (results.empty()) {
+                result.status = "Not found: \"" + name + "\"";
+                return result;
             }
 
-            // ── Step 2: Find closest solar-system analog for context ────────
-            m_pipelineStage.store(static_cast<int>(PipelineStage::MappingParams));
-            std::string           analogContext;
-            std::set<std::string> physicsFields;
-            ExoplanetMapper::toPlanetParams(data, &physicsFields, nullptr);
+            auto data = results[0];
+            data.calculateDerivedValues();
 
-            if (data.mass_earth.hasValue() && data.radius_earth.hasValue() &&
-                data.equilibrium_temp_k.hasValue()) {
-                auto analog = SolarSystemDatabase::instance().findClosestAnalog(
-                    data.mass_earth.value, data.radius_earth.value,
-                    data.equilibrium_temp_k.value, 0.35f);
-                if (analog) {
-                    analogContext = fmt::format(
-                        "{} (similarity {:.0f}%) — {}",
-                        analog->entry->name, analog->score * 100.0f,
-                        analog->entry->description);
-                }
+            if (m_inferenceEngine->isAvailable()) {
+                data = m_inferenceEngine->fillMissingParametersSync(std::move(data));
             }
 
-            // ── Step 3: AI infers visual render parameters ──────────────────
-            m_pipelineStage.store(static_cast<int>(PipelineStage::InferringVisuals));
-            nlohmann::json aiJson;
-            if (m_inference->isAvailable()) {
-                aiJson = m_inference->inferRenderParamsSync(data, analogContext, physicsFields);
-            }
+            PlanetParams params = ExoplanetConverter::toPlanetParams(data, m_inferenceEngine.get());
 
-            // ── Step 4: Physics base + AI → final PlanetParams ──────────────
-            m_pipelineStage.store(static_cast<int>(PipelineStage::MappingParams));
-            AnalogMatch usedAnalog;
-            PlanetParams params = ExoplanetMapper::toRenderParams(data, aiJson, &usedAnalog);
-
-            std::string category = ExoplanetMapper::categoryName(
-                ExoplanetMapper::classify(data));
-            std::string label = data.name + "  |  " + category;
-            if (usedAnalog.entry) {
-                label += fmt::format("  |  ~{} ({:.0f}%)",
-                                     usedAnalog.entry->name, usedAnalog.score * 100.0f);
-            }
-
-            m_pipelineStage.store(static_cast<int>(PipelineStage::Done));
-            return {params, label, data};
+            result.params = params;
+            result.status = data.name;
+            result.exoData = data;
+            result.hasExoData = true;
+            return result;
         });
 }
 
-void Application::onCataloguePlanetClicked(const std::string& name) {
-    LOG_INFO("Catalogue: selected planet '{}'", name);
-    loadPlanet(name);
-    m_catalogueMode = false;
-}
+void Application::handleInput() {
+    GLFWwindow* window = m_window->getHandle();
 
-// ── Thumbnail Management ─────────────────────────────────────────────────────
-
-std::string Application::makePlanetSlug(const std::string& name) {
-    std::string slug;
-    slug.reserve(name.size());
-    for (char c : name) {
-        if (std::isalnum(static_cast<unsigned char>(c))) {
-            slug.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-        } else if (c == ' ' || c == '_') {
-            if (!slug.empty() && slug.back() != '-') slug.push_back('-');
-        } else if (c == '-') {
-            slug.push_back('-');
-        }
-    }
-    // Trim trailing hyphens
-    while (!slug.empty() && slug.back() == '-') slug.pop_back();
-    return slug;
-}
-
-void Application::initThumbnailRenderer() {
-    auto* vkr = static_cast<VulkanRenderer*>(m_renderer.get());
-
-    VkDevice device       = static_cast<VkDevice>(vkr->getDevice());
-    VmaAllocator allocator = static_cast<VmaAllocator>(vkr->getAllocator());
-    VkQueue queue         = static_cast<VkQueue>(vkr->getGraphicsQueue());
-    VkCommandPool cmdPool = static_cast<VkCommandPool>(vkr->getCommandPool());
-
-    m_thumbnailRenderer = std::make_unique<ThumbnailRenderer>(
-        device, allocator, queue, cmdPool, 128);
-
-    // Create a fixed thumbnail camera (frames a unit sphere at distance 3)
-    m_thumbnailCamera = std::make_unique<Camera>();
-    m_thumbnailCamera->setPosition(glm::vec3(0.f, 0.f, 3.f));
-    m_thumbnailCamera->setTarget(glm::vec3(0.f, 0.f, 0.f));
-
-    LOG_INFO("ThumbnailRenderer initialized for catalogue previews");
-}
-
-void Application::loadThumbnailsFromCache() {
-    const std::string cacheDir = ".cache/thumbnails";
-
-    // Create cache directory if it doesn't exist
-    std::filesystem::create_directories(cacheDir);
-
-    if (!std::filesystem::exists(cacheDir)) return;
-
-    int loaded = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(cacheDir)) {
-        if (!entry.is_regular_file()) continue;
-        auto ext = entry.path().extension().string();
-        if (ext != ".png") continue;
-
-        // Extract planet name from filename (slug format)
-        std::string slug = entry.path().stem().string();
-        std::string filepath = entry.path().string();
-
-        ImTextureID texID = loadPNGAsTexture(filepath);
-        if (texID != 0) {
-            // We need to match the slug back to a planet name in catalogueData
-            // For simplicity, store by slug and also try to match exact names
-            m_catalogue->setThumbnail(slug, texID);
-
-            // Also try to find the exact planet name and set that too
-            for (const auto& planet : m_catalogueData) {
-                if (makePlanetSlug(planet.name) == slug) {
-                    m_catalogue->setThumbnail(planet.name, texID);
-                    break;
-                }
+    // Tab toggle mouse lock
+    static bool tabWasPressed = false;
+    bool tabPressed = glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS;
+    if (tabPressed && !tabWasPressed) {
+        m_mouseLocked = !m_mouseLocked;
+        if (m_mouseLocked) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            if (glfwRawMouseMotionSupported()) {
+                glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
             }
-            ++loaded;
-        }
-    }
-
-    if (loaded > 0) {
-        LOG_INFO("Loaded {} cached thumbnails from {}", loaded, cacheDir);
-    }
-}
-
-ImTextureID Application::loadPNGAsTexture(const std::string& filepath) {
-    // Load PNG via stb_image (already included via VulkanRenderer.cpp, but we
-    // need the header here too). stb_image is included without IMPLEMENTATION
-    // since VulkanRenderer.cpp already defines it.
-    int w, h, ch;
-    unsigned char* pixels = stbi_load(filepath.c_str(), &w, &h, &ch, 4);
-    if (!pixels) {
-        LOG_WARN("Failed to load thumbnail PNG: {}", filepath);
-        return 0;
-    }
-
-    auto* vkr = static_cast<VulkanRenderer*>(m_renderer.get());
-    VkDevice device       = static_cast<VkDevice>(vkr->getDevice());
-    VmaAllocator allocator = static_cast<VmaAllocator>(vkr->getAllocator());
-    VkQueue queue         = static_cast<VkQueue>(vkr->getGraphicsQueue());
-    VkCommandPool cmdPool = static_cast<VkCommandPool>(vkr->getCommandPool());
-
-    // Create VkImage for the texture
-    VkImage image;
-    VmaAllocation alloc;
-    {
-        VkImageCreateInfo imgCI{};
-        imgCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        imgCI.imageType = VK_IMAGE_TYPE_2D;
-        imgCI.format = VK_FORMAT_R8G8B8A8_UNORM;
-        imgCI.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
-        imgCI.mipLevels = 1;
-        imgCI.arrayLayers = 1;
-        imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
-        imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imgCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-        VmaAllocationCreateInfo allocCI{};
-        allocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-
-        if (vmaCreateImage(allocator, &imgCI, &allocCI, &image, &alloc, nullptr) != VK_SUCCESS) {
-            stbi_image_free(pixels);
-            return 0;
-        }
-    }
-
-    // Create staging buffer and upload pixels
-    VkBuffer stagingBuf;
-    VmaAllocation stagingAlloc;
-    VkDeviceSize imageSize = static_cast<VkDeviceSize>(w) * h * 4;
-    {
-        VkBufferCreateInfo bufCI{};
-        bufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufCI.size = imageSize;
-        bufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-        VmaAllocationCreateInfo allocCI{};
-        allocCI.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-        if (vmaCreateBuffer(allocator, &bufCI, &allocCI, &stagingBuf, &stagingAlloc, nullptr) != VK_SUCCESS) {
-            vmaDestroyImage(allocator, image, alloc);
-            stbi_image_free(pixels);
-            return 0;
-        }
-
-        void* mapped;
-        vmaMapMemory(allocator, stagingAlloc, &mapped);
-        std::memcpy(mapped, pixels, imageSize);
-        vmaUnmapMemory(allocator, stagingAlloc);
-    }
-
-    stbi_image_free(pixels);
-
-    // Upload: transition + copy + transition
-    {
-        VkCommandBuffer cmd;
-        VkCommandBufferAllocateInfo cmdAI{};
-        cmdAI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmdAI.commandPool = cmdPool;
-        cmdAI.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdAI.commandBufferCount = 1;
-        vkAllocateCommandBuffers(device, &cmdAI, &cmd);
-
-        VkCommandBufferBeginInfo beginI{};
-        beginI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmd, &beginI);
-
-        // Transition: UNDEFINED -> TRANSFER_DST
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = image;
-        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                             0, nullptr, 0, nullptr, 1, &barrier);
-
-        // Copy buffer to image
-        VkBufferImageCopy region{};
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
-        vkCmdCopyBufferToImage(cmd, stagingBuf, image,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-        // Transition: TRANSFER_DST -> SHADER_READ_ONLY
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                             0, nullptr, 0, nullptr, 1, &barrier);
-
-        vkEndCommandBuffer(cmd);
-
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &cmd;
-        vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
-        vkQueueWaitIdle(queue);
-
-        vkFreeCommandBuffers(device, cmdPool, 1, &cmd);
-    }
-
-    // Cleanup staging buffer
-    vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
-
-    // Create image view
-    VkImageView view;
-    {
-        VkImageViewCreateInfo viewCI{};
-        viewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewCI.image = image;
-        viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewCI.format = VK_FORMAT_R8G8B8A8_UNORM;
-        viewCI.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCreateImageView(device, &viewCI, nullptr, &view);
-    }
-
-    // Create sampler
-    VkSampler sampler;
-    {
-        VkSamplerCreateInfo sampCI{};
-        sampCI.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        sampCI.magFilter = VK_FILTER_LINEAR;
-        sampCI.minFilter = VK_FILTER_LINEAR;
-        sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vkCreateSampler(device, &sampCI, nullptr, &sampler);
-    }
-
-    // Register with ImGui
-    VkDescriptorSet descSet = ImGui_ImplVulkan_AddTexture(
-        sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    ImTextureID texID = reinterpret_cast<ImTextureID>(descSet);
-
-    return texID;
-}
-
-void Application::updateThumbnailGeneration(float deltaTime) {
-    if (!m_thumbnailRenderer) return;
-    if (!m_catalogueMode) return;  // Only generate when catalogue is visible
-
-    // Initialize queue once catalogue data is populated
-    if (!m_thumbnailQueueInitialized && !m_catalogueData.empty()) {
-        m_thumbnailQueueInitialized = true;
-        m_thumbnailQueue.clear();
-
-        // Queue all planets for thumbnail generation
-        for (int i = 0; i < static_cast<int>(m_catalogueData.size()); ++i) {
-            // Skip if already cached on disk
-            std::string slug = makePlanetSlug(m_catalogueData[i].name);
-            std::string cachePath = ".cache/thumbnails/" + slug + ".png";
-            if (!std::filesystem::exists(cachePath)) {
-                m_thumbnailQueue.push_back(i);
-            }
-        }
-
-        LOG_INFO("Thumbnail queue: {} planets to render", m_thumbnailQueue.size());
-    }
-
-    // Generate one thumbnail per frame (synchronous, very fast for placeholder renders)
-    if (!m_thumbnailQueue.empty()) {
-        int idx = m_thumbnailQueue.front();
-        m_thumbnailQueue.pop_front();
-
-        if (idx < 0 || idx >= static_cast<int>(m_catalogueData.size())) return;
-
-        const auto& planet = m_catalogueData[idx];
-        std::string slug = makePlanetSlug(planet.name);
-        std::string cachePath = ".cache/thumbnails/" + slug + ".png";
-
-        // Skip if already exists (may have been cached during this session)
-        if (std::filesystem::exists(cachePath)) return;
-
-        // Convert ExoplanetData to PlanetParams for rendering
-        PlanetParams params;
-        if (planet.mass_earth.hasValue() && planet.radius_earth.hasValue()) {
-            params = ExoplanetMapper::toPlanetParams(planet);
+            glfwGetCursorPos(window, &m_lastMouseX, &m_lastMouseY);
         } else {
-            // Fallback: find closest solar system analog
-            if (planet.mass_earth.hasValue() && planet.radius_earth.hasValue() &&
-                planet.equilibrium_temp_k.hasValue()) {
-                auto analog = SolarSystemDatabase::instance().findClosestAnalog(
-                    planet.mass_earth.value, planet.radius_earth.value,
-                    planet.equilibrium_temp_k.value, 0.15f);
-                if (analog && analog->entry) {
-                    params = analog->entry->visualParams;
-                } else {
-                    params = ExoplanetMapper::toPlanetParams(planet);
-                }
-            } else {
-                params = ExoplanetMapper::toPlanetParams(planet);
-            }
+            glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
-
-        // Render thumbnail
-        ImTextureID texID = m_thumbnailRenderer->renderThumbnail(params, *m_thumbnailCamera);
-
-        // Save to PNG cache
-        m_thumbnailRenderer->saveToPNG(cachePath);
-
-        // Set the thumbnail in CatalogueView
-        m_catalogue->setThumbnail(planet.name, texID);
     }
+    tabWasPressed = tabPressed;
 
-    // ── Hover animation (slow rotation of hovered planet) ────────────────
-    int hoveredIdx = m_catalogue->getHoveredCardIndex();
-    std::string hoveredName = m_catalogue->getHoveredPlanetName();
-    if (hoveredIdx >= 0 && hoveredIdx < static_cast<int>(m_catalogueData.size()) &&
-        !hoveredName.empty()) {
-        const auto& planet = m_catalogueData[hoveredIdx];
+    if (ImGui::GetIO().WantCaptureKeyboard && !m_mouseLocked) return;
 
-        // Get params for this planet
-        PlanetParams params = ExoplanetMapper::toPlanetParams(planet);
+    // Camera speed
+    static bool bracketLeftWasPressed = false;
+    bool bracketLeftPressed = glfwGetKey(window, GLFW_KEY_LEFT_BRACKET) == GLFW_PRESS;
+    if (bracketLeftPressed && !bracketLeftWasPressed) {
+        m_cameraSpeed = std::max(1.0f, m_cameraSpeed / 2.0f);
+    }
+    bracketLeftWasPressed = bracketLeftPressed;
 
-        // Apply slow rotation based on accumulated time
-        static float hoverRotation = 0.f;
-        hoverRotation += deltaTime * 0.1f;  // ~10 seconds per full rotation
-        params.rotationOffset = hoverRotation;
+    static bool bracketRightWasPressed = false;
+    bool bracketRightPressed = glfwGetKey(window, GLFW_KEY_RIGHT_BRACKET) == GLFW_PRESS;
+    if (bracketRightPressed && !bracketRightWasPressed) {
+        m_cameraSpeed = std::min(100000.0f, m_cameraSpeed * 2.0f);
+    }
+    bracketRightWasPressed = bracketRightPressed;
 
-        // Re-render thumbnail with updated rotation (synchronous, fast)
-        ImTextureID texID = m_thumbnailRenderer->renderThumbnail(params, *m_thumbnailCamera);
-
-        // Update texture in catalogue (do NOT save animated frames to disk)
-        m_catalogue->setThumbnail(planet.name, texID);
+    // WASD movement
+    float moveSpeed = m_cameraSpeed;
+    float deltaTime = 0.016f;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+        moveSpeed *= 5.0f;
+    }
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+        m_camera->moveForward(moveSpeed * deltaTime);
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+        m_camera->moveForward(-moveSpeed * deltaTime);
+    }
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+        m_camera->moveRight(-moveSpeed * deltaTime);
+    }
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+        m_camera->moveRight(moveSpeed * deltaTime);
     }
 }
 
 void Application::update(float deltaTime) {
-    static bool   dragging = false;
-    static double lastX = 0, lastY = 0;
+    m_simulation.update(deltaTime);
 
-    if (ImGui::GetIO().WantCaptureMouse) {
-        dragging = false;
-    } else if (m_window->isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT)) {
+    // FPS mouse look
+    if (m_mouseLocked) {
         double x, y;
         m_window->getCursorPos(x, y);
-        if (!dragging) {
-            dragging = true;
-            lastX = x; lastY = y;
-        } else {
-            float dx = static_cast<float>(x - lastX);
-            float dy = static_cast<float>(y - lastY);
-            m_camera->rotate(dx * 0.005f, dy * 0.005f);
-            lastX = x; lastY = y;
-        }
-    } else {
-        dragging = false;
+        float dx = static_cast<float>(x - m_lastMouseX);
+        float dy = static_cast<float>(y - m_lastMouseY);
+        m_lastMouseX = x;
+        m_lastMouseY = y;
+        m_camera->rotate(-dx * 0.003f, dy * 0.003f);
     }
 
     m_camera->update(deltaTime);
 
-    // ── Poll prefetch future for catalogue data ─────────────────────────
-    if (!m_prefetchComplete && m_prefetchFuture.valid()) {
-        if (m_prefetchFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-            auto results = m_prefetchFuture.get();
-            // Merge prefetch results with existing cached data (avoid duplicates)
-            std::set<std::string> existingNames;
-            for (const auto& d : m_catalogueData) existingNames.insert(d.name);
-            for (auto& r : results) {
-                if (existingNames.find(r.name) == existingNames.end()) {
-                    m_catalogueData.push_back(std::move(r));
-                }
-            }
-            m_prefetchComplete = true;
-            m_catalogue->setLoadingProgress(static_cast<int>(m_catalogueData.size()),
-                                             static_cast<int>(m_catalogueData.size()));
-            LOG_INFO("Catalogue: prefetch complete, {} total planets", m_catalogueData.size());
-        } else {
-            // Update loading progress estimate (based on time or counter)
-            m_catalogue->setLoadingProgress(
-                static_cast<int>(m_catalogueData.size()), 500);
-        }
-    }
-
-    // ── Back button returns to catalogue ─────────────────────────────────
-    if (!m_catalogueMode && m_ui->wasBackPressed()) {
-        m_catalogueMode = true;
-    }
-
-    // ── Progressive thumbnail generation ─────────────────────────────────
-    updateThumbnailGeneration(deltaTime);
-
-    // ── Fade transition between planets ──────────────────────────────────
-    if (m_transitioning) {
-        float speed = 3.0f; // ~0.33s per phase, ~0.67s total
-        if (m_transitionShrinking) {
-            m_transitionAlpha -= deltaTime * speed;
-            if (m_transitionAlpha <= 0.0f) {
-                m_transitionAlpha = 0.0f;
-                // Swap to new planet params at zero-size
-                m_renderer->params() = m_savedBaseParams;
-                m_transitionShrinking = false;
-            }
-        } else {
-            m_transitionAlpha += deltaTime * speed;
-            if (m_transitionAlpha >= 1.0f) {
-                m_transitionAlpha = 1.0f;
-                m_transitioning = false;
-                // Ensure final params are exact target (no floating point drift)
-                m_renderer->params() = m_savedBaseParams;
-            }
-        }
-        // Apply fade multiplier to visual parameters (always from saved base)
-        auto& rp = m_renderer->params();
-        rp.radius = m_savedBaseParams.radius * m_transitionAlpha;
-        rp.atmosphereDensity = m_savedBaseParams.atmosphereDensity * m_transitionAlpha;
-        rp.cloudsDensity = m_savedBaseParams.cloudsDensity * m_transitionAlpha;
-    }
-
-    // Poll pipeline stage and update status text while loading
+    // Check async planet load
     if (m_planetLoading && m_planetFuture.valid()) {
         if (m_planetFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-            // Pipeline complete — extract results
-            auto [params, status, exoData] = m_planetFuture.get();
-            if (params.has_value()) {
-                // Start fade transition instead of direct assignment
-                m_targetParams = *params;
-                m_savedBaseParams = *params;
-                m_transitioning = true;
-                m_transitionShrinking = true;
-                m_transitionAlpha = 1.0f;
+            auto result = m_planetFuture.get();
+            if (result.params.has_value()) {
+                m_renderer->params() = *result.params;
             }
-            // Store ExoplanetData for info panel
-            if (exoData.has_value()) {
-                m_loadedExoData = std::move(*exoData);
-                m_ui->setExoplanetData(&(*m_loadedExoData));
-                // Add the loaded planet name to known names and refresh autocomplete
-                m_knownNames.insert(m_loadedExoData->name);
-                std::vector<std::string> sortedNames(m_knownNames.begin(), m_knownNames.end());
-                std::sort(sortedNames.begin(), sortedNames.end());
-                m_ui->setCachedNames(sortedNames);
-            }
-            m_currentStatus = status;
+            m_currentStatus = result.status;
             m_ui->setExoplanetStatus(m_currentStatus);
-            m_ui->setLoading(false);
+            if (result.hasExoData) {
+                m_ui->setCurrentExoplanetData(result.exoData);
+            }
             m_planetLoading = false;
-            m_pipelineStage.store(static_cast<int>(PipelineStage::Idle));
             LOG_INFO("Planet loaded: {}", m_currentStatus);
-        } else {
-            // Still loading — update status text from pipeline stage
-            int stage = m_pipelineStage.load();
-            if (stage >= 0 && stage < static_cast<int>(sizeof(kStageMessages) / sizeof(kStageMessages[0]))) {
-                m_ui->setExoplanetStatus(kStageMessages[stage]);
-            }
-        }
-    }
-
-    // Append validation accuracy score once background validation completes
-    if (m_validationRunning && m_validationFuture.valid()) {
-        if (m_validationFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-            auto scoreStr = m_validationFuture.get();
-            m_currentStatus += "  |  " + scoreStr;
-            m_ui->setExoplanetStatus(m_currentStatus);
-            m_validationRunning = false;
-            LOG_INFO("Validation complete: {}", m_currentStatus);
         }
     }
 }
 
-void Application::render() {
+void Application::render(float dt) {
     m_renderer->beginFrame();
     m_renderer->render(*m_camera);
 
     m_ui->beginFrame();
 
-    if (m_catalogueMode) {
-        // Render catalogue UI (full-screen card grid)
-        float W = static_cast<float>(m_window->getWidth());
-        float H = static_cast<float>(m_window->getHeight());
-        float dt = static_cast<float>(m_window->getTime() - m_lastFrameTime);
-        m_catalogue->render(m_catalogueData, W, H, dt);
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Border overlay during transition
+    if (m_borderFadeTimer >= 0.f) {
+        m_borderFadeTimer += dt;
+        m_galaxy->update(dt, io.DisplaySize.x, io.DisplaySize.y);
+
+        ImGui::SetNextWindowPos({0.f, 0.f});
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::SetNextWindowBgAlpha(0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
+        if (ImGui::Begin("##border_overlay", nullptr,
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoMouseInputs |
+                ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+            ImGui::PopStyleVar();
+            m_galaxy->renderBackground(ImGui::GetWindowDrawList(),
+                                       io.DisplaySize.x, io.DisplaySize.y);
+        } else {
+            ImGui::PopStyleVar();
+        }
+        ImGui::End();
+
+        if (m_borderFadeTimer > 0.50f && !m_borderReleased) {
+            m_galaxy->releaseBorder();
+            m_borderReleased = true;
+        }
+        if (m_borderFadeTimer > 0.85f) {
+            m_galaxy->reset();
+            m_borderFadeTimer = -1.f;
+            m_borderReleased = false;
+        }
+    }
+
+    // Planet detail UI with fade-in
+    if (m_planetDetailFadeIn < 1.f)
+        m_planetDetailFadeIn = std::min(m_planetDetailFadeIn + dt / 0.5f, 1.f);
+
+    if (m_planetDetailFadeIn < 1.f) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, m_planetDetailFadeIn);
+        m_ui->render(m_renderer->params());
+        ImGui::PopStyleVar();
     } else {
-        // Render planet detail UI (existing editor panel)
         m_ui->render(m_renderer->params());
     }
 
-    // Theme toggle always visible
     m_ui->renderThemeToggle();
 
-    m_ui->endFrame(static_cast<VulkanRenderer*>(m_renderer.get()));
+    // Simulation controls (controls planet rotation animation)
+    auto simResult = m_ui->renderSimulationControls(
+        m_renderer->isPaused(),
+        static_cast<double>(m_renderer->timeScale()),
+        false,
+        "");
 
+    if (simResult.pauseToggled) {
+        m_renderer->setPaused(!m_renderer->isPaused());
+    }
+    if (simResult.timeScaleChanged) {
+        m_renderer->setTimeScale(static_cast<float>(simResult.newTimeScale));
+    }
+
+    m_ui->endFrame(m_renderer.get());
     m_renderer->endFrame();
+
+    // Back button returns to galaxy
+    if (m_ui->wasBackPressed()) {
+        m_savedParams = m_renderer->params();
+        m_renderer->params().radius = 0.001f;
+        m_renderer->params().atmosphereDensity = 0.0f;
+        m_renderer->params().cloudsDensity = 0.0f;
+        m_galaxy->reset();
+        m_borderFadeTimer = -1.f;
+        m_borderReleased = false;
+        m_planetDetailFadeIn = 1.f;
+        m_screen = AppScreen::Galaxy;
+        LOG_INFO("Back to Galaxy screen");
+    }
 }
 
 void Application::shutdown() {
-    m_thumbnailRenderer.reset();
-    m_thumbnailCamera.reset();
-    m_catalogue.reset();
+    if (m_blankCursor) {
+        glfwDestroyCursor(m_blankCursor);
+        m_blankCursor = nullptr;
+    }
+    m_galaxy.reset();
     m_ui.reset();
     m_renderer.reset();
     m_camera.reset();
     m_window.reset();
+}
+
+void Application::loadExoplanetIntoSimulation(const ExoplanetData& exo) {
+    LOG_INFO("Loading exoplanet {} into simulation", exo.name);
+
+    PlanetParams params = ExoplanetConverter::toPlanetParams(exo, m_inferenceEngine.get());
+
+    SystemConfig config;
+    config.name = exo.name + " System";
+    config.description = "Exoplanet from NASA Archive";
+    config.source = "nasa_tap";
+    config.visualScale = 1.0;
+
+    float visualPlanetRadius = params.radius;
+    float visualStarRadius = visualPlanetRadius * 8.0f;
+    float starDistance = visualPlanetRadius * 40.0f;
+
+    BodyConfig star;
+    star.name = exo.host_star.name.empty() ? "Host Star" : exo.host_star.name;
+    star.type = "Star";
+    star.mass = constants::SOLAR_MASS;
+    star.radius = visualStarRadius;
+    star.position = {starDistance, starDistance * 0.3, -starDistance * 0.2};
+    star.velocity = {0.0, 0.0, 0.0};
+    star.rotationPeriod = 25.0 * constants::DAY;
+    config.bodies.push_back(star);
+
+    BodyConfig planet;
+    planet.name = exo.name;
+    planet.type = "Planet";
+    planet.mass = exo.mass_earth.hasValue() ?
+        exo.mass_earth.value * constants::EARTH_MASS : constants::EARTH_MASS;
+    planet.radius = visualPlanetRadius;
+    planet.position = {0.0, 0.0, 0.0};
+    planet.velocity = {0.0, 0.0, 0.0};
+    planet.rotationPeriod = constants::DAY;
+    config.bodies.push_back(planet);
+
+    m_simulation.loadFromConfig(config);
+
+    for (const auto& body : m_simulation.world().bodies()) {
+        if (body->type() == BodyType::Planet) {
+            m_simulation.setBodyAppearance(body->id(), params);
+            m_simulation.setSelectedBody(body->id());
+            m_simulation.setFocusBody(body->id());
+            m_renderer->params() = params;
+            break;
+        }
+    }
+
+    m_simulation.pause();
 }
 
 }  // namespace astrocore

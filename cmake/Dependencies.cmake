@@ -1,4 +1,4 @@
-# Dependencies.cmake — FetchContent declarations (Vulkan unified backend)
+# Dependencies.cmake — FetchContent declarations (Vulkan backend)
 
 include(FetchContent)
 
@@ -11,13 +11,12 @@ FetchContent_Declare(
 )
 
 # ── nlohmann/json ─────────────────────────────────────────────────────────────
-if(NOT TARGET nlohmann_json::nlohmann_json)
-    add_library(nlohmann_json INTERFACE)
-    add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
-    target_include_directories(nlohmann_json INTERFACE
-        "${CMAKE_SOURCE_DIR}/third_party"
-    )
-endif()
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
 
 # ── spdlog ────────────────────────────────────────────────────────────────────
 FetchContent_Declare(
@@ -28,6 +27,7 @@ FetchContent_Declare(
 )
 
 # ── GLFW ──────────────────────────────────────────────────────────────────────
+# Prefer Homebrew-installed GLFW on macOS to skip source compilation.
 if(APPLE)
     find_package(glfw3 3.3 QUIET CONFIG
         HINTS /opt/homebrew/lib/cmake/glfw3
@@ -38,7 +38,7 @@ if(NOT glfw3_FOUND)
     FetchContent_Declare(
         glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
-        GIT_TAG        3.3.9
+        GIT_TAG        3.4
         GIT_SHALLOW    TRUE
     )
     set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
@@ -67,7 +67,7 @@ FetchContent_Declare(
 )
 list(APPEND _FETCH_TARGETS VulkanMemoryAllocator)
 
-FetchContent_MakeAvailable(glm spdlog ${_FETCH_TARGETS})
+FetchContent_MakeAvailable(glm nlohmann_json spdlog ${_FETCH_TARGETS})
 
 # Normalize GLFW target name
 if(glfw3_FOUND AND NOT TARGET glfw)
@@ -101,19 +101,27 @@ target_include_directories(imgui_impl
 )
 target_link_libraries(imgui_impl PUBLIC glfw Vulkan::Vulkan)
 
-# ── pugixml — XML parsing for OEC ────────────────────────────────────────────
+# ── ImPlot ────────────────────────────────────────────────────────────────────
+FetchContent_Declare(
+    implot
+    GIT_REPOSITORY https://github.com/epezent/implot.git
+    GIT_TAG        v0.16
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(implot)
+
+add_library(implot_impl STATIC
+    ${implot_SOURCE_DIR}/implot.cpp
+    ${implot_SOURCE_DIR}/implot_items.cpp
+)
+target_include_directories(implot_impl PUBLIC ${implot_SOURCE_DIR})
+target_link_libraries(implot_impl PUBLIC imgui_impl)
+
+# ── pugixml (XML parsing for OEC) ──────────────────────────────────────────
 FetchContent_Declare(
     pugixml
     GIT_REPOSITORY https://github.com/zeux/pugixml.git
     GIT_TAG        v1.14
     GIT_SHALLOW    TRUE
 )
-
-# ── Catch2 — Unit testing framework ─────────────────────────────────────────
-FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG        v3.5.2
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(pugixml Catch2)
+FetchContent_MakeAvailable(pugixml)

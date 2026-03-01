@@ -1,37 +1,24 @@
 #pragma once
 
 #include "core/Window.hpp"
-#include "render/IRenderer.hpp"
 #include "ui/UIManager.hpp"
-#include "data/DataFusionEngine.hpp"
-#include "data/CacheManager.hpp"
+#include "ui/GalaxyView.hpp"
+#include "simulation/Simulation.hpp"
+#include "config/PresetManager.hpp"
+#include "data/ExoplanetDataAggregator.hpp"
+#include "data/ExoplanetData.hpp"
 #include "ai/InferenceEngine.hpp"
-#include "render/ExoplanetMapper.hpp"
-#include "ui/CatalogueView.hpp"
+#include <GLFW/glfw3.h>
 #include <memory>
 #include <future>
-#include <string>
 #include <optional>
-#include <atomic>
-#include <set>
-#include <vector>
-#include <deque>
-#include <unordered_map>
 
 namespace astrocore {
 
+class VulkanRenderer;
 class Camera;
-class ThumbnailRenderer;
 
-// Pipeline stage for thread-safe status communication
-enum class PipelineStage : int {
-    Idle = 0,
-    QueryingSources,    // Multi-source: NASA + OEC + Gaia + CDS + AI data fill
-    InferringVisuals,   // AI render parameter inference
-    MappingParams,      // Physics + AI → final PlanetParams
-    Done,
-    Failed
-};
+enum class AppScreen { Intro, Galaxy, PlanetDetail, SolarSystem };
 
 class Application {
 public:
@@ -46,79 +33,66 @@ public:
 private:
     void init();
     void runIntro();
+    void renderGalaxy(float dt);
+    void renderSolarSystem(float dt);
+    void handleSolarSystemInput();
     void update(float deltaTime);
-    void render();
+    void render(float dt);
     void shutdown();
-
-    // Async planet load: returns (newParams, statusMessage, exoData)
+    void handleInput();
+    void loadExoplanetIntoSimulation(const ExoplanetData& exo);
     void loadPlanet(const std::string& name);
 
-    // Called when a catalogue card is clicked
-    void onCataloguePlanetClicked(const std::string& name);
+    std::unique_ptr<Window> m_window;
+    std::unique_ptr<VulkanRenderer> m_renderer;
+    std::unique_ptr<Camera> m_camera;
+    std::unique_ptr<UIManager> m_ui;
+    std::unique_ptr<GalaxyView> m_galaxy;
+    Simulation m_simulation;
+    PresetManager m_presetManager;
 
-    // Build the known planet name list from SolarSystemDatabase + cache
-    void buildPlanetNameList();
+    // Exoplanet data aggregator (NASA + ExoMAST + more)
+    std::unique_ptr<ExoplanetDataAggregator> m_dataAggregator;
+    std::vector<ExoplanetData> m_exoSearchResults;
+    std::future<std::vector<ExoplanetData>> m_exoSearchFuture;
+    bool m_exoSearching = false;
+    std::vector<AtmosphericDetection> m_currentAtmosphericDetections;
 
-    // Thumbnail management
-    void initThumbnailRenderer();
-    void loadThumbnailsFromCache();
-    ImTextureID loadPNGAsTexture(const std::string& filepath);
-    void updateThumbnailGeneration(float deltaTime);
-    static std::string makePlanetSlug(const std::string& name);
+    // AI inference
+    std::unique_ptr<InferenceEngine> m_inferenceEngine;
+    std::future<ExoplanetData> m_inferenceFuture;
+    bool m_inferring = false;
+    ExoplanetData m_pendingExoplanet;
 
-    std::unique_ptr<Window>          m_window;
-    std::unique_ptr<IRenderer>       m_renderer;
-    std::unique_ptr<Camera>          m_camera;
-    std::unique_ptr<UIManager>       m_ui;
-
-    // ML pipeline
-    std::unique_ptr<DataFusionEngine> m_dataFusion;
-    std::unique_ptr<InferenceEngine>  m_inference;   // for render param inference
-    std::unique_ptr<CacheManager>     m_cacheManager;
-
-    using LoadResult = std::tuple<std::optional<PlanetParams>, std::string, std::optional<ExoplanetData>>;
+    // Async planet load
+    struct LoadResult {
+        std::optional<PlanetParams> params;
+        std::string status;
+        ExoplanetData exoData;
+        bool hasExoData = false;
+    };
     std::future<LoadResult> m_planetFuture;
     bool m_planetLoading = false;
+    std::string m_currentStatus;
 
-    // Pipeline stage (thread-safe communication from async lambda to main thread)
-    std::atomic<int> m_pipelineStage{0};
-
-    // Stored exoplanet data after successful load (for info panel in Plan 02)
-    std::optional<ExoplanetData> m_loadedExoData;
-
-    // Known planet names for autocomplete (grows as user searches)
-    std::set<std::string> m_knownNames;
-
-    // Background validation for known solar-system planets
-    std::future<std::string> m_validationFuture;
-    bool m_validationRunning = false;
-    std::string m_currentStatus;  // tracks displayed status for later appending
-
-    // ── Catalogue state ─────────────────────────────────────────────────
-    std::unique_ptr<CatalogueView> m_catalogue;
-    std::vector<ExoplanetData> m_catalogueData;
-    std::future<std::vector<ExoplanetData>> m_prefetchFuture;
-    std::shared_ptr<std::atomic<int>> m_prefetchProgress;
-    bool m_catalogueMode = true;   // true = show catalogue, false = planet detail
-    bool m_prefetchComplete = false;
-
-    // ── Thumbnail state ─────────────────────────────────────────────────
-    std::unique_ptr<ThumbnailRenderer> m_thumbnailRenderer;
-    std::deque<int> m_thumbnailQueue;            // indices into m_catalogueData
-    bool m_thumbnailQueueInitialized = false;
-    int m_currentThumbnailIdx = -1;
-    bool m_renderingThumbnail = false;
-    std::unique_ptr<Camera> m_thumbnailCamera;
-
-    // Fade transition state
-    PlanetParams m_targetParams{};
-    PlanetParams m_savedBaseParams{};
-    bool m_transitioning = false;
-    float m_transitionAlpha = 1.0f;
-    bool m_transitionShrinking = true;
-
-    bool   m_running       = true;
+    // Screen state
+    AppScreen m_screen = AppScreen::Intro;
+    bool m_running = true;
     double m_lastFrameTime = 0.0;
+    float m_galaxyFadeTimer = 0.f;
+
+    // Galaxy -> PlanetDetail transition
+    float m_borderFadeTimer = -1.f;
+    bool m_borderReleased = false;
+    float m_planetDetailFadeIn = 1.f;
+    PlanetParams m_savedParams{};
+
+    // Input state
+    bool m_mouseLocked = false;
+    double m_lastMouseX = 0.0;
+    double m_lastMouseY = 0.0;
+    GLFWcursor* m_blankCursor = nullptr;
+    float m_cameraSpeed = 100.0f;
 };
 
 }  // namespace astrocore

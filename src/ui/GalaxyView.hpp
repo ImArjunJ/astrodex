@@ -3,48 +3,62 @@
 #include <imgui.h>
 #include <vector>
 #include <string>
+#include <memory>
 #include <functional>
 
 namespace astrocore {
 
 struct PlanetParams;
 
-// ── GalaxyView ────────────────────────────────────────────────────────────────
-// Renders the galaxy navigation screen (Screen 2).
-// Background: random star field + named planet dots drawn on an ImGui draw list.
-// Overlay:    left search/preset sidebar and a floating fact-file card connected
-//             to the selected planet by glowing constellation lines.
-// On Expand:  triggers an outward explosion of all dots (reuses intro mechanic),
-//             then signals the application to transition to the planet detail screen.
+// GalaxyView - Galaxy navigation screen with cached exoplanet browser
 class GalaxyView {
 public:
     GalaxyView();
+    ~GalaxyView();
 
     void init(float W, float H);
-    void reset();   // Call when re-entering from planet detail view
+    void reset();
 
     void update(float dt, float W, float H);
-
-    // Draw star field + planet dots (call before ImGui::NewFrame windows)
     void renderBackground(ImDrawList* dl, float W, float H);
-
-    // Draw ImGui sidebar and fact card; returns true when Expand is pressed
     bool renderUI(float W, float H);
-
-    void releaseBorder();  // Start border fade-out (call once planet UI is visible)
+    void releaseBorder();
 
     bool isInitialized()   const { return m_initialized; }
-    // True once the star explosion is done AND the border has fully assembled.
-    // (Border holds until releaseBorder() is called — does NOT require m_transDone.)
     bool isExplosionDone() const { return m_explosionDone && m_borderAssembled; }
     const std::string& selectedName()   const { return m_selectedName; }
-    int                selectedPreset() const { return m_selectedPreset; }  // -1 = not a preset
+    int                selectedPreset() const { return m_selectedPreset; }
+
+    // Returns true once if Solar System button was clicked, then resets
+    bool wasSolarSystemRequested() {
+        bool v = m_solarSystemRequested;
+        m_solarSystemRequested = false;
+        return v;
+    }
 
     void setExoplanetCallback(std::function<void(const std::string&)> cb);
+    void setFetchMetadataCallback(std::function<void(const std::string&)> cb);
     void setExoplanetStatus(const std::string& status);
+    void setFetchingMetadata(bool fetching) { m_fetchingMetadata = fetching; }
+
+    // Update a planet's metadata (call after fetching from NASA)
+    void updatePlanetMetadata(const std::string& name, const std::string& hostStar,
+                              float distanceLY, float radiusEarth, float massEarth,
+                              float tempK, const std::string& gaiaDr3Id = "");
+
+    // Check if selected planet needs metadata fetch
+    bool selectedNeedsMetadata() const;
+
+    // Load all cached planets - call after init
+    void loadCachedPlanets();
+
+    // Add a planet entry
+    void addExoplanet(const std::string& name, const std::string& type,
+                      float distanceLY, const std::string& hostStar = "",
+                      float radiusEarth = 0.f, float massEarth = 0.f,
+                      float tempK = 0.f);
 
 private:
-    // ── Data types ────────────────────────────────────────────────────────────
     struct Star {
         float x, y;
         float size;
@@ -56,11 +70,17 @@ private:
     struct GalaxyPlanet {
         std::string name;
         std::string typeStr;
+        std::string hostStar;
+        std::string gaiaDr3Id;    // Gaia DR3 source ID for cross-matching
         float       x, y;
         float       size;
         float       r, g, b;
-        int         presetIdx;    // >=0 = apply preset; -1 = query via callback
+        int         presetIdx;    // >=0 = preset; -1 = exoplanet
         float       distanceLY;
+        float       radiusEarth;  // 0 = unknown
+        float       massEarth;    // 0 = unknown
+        float       tempK;        // 0 = unknown
+        bool        isCached;     // true if we have cached render params
     };
 
     struct ExplosionPart {
@@ -71,72 +91,91 @@ private:
         float r, g, b;
     };
 
-    // Particles that spring from the constellation line to the panel border
     struct TransPart {
-        float x, y;       // current pos
-        float tx, ty;     // border target
+        float x, y;
+        float tx, ty;
         float alpha;
         float size;
         float r, g, b;
     };
 
-    // ── Private methods ───────────────────────────────────────────────────────
     void generateStars(float W, float H);
-    void generatePlanets(float W, float H);
+    void generatePresetPlanets(float W, float H);
+    void assignPlanetPositions(float W, float H);
     void triggerExplosion();
-    void triggerTransition(float W, float H);   // border-assemble animation
+    void triggerTransition(float W, float H);
     void updateTransition(float dt);
     void drawTransitionParticles(ImDrawList* dl);
     void drawGlowLine(ImDrawList* dl, ImVec2 a, ImVec2 b, float alpha) const;
     void updateSearch();
     void pickHighlightStar(const std::string& planetName);
+    ImU32 getPlanetColor(const GalaxyPlanet& p, float alpha = 1.0f) const;
 
     float galaxyCX(float W) const;
     float galaxyCY(float H) const;
 
-    // ── State ─────────────────────────────────────────────────────────────────
     std::vector<Star>         m_stars;
     std::vector<GalaxyPlanet> m_planets;
+    std::vector<int>          m_filteredIndices;  // indices into m_planets matching filter
 
     int m_selectedIdx = 0;
     int m_hoveredIdx  = -1;
+    int m_listScrollIdx = 0;
 
-    // Search / filter
-    char             m_searchBuf[256] = {};
+    char m_searchBuf[256] = {};
     std::vector<int> m_searchMatches;
 
-    // Star-scatter explosion
     std::vector<ExplosionPart> m_expParts;
     bool  m_exploding      = false;
     float m_explosionTimer = 0.f;
     bool  m_explosionDone  = false;
 
-    // Border-assemble transition (plays simultaneously with explosion)
     std::vector<TransPart> m_transParts;
     bool  m_transitioning    = false;
     float m_transTimer       = 0.f;
     bool  m_transDone        = false;
-    bool  m_borderAssembled  = false;  // true once particles have locked onto border
-    bool  m_borderFading     = false;  // true after releaseBorder() is called
-    float m_borderFadeStart  = 0.f;   // m_transTimer value when fade began
+    bool  m_borderAssembled  = false;
+    bool  m_borderFading     = false;
+    float m_borderFadeStart  = 0.f;
 
     float m_time        = 0.f;
     bool  m_initialized = false;
 
-    // Logical screen dimensions (set at init, used for star highlight picking)
     float m_lastW = 0.f, m_lastH = 0.f;
 
-    // Index into m_stars of the star highlighted for an exoplanet search result
-    // (-1 = none)
     int m_highlightedStarIdx = -1;
 
-    // Results exposed to Application
     std::string m_selectedName;
     int         m_selectedPreset = -1;
 
-    // Exoplanet search
     std::function<void(const std::string&)> m_exoCallback;
-    std::string m_exoStatus = "Search for an exoplanet...";
+    std::function<void(const std::string&)> m_fetchMetadataCallback;
+    std::string m_exoStatus = "Select a planet to view...";
+    bool m_fetchingMetadata = false;
+    bool m_solarSystemRequested = false;
+
+    // Catalog panel state
+    // PlanetThumbnailRenderer disabled — GL-dependent, not yet ported to Vulkan
+    // std::unique_ptr<PlanetThumbnailRenderer> m_thumbnailRenderer;
+    void* m_thumbnailRenderer = nullptr;  // stub placeholder
+    bool m_catalogOpen = false;
+    float m_catalogSlideAnim = 0.0f;  // 0 = closed, 1 = fully open
+    float m_catalogScrollY = 0.0f;
+    int m_catalogTileSize = 100;
+    float m_catalogPanelWidth = 450.f;  // User-resizable width
+
+    // Catalog filter settings
+    float m_filterHueMin = 0.0f;
+    float m_filterHueMax = 1.0f;
+    float m_filterBrightnessMin = 0.0f;
+    float m_filterBrightnessMax = 1.0f;
+    bool m_filterHasAtmosphere = false;
+    bool m_filterAtmosphereEnabled = false;
+    std::string m_catalogTypeFilter;  // Empty = all types
+
+    void renderCatalogPanel(float W, float H);
+    void renderCatalogTile(int planetIdx, float x, float y, float size);
+    bool planetPassesFilter(int planetIdx) const;
 };
 
 }  // namespace astrocore

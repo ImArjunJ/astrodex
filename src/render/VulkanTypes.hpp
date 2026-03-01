@@ -45,9 +45,12 @@ struct alignas(16) PlanetUniformsVk {
     float bhDiskSpeed, bhDiskTurbulence, bhDiskBrightness, bhTempInner; // bhParams2
     float bhTempOuter, bhDopplerStrength, bhRaySteps, _pad15;          // bhParams3
     float bhDiskTintR, bhDiskTintG, bhDiskTintB, _pad16;              // bhDiskTint
+
+    // Extra params for blackhole branch features
+    float noiseType, continentBlend, isEmissive, _pad17;             // extraParams
 };
 
-static_assert(sizeof(PlanetUniformsVk) == 528,
-    "PlanetUniformsVk size must match shader std140 layout (528 bytes)");
+static_assert(sizeof(PlanetUniformsVk) == 544,
+    "PlanetUniformsVk size must match shader std140 layout (544 bytes)");
 
 } // namespace astrocore
