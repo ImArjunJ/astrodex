@@ -57,6 +57,12 @@ Plans:
 
 **Requirements:** R3.1, R3.2, R3.3
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Search autocomplete with prefix-matching dropdown + pipeline stage status updates + ExoplanetData storage (R3.1)
+- [ ] 03-02-PLAN.md — Planet info panel with data provenance color-coding + hover tooltips + fade transition (R3.2, R3.3)
+
 **Success Criteria:**
 - [ ] ImGui search box with autocomplete from cached planet names
 - [ ] Full pipeline: search → fetch → fuse → infer → convert → render (end-to-end)
