@@ -11,17 +11,18 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(CompilerOptions)
 include(Dependencies)
 
-find_package(Vulkan REQUIRED)
-find_package(CURL REQUIRED)
-include(ShaderCompilation)
+if(NOT EMSCRIPTEN)
+    find_package(Vulkan REQUIRED)
+    find_package(CURL REQUIRED)
+    include(ShaderCompilation)
+endif()
 
-# Core sources
+# Core sources (shared between all backends)
 set(ASTROCORE_SOURCES
     src/core/Window.cpp
     src/core/Application.cpp
     src/core/Logger.cpp
     src/render/RendererBase.cpp
-    src/render/VulkanRenderer.cpp
     src/render/Camera.cpp
     # GL-dependent renderers temporarily removed (will be ported to Vulkan later)
     # src/render/SphereRenderer.cpp
@@ -67,6 +68,13 @@ set(ASTROCORE_SOURCES
     src/ai/GroqClient.cpp
 )
 
+# Backend-specific renderer source
+if(EMSCRIPTEN)
+    list(APPEND ASTROCORE_SOURCES src/render/WebGPURenderer.cpp)
+else()
+    list(APPEND ASTROCORE_SOURCES src/render/VulkanRenderer.cpp)
+endif()
+
 add_library(astrocore_lib STATIC ${ASTROCORE_SOURCES})
 
 target_include_directories(astrocore_lib
@@ -74,65 +82,89 @@ target_include_directories(astrocore_lib
         ${CMAKE_SOURCE_DIR}/src
 )
 
+# Shared dependencies (available on all platforms)
 target_link_libraries(astrocore_lib
     PUBLIC
-        glfw
-        Vulkan::Vulkan
         glm::glm
         spdlog::spdlog
         imgui_impl
         implot_impl
         nlohmann_json::nlohmann_json
-        CURL::libcurl
-        vk-bootstrap::vk-bootstrap
-        GPUOpen::VulkanMemoryAllocator
         pugixml
 )
+
+if(NOT EMSCRIPTEN)
+    target_link_libraries(astrocore_lib
+        PUBLIC
+            glfw
+            Vulkan::Vulkan
+            CURL::libcurl
+            vk-bootstrap::vk-bootstrap
+            GPUOpen::VulkanMemoryAllocator
+    )
+endif()
 
 add_executable(astrodex src/main.cpp)
 target_link_libraries(astrodex PRIVATE astrocore_lib)
 
-# On macOS with Homebrew Vulkan/MoltenVK, ensure loader finds the ICD and dylib
-if(APPLE)
-    set_target_properties(astrodex PROPERTIES
-        BUILD_RPATH "/opt/homebrew/lib;/usr/local/lib"
+if(EMSCRIPTEN)
+    # Emscripten build flags
+    target_link_options(astrodex PRIVATE
+        -sUSE_WEBGPU=1
+        -sUSE_GLFW=3
+        -sALLOW_MEMORY_GROWTH=1
+        -sASYNCIFY
+        --preload-file ${CMAKE_SOURCE_DIR}/assets@/assets
+        --preload-file ${CMAKE_SOURCE_DIR}/shaders@/shaders
+        --preload-file ${CMAKE_SOURCE_DIR}/configs@/configs
+        --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html
     )
-    # Detect MoltenVK ICD
-    set(_ICD_PATHS
-        "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
-        "/usr/local/etc/vulkan/icd.d/MoltenVK_icd.json")
-    foreach(_ICD ${_ICD_PATHS})
-        if(EXISTS ${_ICD})
-            set(MOLTENVK_ICD ${_ICD})
-            break()
+    target_compile_options(astrodex PRIVATE -sUSE_WEBGPU=1 -sUSE_GLFW=3)
+else()
+    # On macOS with Homebrew Vulkan/MoltenVK, ensure loader finds the ICD and dylib
+    if(APPLE)
+        set_target_properties(astrodex PROPERTIES
+            BUILD_RPATH "/opt/homebrew/lib;/usr/local/lib"
+        )
+        # Detect MoltenVK ICD
+        set(_ICD_PATHS
+            "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+            "/usr/local/etc/vulkan/icd.d/MoltenVK_icd.json")
+        foreach(_ICD ${_ICD_PATHS})
+            if(EXISTS ${_ICD})
+                set(MOLTENVK_ICD ${_ICD})
+                break()
+            endif()
+        endforeach()
+        if(MOLTENVK_ICD)
+            message(STATUS "MoltenVK ICD found: ${MOLTENVK_ICD}")
         endif()
-    endforeach()
-    if(MOLTENVK_ICD)
-        message(STATUS "MoltenVK ICD found: ${MOLTENVK_ICD}")
     endif()
+
+    # Compile shaders to SPIR-V
+    compile_shaders(astrodex
+        ${CMAKE_SOURCE_DIR}/shaders/planet_vk.vert
+        ${CMAKE_SOURCE_DIR}/shaders/planet_vk.frag
+    )
+
+    # Copy assets and configs
+    add_custom_command(TARGET astrodex POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrodex>/assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/configs $<TARGET_FILE_DIR:astrodex>/configs
+    )
 endif()
 
-# Compile shaders to SPIR-V
-compile_shaders(astrodex
-    ${CMAKE_SOURCE_DIR}/shaders/planet_vk.vert
-    ${CMAKE_SOURCE_DIR}/shaders/planet_vk.frag
-)
-
-# Copy assets and configs
-add_custom_command(TARGET astrodex POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:astrodex>/assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/configs $<TARGET_FILE_DIR:astrodex>/configs
-)
-
 # ── Tests ─────────────────────────────────────────────────────────────────────
-include(FetchContent)
-FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG        v3.5.2
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(Catch2)
-add_subdirectory(tests)
+if(NOT EMSCRIPTEN)
+    include(FetchContent)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.5.2
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+    add_subdirectory(tests)
+endif()

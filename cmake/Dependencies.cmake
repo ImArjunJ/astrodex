@@ -1,4 +1,4 @@
-# Dependencies.cmake — FetchContent declarations (Vulkan backend)
+# Dependencies.cmake — FetchContent declarations (Vulkan / WebGPU backends)
 
 include(FetchContent)
 
@@ -27,8 +27,9 @@ FetchContent_Declare(
 )
 
 # ── GLFW ──────────────────────────────────────────────────────────────────────
-# Prefer Homebrew-installed GLFW on macOS to skip source compilation.
-if(APPLE)
+# For Emscripten, GLFW is provided via -sUSE_GLFW=3.
+# We still fetch the source for header availability.
+if(NOT EMSCRIPTEN AND APPLE)
     find_package(glfw3 3.3 QUIET CONFIG
         HINTS /opt/homebrew/lib/cmake/glfw3
               /usr/local/lib/cmake/glfw3)
@@ -48,24 +49,27 @@ if(NOT glfw3_FOUND)
     list(APPEND _FETCH_TARGETS glfw)
 endif()
 
-# ── vk-bootstrap ──────────────────────────────────────────────────────────────
-FetchContent_Declare(
-    vk_bootstrap
-    GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap.git
-    GIT_TAG        v1.3.290
-    GIT_SHALLOW    TRUE
-)
-list(APPEND _FETCH_TARGETS vk_bootstrap)
+# ── Vulkan-only dependencies ──────────────────────────────────────────────────
+if(NOT EMSCRIPTEN)
+    # vk-bootstrap
+    FetchContent_Declare(
+        vk_bootstrap
+        GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap.git
+        GIT_TAG        v1.3.290
+        GIT_SHALLOW    TRUE
+    )
+    list(APPEND _FETCH_TARGETS vk_bootstrap)
 
-# ── VulkanMemoryAllocator ─────────────────────────────────────────────────────
-set(VMA_VULKAN_VERSION 1002000)    # Vulkan 1.2
-FetchContent_Declare(
-    VulkanMemoryAllocator
-    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-    GIT_TAG        v3.1.0
-    GIT_SHALLOW    TRUE
-)
-list(APPEND _FETCH_TARGETS VulkanMemoryAllocator)
+    # VulkanMemoryAllocator
+    set(VMA_VULKAN_VERSION 1002000)    # Vulkan 1.2
+    FetchContent_Declare(
+        VulkanMemoryAllocator
+        GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+        GIT_TAG        v3.1.0
+        GIT_SHALLOW    TRUE
+    )
+    list(APPEND _FETCH_TARGETS VulkanMemoryAllocator)
+endif()
 
 FetchContent_MakeAvailable(glm nlohmann_json spdlog ${_FETCH_TARGETS})
 
@@ -74,7 +78,7 @@ if(glfw3_FOUND AND NOT TARGET glfw)
     add_library(glfw ALIAS glfw3::glfw)
 endif()
 
-# ── Dear ImGui (Vulkan backend) ──────────────────────────────────────────────
+# ── Dear ImGui ────────────────────────────────────────────────────────────────
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -83,6 +87,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
+# ImGui backends are conditional on the rendering API
 set(IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
@@ -90,8 +95,13 @@ set(IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
+
+if(EMSCRIPTEN)
+    list(APPEND IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_wgpu.cpp)
+else()
+    list(APPEND IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
+endif()
 
 add_library(imgui_impl STATIC ${IMGUI_SOURCES})
 target_include_directories(imgui_impl
@@ -99,7 +109,14 @@ target_include_directories(imgui_impl
         ${imgui_SOURCE_DIR}
         ${imgui_SOURCE_DIR}/backends
 )
-target_link_libraries(imgui_impl PUBLIC glfw Vulkan::Vulkan)
+
+if(EMSCRIPTEN)
+    # Emscripten provides GLFW and WebGPU headers via compiler flags
+    target_compile_options(imgui_impl PUBLIC -sUSE_WEBGPU=1 -sUSE_GLFW=3)
+    target_link_options(imgui_impl PUBLIC -sUSE_WEBGPU=1 -sUSE_GLFW=3)
+else()
+    target_link_libraries(imgui_impl PUBLIC glfw Vulkan::Vulkan)
+endif()
 
 # ── ImPlot ────────────────────────────────────────────────────────────────────
 FetchContent_Declare(

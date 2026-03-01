@@ -16,7 +16,7 @@ BUILD_TYPE  := Release
 JOBS        := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 CMAKE_FLAGS :=
 
-.PHONY: all debug release clean rebuild run explorer test shaders asan configure
+.PHONY: all debug release clean rebuild run explorer test shaders asan configure web serve
 
 all: release
 
@@ -60,3 +60,11 @@ test: debug
 
 shaders: configure
 	cmake --build $(BUILD_DIR) --target astrosplat_shaders -j$(JOBS)
+
+web:
+	emcmake cmake -B build_web -DCMAKE_BUILD_TYPE=Release
+	cmake --build build_web -j$(JOBS)
+	@echo "Open build_web/astrodex.html in a WebGPU-enabled browser"
+
+serve: web
+	cd build_web && python3 -m http.server 8080
