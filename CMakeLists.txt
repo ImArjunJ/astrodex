@@ -58,7 +58,6 @@ set(ASTROCORE_SOURCES
     src/data/OecClient.cpp
     src/data/GaiaClient.cpp
     src/data/CdsClient.cpp
-    src/data/CoordinateMatcher.cpp
     src/data/DataFusionEngine.cpp
     src/data/CacheManager.cpp
     src/data/ExoplanetData.cpp

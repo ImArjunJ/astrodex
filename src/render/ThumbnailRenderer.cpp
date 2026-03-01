@@ -17,9 +17,13 @@
 #include <stdexcept>
 #include <algorithm>
 
-// stb_image_write for PNG serialization
+// stb_image_write for PNG serialization (suppress third-party warnings)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wconversion"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../../external/stb_image_write.h"
+#pragma GCC diagnostic pop
 
 namespace astrocore {
 
@@ -403,13 +407,8 @@ ImTextureID ThumbnailRenderer::renderThumbnail(const PlanetParams& params,
     scissor.extent = {m_size, m_size};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // TODO: Wire in full VulkanRenderer planet pipeline for high-fidelity thumbnails.
-    // Current implementation: render a solid colored disc via clear color derived
-    // from planet atmosphere color. The render pass clear + no draw commands
-    // produces a solid background color representing the planet type.
-    //
-    // For a more visually distinct placeholder, we write planet-type color
-    // directly as the clear color so each planet type has a unique thumbnail.
+    // Renders planet-type color as clear color (each type gets a unique thumbnail).
+    // Full procedural planet pipeline integration is a future enhancement.
     //
     // Extract a representative color from the planet params:
     //   - Use atmosphere color as the primary indicator of planet type
