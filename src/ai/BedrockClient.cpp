@@ -227,4 +227,13 @@ bool BedrockClient::testConnection() {
     return hasValidCredentials();
 }
 
+void BedrockClient::setModelId(const std::string& modelId) {
+    m_impl->config.model_id = modelId;
+    LOG_DEBUG("Bedrock model ID set to: {}", modelId);
+}
+
+const std::string& BedrockClient::getModelId() const {
+    return m_impl->config.model_id;
+}
+
 }  // namespace astrocore

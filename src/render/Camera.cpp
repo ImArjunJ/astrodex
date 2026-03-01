@@ -45,8 +45,85 @@ void Camera::pan(float deltaX, float deltaY) {
     m_viewDirty = true;
 }
 
+void Camera::moveForward(float distance) {
+    glm::vec3 forward = getForward();
+    if (m_freeMode) {
+        // Free mode: move position and target together
+        m_position += forward * distance;
+        m_target += forward * distance;
+    } else {
+        // Orbit mode: zoom in/out
+        zoom(-distance);
+        return;
+    }
+    m_viewDirty = true;
+}
+
+void Camera::moveRight(float distance) {
+    glm::vec3 right = getRight();
+    if (m_freeMode) {
+        m_position += right * distance;
+        m_target += right * distance;
+    } else {
+        pan(distance, 0.0f);
+        return;
+    }
+    m_viewDirty = true;
+}
+
+void Camera::moveUp(float distance) {
+    if (m_freeMode) {
+        // Use world up for free movement
+        m_position += m_worldUp * distance;
+        m_target += m_worldUp * distance;
+    } else {
+        pan(0.0f, distance);
+        return;
+    }
+    m_viewDirty = true;
+}
+
 void Camera::update(float deltaTime) {
-    // Currently no interpolation, but could add smooth camera movement here
+    // Handle smooth transitions
+    if (m_transitioning) {
+        m_transitionProgress += deltaTime / m_transitionDuration;
+        if (m_transitionProgress >= 1.0f) {
+            m_transitionProgress = 1.0f;
+            m_transitioning = false;
+        }
+
+        // Smooth ease-in-out interpolation
+        float t = m_transitionProgress;
+        float smooth = t * t * (3.0f - 2.0f * t);  // smoothstep
+
+        m_target = glm::mix(m_transitionStartTarget, m_transitionEndTarget, smooth);
+        m_position = glm::mix(m_transitionStartPos, m_transitionEndPos, smooth);
+        m_distance = glm::mix(m_transitionStartDistance, m_transitionEndDistance, smooth);
+        m_viewDirty = true;
+    }
+}
+
+void Camera::transitionTo(const glm::vec3& newTarget, float duration, float targetDistance) {
+    m_transitionStartPos = m_position;
+    m_transitionStartTarget = m_target;
+    m_transitionEndTarget = newTarget;
+    m_transitionStartDistance = m_distance;
+
+    // If target distance specified, transition to it; otherwise keep current
+    if (targetDistance > 0.0f) {
+        m_transitionEndDistance = targetDistance;
+        // Calculate end position at the target distance
+        glm::vec3 dir = glm::normalize(m_position - m_target);
+        m_transitionEndPos = newTarget + dir * targetDistance;
+    } else {
+        m_transitionEndDistance = m_distance;
+        glm::vec3 offset = m_position - m_target;
+        m_transitionEndPos = newTarget + offset;
+    }
+
+    m_transitionProgress = 0.0f;
+    m_transitionDuration = duration;
+    m_transitioning = true;
 }
 
 void Camera::updateCameraVectors() {
