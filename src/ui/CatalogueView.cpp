@@ -113,6 +113,10 @@ void CatalogueView::setPlanetCallback(std::function<void(const std::string&)> cb
     m_planetCallback = std::move(cb);
 }
 
+void CatalogueView::setEditorCallback(std::function<void()> cb) {
+    m_editorCallback = std::move(cb);
+}
+
 void CatalogueView::setLoadingProgress(int current, int total) {
     m_loadingCurrent = current;
     m_loadingTotal = total;
@@ -152,6 +156,10 @@ void CatalogueView::render(const std::vector<ExoplanetData>& data, float W, floa
     ImGui::PopStyleColor();
     ImGui::SameLine();
     ImGui::TextDisabled("(%d planets)", static_cast<int>(data.size()));
+    ImGui::SameLine(W - 130.f);
+    if (ImGui::SmallButton("Planet Editor >>")) {
+        if (m_editorCallback) m_editorCallback();
+    }
     ImGui::Spacing();
 
     // ── Top bar: search + filters + sort ─────────────────────────────────

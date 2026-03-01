@@ -44,6 +44,7 @@ public:
     void init();
     void render(const std::vector<ExoplanetData>& data, float W, float H, float dt = 0.f);
     void setPlanetCallback(std::function<void(const std::string&)> cb);
+    void setEditorCallback(std::function<void()> cb);
     void setLoadingProgress(int current, int total);
 
     // Thumbnail management
@@ -84,8 +85,9 @@ private:
     int m_loadingCurrent = 0;
     int m_loadingTotal = 0;
 
-    // Planet click callback
+    // Callbacks
     std::function<void(const std::string&)> m_planetCallback;
+    std::function<void()> m_editorCallback;
 
     // Thumbnail state
     std::unordered_map<std::string, ImTextureID> m_thumbnails;

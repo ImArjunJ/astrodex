@@ -88,6 +88,9 @@ void Application::init() {
     m_catalogue->setPlanetCallback([this](const std::string& name) {
         onCataloguePlanetClicked(name);
     });
+    m_catalogue->setEditorCallback([this]() {
+        m_catalogueMode = false;
+    });
 
     // Load cached records immediately for offline-first catalogue display
     {

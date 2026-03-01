@@ -362,13 +362,13 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
         return;
     }
 
-    // ── Back to Galaxy button ────────────────────────────────────────────
+    // ── Back to Catalogue button ────────────────────────────────────────
     {
         ImGui::PushStyleColor(ImGuiCol_Button,
             ImVec4(0.08f, 0.20f, 0.40f, 0.70f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
             ImVec4(0.14f, 0.32f, 0.60f, 0.85f));
-        if (ImGui::SmallButton("  Back to Galaxy  "))
+        if (ImGui::SmallButton("  << Catalogue  "))
             m_backPressed = true;
         ImGui::PopStyleColor(2);
     }
