@@ -79,6 +79,13 @@ Plans:
 
 **Requirements:** R4.1, R4.2, R4.3
 
+**Plans:** 3 plans
+
+Plans:
+- [x] 04-01-PLAN.md -- CatalogueView card grid with type/HZ filtering, sorting, prefix search, prefetch integration
+- [x] 04-02-PLAN.md -- ThumbnailRenderer with offscreen Vulkan FBO, PNG serialization, ImGui texture registration (5 min)
+- [ ] 04-03-PLAN.md -- Progressive thumbnail generation and disk caching
+
 **Success Criteria:**
 - [ ] Local database of 500+ pre-fetched exoplanet records
 - [ ] Scrollable ImGui catalogue panel with sorting/filtering
