@@ -268,8 +268,17 @@ void UIManager::init(GLFWwindow* window) {
 
     setupStyle();
 
+    // Load cached planets on startup
+    refreshCachedPlanets();
+
     m_initialized = true;
     LOG_INFO("ImGui initialized");
+}
+
+void UIManager::refreshCachedPlanets() {
+    m_cachedPlanets = ExoplanetConverter::listCachedPlanets();
+    m_cachedSelectedIndex = -1;
+    LOG_INFO("Loaded {} cached planets", m_cachedPlanets.size());
 }
 
 void UIManager::shutdown() {
@@ -659,6 +668,95 @@ UIManager::ExoplanetSearchResult UIManager::renderExoplanetSearch(
         } else {
             ImGui::TextDisabled("Enter a planet name (e.g., 'Kepler-442')");
             ImGui::TextDisabled("or host star (e.g., 'TRAPPIST-1')");
+        }
+
+        // Cached planets section
+        ImGui::Separator();
+        if (!m_cachedPlanets.empty()) {
+            ImGui::Text("Cached Planets (%zu):", m_cachedPlanets.size());
+
+            // Filter input
+            ImGui::SetNextItemWidth(-60);
+            ImGui::InputTextWithHint("##cachefilter", "Filter...", m_cachedFilterBuffer,
+                                      sizeof(m_cachedFilterBuffer));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Refresh")) {
+                refreshCachedPlanets();
+            }
+
+            // Scrollable list of cached planets
+            ImGui::BeginChild("CachedPlanets", ImVec2(0, 180), true);
+
+            std::string filterLower;
+            if (m_cachedFilterBuffer[0] != '\0') {
+                filterLower = m_cachedFilterBuffer;
+                std::transform(filterLower.begin(), filterLower.end(),
+                               filterLower.begin(), ::tolower);
+            }
+
+            int displayIndex = 0;
+            for (size_t i = 0; i < m_cachedPlanets.size(); i++) {
+                const auto& planet = m_cachedPlanets[i];
+
+                // Apply filter
+                if (!filterLower.empty()) {
+                    std::string nameLower = planet.name;
+                    std::transform(nameLower.begin(), nameLower.end(),
+                                   nameLower.begin(), ::tolower);
+                    if (nameLower.find(filterLower) == std::string::npos) {
+                        continue;
+                    }
+                }
+
+                bool isSelected = (m_cachedSelectedIndex == static_cast<int>(i));
+
+                // Color by planet type
+                ImVec4 color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                if (planet.type.find("Gas") != std::string::npos ||
+                    planet.type.find("Jupiter") != std::string::npos) {
+                    color = ImVec4(1.0f, 0.8f, 0.4f, 1.0f);  // Orange for gas giants
+                } else if (planet.type.find("Neptune") != std::string::npos) {
+                    color = ImVec4(0.4f, 0.7f, 1.0f, 1.0f);  // Blue for ice giants
+                } else if (planet.type.find("Super") != std::string::npos ||
+                           planet.type.find("Earth") != std::string::npos ||
+                           planet.type.find("Terrestrial") != std::string::npos) {
+                    color = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);  // Green for rocky
+                } else if (planet.type.find("Lava") != std::string::npos) {
+                    color = ImVec4(1.0f, 0.4f, 0.2f, 1.0f);  // Red for lava
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                std::string label = planet.name + " [" + planet.type + "]";
+                if (ImGui::Selectable(label.c_str(), isSelected)) {
+                    m_cachedSelectedIndex = static_cast<int>(i);
+                }
+                ImGui::PopStyleColor();
+
+                // Double-click to load
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                    result.cachedPlanetSelected = true;
+                    result.cachedPlanetName = planet.name;
+                }
+
+                displayIndex++;
+            }
+            ImGui::EndChild();
+
+            // Load button for selected cached planet
+            if (m_cachedSelectedIndex >= 0 &&
+                m_cachedSelectedIndex < static_cast<int>(m_cachedPlanets.size())) {
+                const auto& selected = m_cachedPlanets[static_cast<size_t>(m_cachedSelectedIndex)];
+                if (ImGui::Button(("Load " + selected.name).c_str(), ImVec2(-1, 0))) {
+                    result.cachedPlanetSelected = true;
+                    result.cachedPlanetName = selected.name;
+                }
+            }
+        } else {
+            ImGui::TextDisabled("No cached planets.");
+            ImGui::TextDisabled("Run batch_generate.py to pre-cache.");
+            if (ImGui::SmallButton("Refresh Cache")) {
+                refreshCachedPlanets();
+            }
         }
 
         // Quick access buttons

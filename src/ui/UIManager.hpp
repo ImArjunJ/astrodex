@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include "render/RingRenderer.hpp"
+#include "render/ExoplanetConverter.hpp"
 #include "data/ExoplanetData.hpp"
 #include "ai/InferenceEngine.hpp"
 
@@ -45,9 +46,15 @@ public:
         std::string searchQuery;
         bool viewRequested = false;
         int selectedIndex = -1;
+        // For cached planet selection
+        bool cachedPlanetSelected = false;
+        std::string cachedPlanetName;
     };
     ExoplanetSearchResult renderExoplanetSearch(const std::vector<ExoplanetData>& results,
                                                  bool isSearching);
+
+    // Refresh the list of cached planets
+    void refreshCachedPlanets();
 
     // Render inference backend selector
     // Returns true if backend was changed
@@ -63,6 +70,11 @@ private:
     // Exoplanet search state
     char m_exoSearchBuffer[256] = "";
     int m_exoSelectedIndex = -1;
+
+    // Cached planets list
+    std::vector<ExoplanetConverter::CachedPlanetInfo> m_cachedPlanets;
+    int m_cachedSelectedIndex = -1;
+    char m_cachedFilterBuffer[256] = "";
 };
 
 }  // namespace astrocore

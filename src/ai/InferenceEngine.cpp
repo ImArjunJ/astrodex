@@ -69,9 +69,10 @@ InferenceEngine::InferenceEngine() {
         GroqConfig groqConfig;
         groqConfig.api_key = groqKey;
         groqConfig.model = GroqModel::KIMI_K2;
+        groqConfig.temperature = 0.0;  // Fully deterministic output
         m_groq = std::make_unique<GroqClient>(groqConfig);
         m_groqAvailable = true;
-        LOG_INFO("Groq configured for fast inference (Kimi K2)");
+        LOG_INFO("Groq configured for fast inference (Kimi K2, temp=0)");
     } else {
         m_groqAvailable = false;
         LOG_WARN("GROQ_API_KEY not set - Groq inference disabled");

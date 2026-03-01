@@ -52,6 +52,7 @@ std::optional<std::string> GroqClient::query(const std::string& systemPrompt,
     requestBody["model"] = modelToString(m_model);
     requestBody["max_tokens"] = m_maxTokens;
     requestBody["temperature"] = m_temperature;
+    requestBody["seed"] = 42;  // Fixed seed for reproducible outputs
     requestBody["messages"] = nlohmann::json::array({
         {{"role", "system"}, {"content", systemPrompt}},
         {{"role", "user"}, {"content", userPrompt}}

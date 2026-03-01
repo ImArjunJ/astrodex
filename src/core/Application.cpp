@@ -570,6 +570,66 @@ void Application::render() {
         }
     }
 
+    // Handle cached planet selection (instant load, no API calls needed)
+    if (exoResult.cachedPlanetSelected && !exoResult.cachedPlanetName.empty()) {
+        LOG_INFO("Loading cached planet: {}", exoResult.cachedPlanetName);
+
+        auto cachedParams = ExoplanetConverter::loadCachedParams(exoResult.cachedPlanetName);
+        if (cachedParams) {
+            // Create a simple system with just the planet
+            SystemConfig config;
+            config.name = exoResult.cachedPlanetName + " (Cached)";
+            config.description = "Pre-cached exoplanet render params";
+            config.source = "cache";
+            config.visualScale = 1.0;
+
+            // Add a star for lighting
+            float visualPlanetRadius = cachedParams->radius;
+            float visualStarRadius = visualPlanetRadius * 8.0f;
+            float starDistance = visualPlanetRadius * 40.0f;
+
+            BodyConfig star;
+            star.name = "Host Star";
+            star.type = "Star";
+            star.mass = constants::SOLAR_MASS;
+            star.radius = visualStarRadius;
+            star.position = {starDistance, starDistance * 0.3, -starDistance * 0.2};
+            star.velocity = {0.0, 0.0, 0.0};
+            star.rotationPeriod = 25.0 * constants::DAY;
+            config.bodies.push_back(star);
+
+            // Add the planet at origin
+            BodyConfig planet;
+            planet.name = exoResult.cachedPlanetName;
+            planet.type = "Planet";
+            planet.mass = constants::EARTH_MASS;
+            planet.radius = visualPlanetRadius;
+            planet.position = {0.0, 0.0, 0.0};
+            planet.velocity = {0.0, 0.0, 0.0};
+            planet.rotationPeriod = constants::DAY;
+            config.bodies.push_back(planet);
+
+            // Load the config
+            m_simulation.loadFromConfig(config);
+
+            // Find and configure the planet
+            for (const auto& body : m_simulation.world().bodies()) {
+                if (body->type() == BodyType::Planet) {
+                    m_simulation.setBodyAppearance(body->id(), *cachedParams);
+                    m_simulation.setSelectedBody(body->id());
+                    m_simulation.setFocusBody(body->id());
+                    m_renderer->params() = *cachedParams;
+                    break;
+                }
+            }
+
+            LOG_INFO("Loaded cached render params for {}", exoResult.cachedPlanetName);
+        } else {
+            LOG_WARN("Failed to load cached params for {}, cache file may be missing",
+                     exoResult.cachedPlanetName);
+        }
+    }
+
     m_ui->endFrame();
 }
 
