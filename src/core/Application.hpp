@@ -80,6 +80,13 @@ private:
     bool m_validationRunning = false;
     std::string m_currentStatus;  // tracks displayed status for later appending
 
+    // Fade transition state
+    PlanetParams m_targetParams{};
+    PlanetParams m_savedBaseParams{};
+    bool m_transitioning = false;
+    float m_transitionAlpha = 1.0f;
+    bool m_transitionShrinking = true;
+
     bool   m_running       = true;
     double m_lastFrameTime = 0.0;
 };

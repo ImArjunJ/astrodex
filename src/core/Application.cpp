@@ -214,10 +214,17 @@ void Application::loadPlanet(const std::string& name) {
             ExoplanetMapper::classify(solarEntry->physicalData));
         m_currentStatus = solarEntry->name + "  |  " + cat + "  |  Solar System";
         m_ui->setExoplanetStatus(m_currentStatus);
-        m_renderer->params() = solarEntry->visualParams;
 
-        // Store ExoplanetData for the info panel (Plan 02)
+        // Store ExoplanetData for the info panel
         m_loadedExoData = solarEntry->physicalData;
+        m_ui->setExoplanetData(&(*m_loadedExoData));
+
+        // Start fade transition instead of direct assignment
+        m_targetParams = solarEntry->visualParams;
+        m_savedBaseParams = solarEntry->visualParams;
+        m_transitioning = true;
+        m_transitionShrinking = true;
+        m_transitionAlpha = 1.0f;
 
         // ── Background validation: run AI pipeline on known physical data ──
         // Compares AI output to our hand-tuned visual params → accuracy score.
@@ -360,17 +367,50 @@ void Application::update(float deltaTime) {
 
     m_camera->update(deltaTime);
 
+    // ── Fade transition between planets ──────────────────────────────────
+    if (m_transitioning) {
+        float speed = 3.0f; // ~0.33s per phase, ~0.67s total
+        if (m_transitionShrinking) {
+            m_transitionAlpha -= deltaTime * speed;
+            if (m_transitionAlpha <= 0.0f) {
+                m_transitionAlpha = 0.0f;
+                // Swap to new planet params at zero-size
+                m_renderer->params() = m_savedBaseParams;
+                m_transitionShrinking = false;
+            }
+        } else {
+            m_transitionAlpha += deltaTime * speed;
+            if (m_transitionAlpha >= 1.0f) {
+                m_transitionAlpha = 1.0f;
+                m_transitioning = false;
+                // Ensure final params are exact target (no floating point drift)
+                m_renderer->params() = m_savedBaseParams;
+            }
+        }
+        // Apply fade multiplier to visual parameters (always from saved base)
+        auto& rp = m_renderer->params();
+        rp.radius = m_savedBaseParams.radius * m_transitionAlpha;
+        rp.atmosphereDensity = m_savedBaseParams.atmosphereDensity * m_transitionAlpha;
+        rp.cloudsDensity = m_savedBaseParams.cloudsDensity * m_transitionAlpha;
+    }
+
     // Poll pipeline stage and update status text while loading
     if (m_planetLoading && m_planetFuture.valid()) {
         if (m_planetFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
             // Pipeline complete — extract results
             auto [params, status, exoData] = m_planetFuture.get();
             if (params.has_value()) {
-                m_renderer->params() = *params;
+                // Start fade transition instead of direct assignment
+                m_targetParams = *params;
+                m_savedBaseParams = *params;
+                m_transitioning = true;
+                m_transitionShrinking = true;
+                m_transitionAlpha = 1.0f;
             }
-            // Store ExoplanetData for info panel (Plan 02)
+            // Store ExoplanetData for info panel
             if (exoData.has_value()) {
                 m_loadedExoData = std::move(*exoData);
+                m_ui->setExoplanetData(&(*m_loadedExoData));
                 // Add the loaded planet name to known names and refresh autocomplete
                 m_knownNames.insert(m_loadedExoData->name);
                 std::vector<std::string> sortedNames(m_knownNames.begin(), m_knownNames.end());

@@ -10,6 +10,7 @@ struct GLFWwindow;
 namespace astrocore {
 
 struct PlanetParams;
+struct ExoplanetData;
 class VulkanRenderer;
 
 class UIManager {
@@ -39,6 +40,9 @@ public:
     // Called by Application to disable input during pipeline execution
     void setLoading(bool loading);
 
+    // Called by Application to pass loaded exoplanet data for info panel
+    void setExoplanetData(const ExoplanetData* data);
+
 private:
     void setupStyle();
 
@@ -55,6 +59,9 @@ private:
 
     // Loading state
     bool m_isLoading = false;  // disables search input and Load button when true
+
+    // Exoplanet data for info panel (owned by Application)
+    const ExoplanetData* m_exoData = nullptr;
 };
 
 }  // namespace astrocore
