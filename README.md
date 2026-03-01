@@ -32,8 +32,7 @@ needs opengl 4.5+, curl, glfw3, glm
 optional set GROQ_API_KEY or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY for ai features
 
 ## screenshots
-
-![galaxy view](screenshots/galaxy.png)
+<img width="3456" height="2234" alt="Screenshot 2026-03-01 at 14 08 25" src="https://github.com/user-attachments/assets/bf137964-3893-4ab9-90c3-5514b056cc01" />
 
 ![planet detail](screenshots/planet.png)
 
