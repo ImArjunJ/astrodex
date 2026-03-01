@@ -76,22 +76,25 @@ Wire real exoplanet data from 4 astronomical databases through an AI inference p
 ## R3: Search & Single Planet Rendering
 **Priority: High**
 
-### R3.1: Search Interface
-- ImGui text input for planet name search
-- Autocomplete from local cache of known planet names
-- Trigger: fetch → fuse → infer → convert → render pipeline
-- Display loading state during async operations
+### R3.1: Search Interface ✅
+- [x] ImGui text input for planet name search
+- [x] Autocomplete from local cache of known planet names
+- [x] Trigger: fetch → fuse → infer → convert → render pipeline
+- [x] Display loading state during async operations
+- **Completed:** Plan 03-01 — Search autocomplete + pipeline stage status
 
-### R3.2: Data Provenance Display
-- Show which values are NASA-measured vs AI-inferred in UI
-- Color-coding: white = measured, cyan = AI-inferred, yellow = calculated
-- Expandable panel showing AI reasoning for inferred values
-- Confidence indicators for each inferred parameter
+### R3.2: Data Provenance Display ✅
+- [x] Show which values are NASA-measured vs AI-inferred in UI
+- [x] Color-coding: white = measured, cyan = AI-inferred, yellow = calculated
+- [x] Expandable panel showing AI reasoning for inferred values
+- [x] Confidence indicators for each inferred parameter
+- **Completed:** Plan 03-02 — Provenance color-coding with hover tooltips
 
-### R3.3: Planet Info Panel
-- Display key facts: name, mass, radius, temperature, orbital period
-- Host star info: name, spectral type, distance
-- Discovery info: method, year, facility
+### R3.3: Planet Info Panel ✅
+- [x] Display key facts: name, mass, radius, temperature, orbital period
+- [x] Host star info: name, spectral type, distance
+- [x] Discovery info: method, year, facility
+- **Completed:** Plan 03-02 — Collapsible Physical/Orbital/Host Star subsections
 
 ---
 

@@ -60,15 +60,15 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Search autocomplete with prefix-matching dropdown + pipeline stage status updates + ExoplanetData storage (R3.1)
-- [ ] 03-02-PLAN.md — Planet info panel with data provenance color-coding + hover tooltips + fade transition (R3.2, R3.3)
+- [x] 03-01-PLAN.md — Search autocomplete with prefix-matching dropdown + pipeline stage status updates + ExoplanetData storage (R3.1) (4 min)
+- [x] 03-02-PLAN.md — Planet info panel with data provenance color-coding + hover tooltips + fade transition (R3.2, R3.3) (~15 min)
 
 **Success Criteria:**
-- [ ] ImGui search box with autocomplete from cached planet names
-- [ ] Full pipeline: search → fetch → fuse → infer → convert → render (end-to-end)
-- [ ] Data provenance UI showing NASA vs AI-inferred values with color-coding
-- [ ] Planet info panel displaying key facts and host star data
-- [ ] Smooth UX: loading state during fetch/inference, then seamless render transition
+- [x] ImGui search box with autocomplete from cached planet names
+- [x] Full pipeline: search → fetch → fuse → infer → convert → render (end-to-end)
+- [x] Data provenance UI showing NASA vs AI-inferred values with color-coding
+- [x] Planet info panel displaying key facts and host star data
+- [x] Smooth UX: loading state during fetch/inference, then seamless render transition
 
 **Estimated Complexity:** Medium — mostly UI wiring + async pipeline orchestration
 

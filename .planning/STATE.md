@@ -2,31 +2,32 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: Phase 3 Plan 2
-status: unknown
-stopped_at: Phase 3 Wave 1 complete (plan 03-01). Wave 2 (plan 03-02) not started.
-last_updated: "2026-03-01T00:35:30.753Z"
+current_plan: Phase 3 Plan 2 (COMPLETE)
+status: milestone-complete
+stopped_at: Completed 03-02-PLAN.md. Milestone 1 complete.
+last_updated: "2026-03-01T01:02:35.567Z"
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Astrodex — Project State
 
 ## Current Status
-- **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline)
-- **Phase:** 3 — IN PROGRESS (1/2 plans done)
-- **Current Plan:** Phase 3 Plan 2
-- **Next Action:** Execute 03-02-PLAN.md (info panel, data provenance, fade transition)
-- **Last Session:** 2026-03-01T00:35:30.747Z
-- **Stopped At:** Phase 3 Wave 1 complete (plan 03-01). Wave 2 (plan 03-02) not started.
+- **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline) -- COMPLETE
+- **Phase:** 3 -- COMPLETE (2/2 plans done)
+- **Current Plan:** Phase 3 Plan 2 (COMPLETE)
+- **Next Action:** Milestone 1 complete. Proceed to Phase 4 (Exoplanet Catalogue Browser) or next milestone.
+- **Last Session:** 2026-03-01T01:02:35.566Z
+- **Stopped At:** Completed 03-02-PLAN.md. Milestone 1 complete.
 - **Phase 01 Summary:** Multi-source data fusion with NASA, OEC, Gaia, CDS clients. Uncertainty-based selection, JSON cache, haversine coordinate matching.
 - **Phase 02 Plan 03 Summary:** Python ML benchmark harness with BERT, BART, TabTransformer, MaskedAutoencoder model wrappers and comparison document generator.
 - **Phase 02 Plan 01 Summary:** InferenceEngine wired into DataFusionEngine with complete JSON serialization, deterministic fallback, and 17 integration tests (409 assertions).
 - **Phase 02 Plan 02 Summary:** Physics-based CelestialBodyParams mapping with Rayleigh scattering from atmosphere composition, multi-factor terrestrial surface model, gas/ice giant heuristics, 15 test cases (114 assertions).
 - **Phase 03 Plan 01 Summary:** Autocomplete dropdown with prefix-matching from cache, thread-safe pipeline stage status via atomic int, disabled input during loading, ExoplanetData stored for info panel.
+- **Phase 03 Plan 02 Summary:** Planet info panel with provenance color-coding (white/cyan/yellow), AI reasoning tooltips, fade transition, DataFusionEngine multi-source pipeline wiring.
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
@@ -42,6 +43,7 @@ progress:
 - [x] Phase 02 Plan 01: InferenceEngine integration + JSON serialization + deterministic fallback (8 min, 2 tasks, 3 commits, 409 assertions passing)
 - [x] Phase 02 Plan 02: Physics-based CelestialBodyParams mapping with Rayleigh scattering, terrestrial/gas giant/ice giant models (5 min, 2 tasks, 2 commits, 114 assertions passing)
 - [x] Phase 03 Plan 01: Search autocomplete + pipeline stage status (4 min, 2 tasks, 2 commits)
+- [x] Phase 03 Plan 02: Planet info panel + data provenance + fade transition (~15 min, 2 tasks, 2 commits)
 
 ## Key Decisions
 1. **Platform:** Desktop (C++/Vulkan) first, WebGPU later — active branches (feat-render, Tej) have migrated from OpenGL to Vulkan/Metal with IRenderer.hpp abstraction
@@ -72,6 +74,9 @@ progress:
 26. **std::atomic<int> for pipeline stage:** Single-writer-single-reader pattern, no mutex needed — Phase 03 Plan 01
 27. **LoadResult as tuple:** Changed from pair to include ExoplanetData for downstream info panel — Phase 03 Plan 01
 28. **CacheManager::retrieve() for name casing:** Recover proper planet name from cached JSON at startup — Phase 03 Plan 01
+29. **Provenance color-coding:** getSourceColor() maps DataSource to ImVec4: white=measured, cyan=AI-inferred, yellow=calculated — Phase 03 Plan 02
+30. **Fade transition from saved params:** Always multiply alpha from m_savedBaseParams to avoid floating-point drift — Phase 03 Plan 02
+31. **DataFusionEngine in loadPlanet():** Full multi-source pipeline (NASA+OEC+Gaia+CDS) instead of NASA-only — Phase 03 Plan 02
 
 ## Research Artifacts
 - `.firecrawl/nasa-tap.md` — NASA TAP API docs
