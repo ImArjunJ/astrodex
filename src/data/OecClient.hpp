@@ -29,6 +29,9 @@ public:
     std::future<std::vector<ExoplanetData>> queryByName(const std::string& planetName);
     std::vector<ExoplanetData> queryByNameSync(const std::string& planetName);
 
+    // Bulk query — fetches all planets from OEC master catalogue
+    std::vector<ExoplanetData> queryAllSync();
+
     // Parse XML string into ExoplanetData records (public for testing)
     static std::vector<ExoplanetData> parseSystemXml(const std::string& xmlContent);
 

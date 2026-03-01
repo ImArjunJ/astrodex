@@ -2,6 +2,7 @@
 #include "core/Logger.hpp"
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <thread>
 #include <chrono>
 
@@ -477,23 +478,55 @@ std::optional<ExoplanetData> DataFusionEngine::getFromCache(const std::string& p
 
 std::future<std::vector<ExoplanetData>> DataFusionEngine::prefetchNotable(int count) {
     return std::async(std::launch::async, [this, count]() {
-        std::vector<ExoplanetData> results;
+        // Map: planet name → fused data (deduplicates across sources)
+        std::map<std::string, ExoplanetData> planetMap;
 
-        // Get notable exoplanets from NASA
-        auto notable = m_impl->nasa.getNotableExoplanets();
-
-        // Limit to requested count
-        int to_fetch = std::min(count, static_cast<int>(notable.size()));
-
-        for (int i = 0; i < to_fetch; ++i) {
-            try {
-                auto fused = fetchAndFuseSync(notable[i].name);
-                results.push_back(fused);
-            } catch (...) {
-                // Skip failed planets
+        // ── Source 1: OEC (most complete, ~5000 planets) ─────────────
+        try {
+            auto oecResults = m_impl->oec.queryAllSync();
+            LOG_INFO("Catalogue: OEC returned {} planets", oecResults.size());
+            for (auto& p : oecResults) {
+                if (!p.name.empty()) {
+                    planetMap[p.name] = std::move(p);
+                }
             }
+        } catch (...) {
+            LOG_WARN("Catalogue: OEC query failed");
         }
 
+        // ── Source 2: NASA Exoplanet Archive (high-quality measured data) ──
+        try {
+            auto nasaResults = m_impl->nasa.getNotableExoplanets();
+            LOG_INFO("Catalogue: NASA returned {} planets", nasaResults.size());
+            for (auto& p : nasaResults) {
+                if (p.name.empty()) continue;
+                auto it = planetMap.find(p.name);
+                if (it != planetMap.end()) {
+                    // Merge NASA data into existing OEC record (NASA takes priority)
+                    std::vector<ExoplanetData> sources = {p, it->second};
+                    it->second = mergeExoplanetData(sources);
+                } else {
+                    planetMap[p.name] = std::move(p);
+                }
+            }
+        } catch (...) {
+            LOG_WARN("Catalogue: NASA query failed");
+        }
+
+        // Limit and collect results
+        std::vector<ExoplanetData> results;
+        results.reserve(std::min(count, static_cast<int>(planetMap.size())));
+
+        for (auto& [name, planet] : planetMap) {
+            planet.calculateDerivedValues();
+            applyDeterministicDefaults(planet);
+            m_impl->cache.store(name, planet);
+            results.push_back(std::move(planet));
+            if (static_cast<int>(results.size()) >= count) break;
+        }
+
+        LOG_INFO("Catalogue: prefetch complete, {} planets from {} sources",
+                 results.size(), (planetMap.size() > 0 ? "OEC+NASA" : "none"));
         return results;
     });
 }

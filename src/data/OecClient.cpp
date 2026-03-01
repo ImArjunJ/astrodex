@@ -416,4 +416,170 @@ std::future<std::vector<ExoplanetData>> OecClient::queryByName(const std::string
     });
 }
 
+std::vector<ExoplanetData> OecClient::queryAllSync() {
+    // Fetch combined catalogue from OEC GitHub release (plain XML, not gzipped)
+    static const char* CATALOGUE_URL =
+        "https://raw.githubusercontent.com/OpenExoplanetCatalogue/"
+        "oec_tables/master/comma_separated/open_exoplanet_catalogue.txt";
+
+    // Check cache first
+    std::string cachePath = m_impl->config.cache_directory + "/oec_catalogue.csv";
+    auto cached = m_impl->readCache(cachePath);
+    std::string responseBuffer;
+
+    if (cached) {
+        LOG_DEBUG("OEC catalogue cache hit");
+        responseBuffer = *cached;
+    } else {
+        LOG_INFO("OEC: Fetching full catalogue from GitHub...");
+
+        if (!m_impl->curl) return {};
+
+        curl_easy_setopt(m_impl->curl, CURLOPT_URL, CATALOGUE_URL);
+        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEFUNCTION, Impl::writeCallback);
+        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, &responseBuffer);
+        curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, 60L);
+        curl_easy_setopt(m_impl->curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(m_impl->curl, CURLOPT_USERAGENT, "AstroCore/0.1.0");
+
+        CURLcode res = curl_easy_perform(m_impl->curl);
+        if (res != CURLE_OK) {
+            LOG_ERROR("OEC catalogue fetch failed: {}", curl_easy_strerror(res));
+            return {};
+        }
+
+        long httpCode = 0;
+        curl_easy_getinfo(m_impl->curl, CURLINFO_RESPONSE_CODE, &httpCode);
+        if (httpCode != 200) {
+            LOG_ERROR("OEC catalogue returned HTTP {}", httpCode);
+            return {};
+        }
+
+        m_impl->writeCache(cachePath, responseBuffer);
+    }
+
+    // Parse CSV: each row is a planet
+    // OEC CSV columns (comma-separated):
+    // 0:pl_name, 1:binary_flag, 2:mass_j, 3:radius_j, 4:period, 5:semi_major_axis,
+    // 6:eccentricity, 7:periastron, 8:longitude, 9:ascending_node, 10:inclination,
+    // 11:eq_temp, 12:age, 13:discovery_method, 14:discovery_year, 15:last_updated,
+    // 16:ra, 17:dec, 18:dist_pc, 19:host_mass_sun, 20:host_radius_sun,
+    // 21:host_metallicity, 22:host_teff, 23:host_age
+    std::vector<ExoplanetData> results;
+    std::istringstream stream(responseBuffer);
+    std::string line;
+
+    // Skip header line if present
+    if (std::getline(stream, line) && line.find("# ") == 0) {
+        // It was a comment/header, continue
+    } else {
+        // First line was data, reprocess
+        stream.clear();
+        stream.str(responseBuffer);
+    }
+
+    auto parseField = [](const std::string& s) -> double {
+        if (s.empty()) return 0.0;
+        try { return std::stod(s); } catch (...) { return 0.0; }
+    };
+
+    while (std::getline(stream, line)) {
+        if (line.empty() || line[0] == '#') continue;
+
+        // Split by comma
+        std::vector<std::string> fields;
+        std::istringstream lineStream(line);
+        std::string field;
+        while (std::getline(lineStream, field, ',')) {
+            fields.push_back(field);
+        }
+
+        if (fields.size() < 15) continue;  // Minimum fields needed
+
+        ExoplanetData planet;
+        planet.name = fields[0];
+
+        // Physical data (OEC uses Jupiter units)
+        double massJ = parseField(fields.size() > 2 ? fields[2] : "");
+        if (massJ > 0) {
+            planet.mass_earth = MeasuredValue<double>(massJ * 317.828, DataSource::OEC);  // Jupiter to Earth masses
+        }
+
+        double radiusJ = parseField(fields.size() > 3 ? fields[3] : "");
+        if (radiusJ > 0) {
+            planet.radius_earth = MeasuredValue<double>(radiusJ * 11.209, DataSource::OEC);  // Jupiter to Earth radii
+        }
+
+        double period = parseField(fields.size() > 4 ? fields[4] : "");
+        if (period > 0) {
+            planet.orbital_period_days = MeasuredValue<double>(period, DataSource::OEC);
+        }
+
+        double sma = parseField(fields.size() > 5 ? fields[5] : "");
+        if (sma > 0) {
+            planet.semi_major_axis_au = MeasuredValue<double>(sma, DataSource::OEC);
+        }
+
+        double ecc = parseField(fields.size() > 6 ? fields[6] : "");
+        if (ecc > 0) {
+            planet.eccentricity = MeasuredValue<double>(ecc, DataSource::OEC);
+        }
+
+        double incl = parseField(fields.size() > 10 ? fields[10] : "");
+        if (incl > 0) {
+            planet.inclination_deg = MeasuredValue<double>(incl, DataSource::OEC);
+        }
+
+        double eqTemp = parseField(fields.size() > 11 ? fields[11] : "");
+        if (eqTemp > 0) {
+            planet.equilibrium_temp_k = MeasuredValue<double>(eqTemp, DataSource::OEC);
+        }
+
+        // Discovery info
+        if (fields.size() > 13) planet.discovery_method = fields[13];
+        if (fields.size() > 14) {
+            int year = static_cast<int>(parseField(fields[14]));
+            if (year > 1900) planet.discovery_year = year;
+        }
+
+        // Host star data
+        if (fields.size() > 18) {
+            double dist = parseField(fields[18]);
+            if (dist > 0) planet.host_star.distance_pc = MeasuredValue<double>(dist, DataSource::OEC);
+        }
+        if (fields.size() > 19) {
+            double hMass = parseField(fields[19]);
+            if (hMass > 0) planet.host_star.mass_solar = MeasuredValue<double>(hMass, DataSource::OEC);
+        }
+        if (fields.size() > 20) {
+            double hRad = parseField(fields[20]);
+            if (hRad > 0) planet.host_star.radius_solar = MeasuredValue<double>(hRad, DataSource::OEC);
+        }
+        if (fields.size() > 21) {
+            double met = parseField(fields[21]);
+            if (met != 0) planet.host_star.metallicity = MeasuredValue<double>(met, DataSource::OEC);
+        }
+        if (fields.size() > 22) {
+            double hTeff = parseField(fields[22]);
+            if (hTeff > 0) planet.host_star.effective_temp_k = MeasuredValue<double>(hTeff, DataSource::OEC);
+        }
+
+        // RA/Dec for cross-matching
+        if (fields.size() > 16) {
+            double ra = parseField(fields[16]);
+            if (ra > 0) planet.host_star.ra_deg = MeasuredValue<double>(ra, DataSource::OEC);
+        }
+        if (fields.size() > 17) {
+            double dec = parseField(fields[17]);
+            if (std::abs(dec) > 0.001) planet.host_star.dec_deg = MeasuredValue<double>(dec, DataSource::OEC);
+        }
+
+        planet.calculateDerivedValues();
+        results.push_back(std::move(planet));
+    }
+
+    LOG_INFO("OEC: Parsed {} planets from catalogue", results.size());
+    return results;
+}
+
 }  // namespace astrocore

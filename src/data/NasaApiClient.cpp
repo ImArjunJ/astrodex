@@ -399,9 +399,8 @@ std::future<std::vector<ExoplanetData>> NasaApiClient::queryByName(const std::st
 
 std::vector<ExoplanetData> NasaApiClient::queryByNameSync(const std::string& name) {
     std::string normalized = normalizePlanetName(name);
-    std::string lowerName  = normalized;
-    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-    std::string where = "LOWER(pl_name) LIKE '%" + lowerName + "%'";
+    // ADQL LIKE is case-insensitive per spec — no LOWER() needed
+    std::string where = "pl_name LIKE '%" + normalized + "%'";
     return executeQuery(buildADQL(where, 50));
 }
 
@@ -441,29 +440,9 @@ std::future<std::vector<ExoplanetData>> NasaApiClient::queryByCoords(double ra_d
 }
 
 std::vector<ExoplanetData> NasaApiClient::getNotableExoplanets() {
-    // Query some well-known exoplanets
-    std::vector<std::string> notable = {
-        "Kepler-442 b",
-        "Kepler-452 b",
-        "TRAPPIST-1 e",
-        "TRAPPIST-1 f",
-        "Proxima Cen b",
-        "TOI-700 d",
-        "Kepler-22 b",
-        "K2-18 b",
-        "LHS 1140 b",
-        "Ross 128 b"
-    };
-
-    std::vector<ExoplanetData> results;
-    for (const auto& name : notable) {
-        auto planets = queryByNameSync(name);
-        if (!planets.empty()) {
-            results.push_back(planets[0]);
-        }
-    }
-
-    return results;
+    // Bulk query: fetch confirmed exoplanets ordered by discovery year (newest first)
+    // Single query is far more efficient than per-planet lookups
+    return executeQuery(buildADQL("", 500));
 }
 
 bool NasaApiClient::testConnection() {
