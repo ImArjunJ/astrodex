@@ -27,6 +27,7 @@ catch_discover_tests(data_aggregation_tests)
 # Render parameter mapping tests
 add_executable(render_tests
     render/test_planet_params.cpp
+    render/test_thumbnail_renderer.cpp
 )
 
 target_link_libraries(render_tests
