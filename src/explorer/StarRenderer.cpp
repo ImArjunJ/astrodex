@@ -793,7 +793,7 @@ void StarRenderer::beginFrame() {
     vkCmdBeginRenderPass(m_impl->commandBuffers[f], &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 }
 
-void StarRenderer::render(const FreeFlyCamera& camera, float time, float pointScale, float brightnessBoost) {
+void StarRenderer::render(const FreeFlyCamera& camera, float time, float pointScale, float brightnessBoost, bool debugMode) {
     uint32_t f = m_impl->currentFrame;
     VkCommandBuffer cmd = m_impl->commandBuffers[f];
 
@@ -812,7 +812,7 @@ void StarRenderer::render(const FreeFlyCamera& camera, float time, float pointSc
 
     u.renderParams[0] = pointScale;
     u.renderParams[1] = brightnessBoost;
-    u.renderParams[2] = 0.0f;
+    u.renderParams[2] = debugMode ? 1.0f : 0.0f;
     u.renderParams[3] = 0.0f;
 
     std::memcpy(m_impl->uniformMapped[f], &u, sizeof(u));

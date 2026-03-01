@@ -11,7 +11,7 @@ class StarRenderer;
 class FreeFlyCamera;
 class ExplorerUI;
 class StarData;
-class StarOctree;
+class StarLOD;
 
 class StarExplorerApp {
 public:
@@ -31,24 +31,29 @@ private:
     std::unique_ptr<FreeFlyCamera> m_camera;
     std::unique_ptr<ExplorerUI>    m_ui;
     std::unique_ptr<StarData>      m_starData;
-    std::unique_ptr<StarOctree>    m_octree;
+    std::unique_ptr<StarLOD>       m_starLOD;
 
     bool   m_running = true;
     bool   m_cursorCaptured = false;
-    bool   m_useOctree = false;
+    bool   m_useLOD = false;
     double m_lastFrameTime = 0.0;
     float  m_time = 0.0f;
 
     // Render settings
     float m_pointScale      = 3.0f;
     float m_brightnessBoost = 5.0f;
-    float m_lodThreshold    = 0.005f;
-    int   m_maxVisibleStars = 1'000'000;
+    bool  m_debugRender     = false;
 
-    // Visible stars for octree mode (reused each frame to avoid reallocation)
+    // LOD shell distances (per level, adjustable via global multiplier)
+    float m_shellMultiplier = 1.0f;
+
+    // Visible stars (reused each frame)
     std::vector<StarVertex> m_visibleStars;
     int m_visibleCount = 0;
     int m_totalStarCount = 0;
+
+    // Debug markers
+    bool m_showMarkers = true;
 
     // Nearest star cache (updated every 0.5s)
     float    m_nearestTimer = 0.0f;

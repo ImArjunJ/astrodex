@@ -22,10 +22,18 @@ void main() {
 
     // Catalog flux is apparent magnitude as seen from Sol (origin).
     // Recompute flux at the camera's actual distance using inverse-square law.
+    // For stars at/near origin (solDist < 1pc), use catalog flux directly.
     float catalogFlux = pow(10.0, -0.4 * aMagnitude);
     float solDist = length(aPosition);
-    float ratio = solDist / max(cameraDist, 0.001);
-    float flux = catalogFlux * ratio * ratio;
+    float flux;
+    if (solDist < 1.0) {
+        // Star at/near Sol — magnitude is already correct, just scale by camera distance
+        flux = catalogFlux / max(cameraDist * cameraDist, 0.001);
+        flux = max(flux, catalogFlux); // never dimmer than catalog
+    } else {
+        float ratio = solDist / max(cameraDist, 0.001);
+        flux = catalogFlux * ratio * ratio;
+    }
 
     // Point size: brighter and closer → larger, but every star is at least 1px
     float scale = u.renderParams.x;

@@ -36,7 +36,11 @@ scripts/venv/
 __pycache__/
 *.pyc
 
-# Large data files (generated/fetched)
+# Large binary data (Gaia star catalogs)
+assets/starmap/gaia_raw.bin
+assets/starmap/gaia_multilod.bin
 assets/starmap/gaia_octree.bin
 assets/starmap/.hyg_cache.csv
-*.bin
+
+# HuggingFace cache
+~/.cache/huggingface/

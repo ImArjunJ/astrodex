@@ -86,7 +86,7 @@ set(STAREXPLORER_SOURCES
     src/explorer/StarRenderer.cpp
     src/explorer/FreeFlyCamera.cpp
     src/explorer/StarData.cpp
-    src/explorer/StarOctree.cpp
+    src/explorer/StarLOD.cpp
     src/explorer/ExplorerUI.cpp
     src/core/Window.cpp
     src/core/Logger.cpp
@@ -121,3 +121,15 @@ add_custom_command(TARGET starexplorer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:starexplorer>/assets
 )
+
+# ── Star LOD Builder (offline preprocessing tool) ────────────────────────────
+# C++ executable that reads gaia_raw.bin and produces gaia_multilod.bin
+# with OpenMP-parallelized per-cell LOD assignment.
+
+add_executable(star_lod_builder src/explorer/star_lod_builder.cpp)
+target_compile_features(star_lod_builder PRIVATE cxx_std_17)
+
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(star_lod_builder PRIVATE OpenMP::OpenMP_CXX)
+endif()

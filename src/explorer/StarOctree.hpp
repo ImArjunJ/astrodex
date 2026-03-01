@@ -71,6 +71,17 @@ public:
 private:
     void emitAggregate(const OctreeNode& node, std::vector<StarVertex>& output) const;
 
+public:
+    // Debug: collect wireframe points for octree nodes near a position
+    // Uses visitedLeaves (populated by last collectVisible) to color
+    // visited=green, unvisited=red
+    void collectWireframe(const glm::vec3& pos, float radius,
+                          std::vector<StarVertex>& output, int maxDepthVis) const;
+
+    // Set of leaf node indices visited in last collectVisible call
+    mutable std::vector<bool> m_visitedLeaves;
+private:
+
     void traverse(int nodeIdx, const glm::vec3& cameraPos, float lodThreshold,
                   std::vector<StarVertex>& output, int maxPoints) const;
 
@@ -87,6 +98,9 @@ private:
     void*   m_mappedData = nullptr;
     size_t  m_mappedSize = 0;
     int     m_fd = -1;
+
+    // Debug
+    mutable int m_debugFrameCount = 0;
 };
 
 } // namespace astrocore

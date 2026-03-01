@@ -25,7 +25,7 @@ public:
     void resize(int width, int height);
 
     void beginFrame();
-    void render(const FreeFlyCamera& camera, float time, float pointScale, float brightnessBoost);
+    void render(const FreeFlyCamera& camera, float time, float pointScale, float brightnessBoost, bool debugMode = false);
     void endFrame();
 
     // Vulkan accessors for ImGui integration (opaque void*)
