@@ -4,10 +4,6 @@
 
 #ifdef __EMSCRIPTEN__
 #include <webgpu/webgpu.h>
-#else
-// For IDE support when not building with Emscripten, provide stubs
-typedef void* WGPUDevice;
-typedef void* WGPUTextureFormat;
 #endif
 
 #include <memory>
@@ -31,9 +27,11 @@ public:
     void render(const Camera& camera) override;
     void endFrame() override;
 
+#ifdef __EMSCRIPTEN__
     // WebGPU accessors for ImGui integration
     WGPUDevice getDevice();
     WGPUTextureFormat getSurfaceFormat();
+#endif
 
 private:
     struct Impl;

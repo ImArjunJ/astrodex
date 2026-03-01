@@ -611,17 +611,16 @@ void WebGPURenderer::render(const Camera& camera) {
     if (!m_impl->passEncoder) return;
 
     // Update uniforms
-    advanceTime(0.016f); // ~60fps fixed timestep; caller can override via advanceTime()
+    advanceTime(0.016f); // TODO: pass real frame dt from Application
     PlanetUniforms u = fillUniforms(camera);
     wgpuQueueWriteBuffer(m_impl->queue, m_impl->uniformBuffer, 0, &u, sizeof(u));
 
-    // Draw the fullscreen quad
-    auto quadVerts    = getQuadVertices();
-    size_t bufferSize = quadVerts.size() * sizeof(float);
+    // Draw the fullscreen quad (6 verts * 4 floats * 4 bytes = 96 bytes)
+    static constexpr size_t kVertexBufferSize = 6 * 4 * sizeof(float);
 
     wgpuRenderPassEncoderSetPipeline(m_impl->passEncoder, m_impl->pipeline);
     wgpuRenderPassEncoderSetBindGroup(m_impl->passEncoder, 0, m_impl->bindGroup, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(m_impl->passEncoder, 0, m_impl->vertexBuffer, 0, bufferSize);
+    wgpuRenderPassEncoderSetVertexBuffer(m_impl->passEncoder, 0, m_impl->vertexBuffer, 0, kVertexBufferSize);
     wgpuRenderPassEncoderDraw(m_impl->passEncoder, 6, 1, 0, 0);
 }
 

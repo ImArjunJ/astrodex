@@ -44,29 +44,34 @@ set(ASTROCORE_SOURCES
     src/config/SystemConfig.cpp
     src/config/PresetManager.cpp
     src/ui/CatalogueView.cpp
-    # Data / API
+    # Data types (no curl dependency)
     src/data/ExoplanetData.cpp
-    src/data/NasaApiClient.cpp
-    src/data/OecClient.cpp
-    src/data/GaiaClient.cpp
-    src/data/CdsClient.cpp
-    src/data/DataFusionEngine.cpp
-    src/data/CacheManager.cpp
     src/data/SolarSystemDatabase.cpp
-    src/data/ExoMastClient.cpp
-    src/data/ExoplanetEuClient.cpp
-    src/data/ExoplanetDataAggregator.cpp
     # Exoplanet rendering
     src/render/ExoplanetConverter.cpp
     src/render/PlanetParams.cpp
     src/render/ExoplanetMapper.cpp
-    src/render/ThumbnailRenderer.cpp
-    # AI inference
-    src/ai/InferenceEngine.cpp
-    src/ai/BedrockClient.cpp
-    src/ai/JimmyClient.cpp
-    src/ai/GroqClient.cpp
 )
+
+# Network-dependent sources (require libcurl, desktop only)
+if(NOT EMSCRIPTEN)
+    list(APPEND ASTROCORE_SOURCES
+        src/data/NasaApiClient.cpp
+        src/data/OecClient.cpp
+        src/data/GaiaClient.cpp
+        src/data/CdsClient.cpp
+        src/data/DataFusionEngine.cpp
+        src/data/CacheManager.cpp
+        src/data/ExoMastClient.cpp
+        src/data/ExoplanetEuClient.cpp
+        src/data/ExoplanetDataAggregator.cpp
+        src/render/ThumbnailRenderer.cpp
+        src/ai/InferenceEngine.cpp
+        src/ai/BedrockClient.cpp
+        src/ai/JimmyClient.cpp
+        src/ai/GroqClient.cpp
+    )
+endif()
 
 # Backend-specific renderer source
 if(EMSCRIPTEN)
@@ -113,13 +118,13 @@ if(EMSCRIPTEN)
         -sUSE_WEBGPU=1
         -sUSE_GLFW=3
         -sALLOW_MEMORY_GROWTH=1
-        -sASYNCIFY
         --preload-file ${CMAKE_SOURCE_DIR}/assets@/assets
         --preload-file ${CMAKE_SOURCE_DIR}/shaders@/shaders
         --preload-file ${CMAKE_SOURCE_DIR}/configs@/configs
         --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html
     )
     target_compile_options(astrodex PRIVATE -sUSE_WEBGPU=1 -sUSE_GLFW=3)
+    target_compile_options(astrocore_lib PRIVATE -sUSE_WEBGPU=1 -sUSE_GLFW=3)
 else()
     # On macOS with Homebrew Vulkan/MoltenVK, ensure loader finds the ICD and dylib
     if(APPLE)

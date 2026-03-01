@@ -118,16 +118,6 @@ fn getPlanet() -> Sphere {
     return Sphere(u.planetPos_radius.xyz, u.planetPos_radius.w);
 }
 
-// ── GLSL mod replacement ────────────────────────────────────────────────────
-// GLSL mod(a,b) = a - b*floor(a/b), WGSL % is truncated remainder
-fn glsl_mod_f(a: f32, b: f32) -> f32 {
-    return a - b * floor(a / b);
-}
-
-fn glsl_mod_v3(a: vec3f, b: vec3f) -> vec3f {
-    return a - b * floor(a / b);
-}
-
 // ── Utility ──────────────────────────────────────────────────────────────────
 
 fn inverseLerp(v: f32, a: f32, b: f32) -> f32 { return (v - a) / (b - a); }
