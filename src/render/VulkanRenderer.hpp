@@ -36,6 +36,8 @@ public:
     uint32_t getSwapchainImageCount();
 
 private:
+    void recreateSwapchainAndSync();
+
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

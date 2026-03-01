@@ -31,7 +31,7 @@ public:
     void setEmissive(bool emissive) { emissive_ = emissive; }
     bool isEmissive() const { return emissive_; }
 
-    PlanetUniformsVk fillUniforms(const Camera& camera);
+    PlanetUniforms fillUniforms(const Camera& camera);
     void advanceTime(float dt);
     float currentTime() const { return time_; }
 

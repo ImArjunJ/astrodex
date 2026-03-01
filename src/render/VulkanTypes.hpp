@@ -4,10 +4,11 @@
 
 namespace astrocore {
 
-// Must match PlanetUniforms in planet_vk.frag exactly (std140 layout).
+// Must match PlanetUniforms in planet_vk.frag / planet_web.wgsl (std140 layout).
 // mat3 stored as 3 x vec4 (48 bytes) per std140 rules.
 // Total: 64 + 48 + 27*16 = 544 bytes.
-struct alignas(16) PlanetUniformsVk {
+// Used by both Vulkan and WebGPU renderers.
+struct alignas(16) PlanetUniforms {
     // mat4 invView (64 bytes)
     float invView[16];
 
@@ -50,7 +51,10 @@ struct alignas(16) PlanetUniformsVk {
     float noiseType, continentBlend, isEmissive, _pad17;             // extraParams
 };
 
-static_assert(sizeof(PlanetUniformsVk) == 544,
-    "PlanetUniformsVk size must match shader std140 layout (544 bytes)");
+static_assert(sizeof(PlanetUniforms) == 544,
+    "PlanetUniforms size must match shader std140 layout (544 bytes)");
+
+// Legacy alias for compatibility
+using PlanetUniformsVk = PlanetUniforms;
 
 } // namespace astrocore

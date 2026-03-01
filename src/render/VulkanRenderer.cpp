@@ -962,6 +962,14 @@ void VulkanRenderer::init(int width, int height, void* glfwWindow) {
              width, height, m_impl->swapchainImages.size());
 }
 
+// ── Helper ───────────────────────────────────────────────────────────────────
+
+void VulkanRenderer::recreateSwapchainAndSync() {
+    m_impl->recreateSwapchain();
+    width_  = static_cast<int>(m_impl->swapchainExtent.width);
+    height_ = static_cast<int>(m_impl->swapchainExtent.height);
+}
+
 // ── Frame loop ───────────────────────────────────────────────────────────────
 
 void VulkanRenderer::resize(int width, int height) {
@@ -979,9 +987,7 @@ void VulkanRenderer::beginFrame() {
         m_impl->imageAvailableSems[f], VK_NULL_HANDLE, &m_impl->currentImageIndex);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        m_impl->recreateSwapchain();
-        width_  = static_cast<int>(m_impl->swapchainExtent.width);
-        height_ = static_cast<int>(m_impl->swapchainExtent.height);
+        recreateSwapchainAndSync();
         return;
     }
 
@@ -1007,7 +1013,7 @@ void VulkanRenderer::render(const Camera& camera) {
     uint32_t f = m_impl->currentFrame;
     VkCommandBuffer cmd = m_impl->commandBuffers[f];
 
-    advanceTime(0.016f);
+    advanceTime(0.016f); // TODO: pass real frame dt from Application
 
     // Fill UBO via base class
     PlanetUniformsVk u = fillUniforms(camera);
@@ -1061,9 +1067,7 @@ void VulkanRenderer::endFrame() {
 
     VkResult result = vkQueuePresentKHR(m_impl->presentQueue, &present);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_impl->framebufferResized) {
-        m_impl->recreateSwapchain();
-        width_  = static_cast<int>(m_impl->swapchainExtent.width);
-        height_ = static_cast<int>(m_impl->swapchainExtent.height);
+        recreateSwapchainAndSync();
     }
 
     m_impl->currentFrame = (f + 1) % FRAMES_IN_FLIGHT;

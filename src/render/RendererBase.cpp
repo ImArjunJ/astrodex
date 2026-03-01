@@ -62,8 +62,8 @@ void RendererBase::advanceTime(float dt) {
 
 // ── fillUniforms ─────────────────────────────────────────────────────────────
 
-PlanetUniformsVk RendererBase::fillUniforms(const Camera& camera) {
-    PlanetUniformsVk u{};
+PlanetUniforms RendererBase::fillUniforms(const Camera& camera) {
+    PlanetUniforms u{};
 
     glm::mat4 inv = glm::inverse(camera.getViewMatrix());
     std::memcpy(u.invView, &inv[0][0], sizeof(u.invView));
