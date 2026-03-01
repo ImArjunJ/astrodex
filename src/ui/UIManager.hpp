@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <functional>
 #include <string>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -32,6 +33,12 @@ public:
     // Called by Application on the main thread with load status updates
     void setExoplanetStatus(const std::string& status);
 
+    // Called by Application to populate autocomplete suggestions
+    void setCachedNames(const std::vector<std::string>& names);
+
+    // Called by Application to disable input during pipeline execution
+    void setLoading(bool loading);
+
 private:
     void setupStyle();
 
@@ -42,6 +49,12 @@ private:
     char  m_searchBuf[256] = {};
     std::string m_exoStatus = "Enter a planet name and press Load.";
     std::function<void(const std::string&)> m_exoCallback;
+
+    // Autocomplete state
+    std::vector<std::string> m_cachedNames;  // sorted list of planet names for autocomplete
+
+    // Loading state
+    bool m_isLoading = false;  // disables search input and Load button when true
 };
 
 }  // namespace astrocore

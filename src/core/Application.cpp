@@ -232,7 +232,7 @@ void Application::loadPlanet(const std::string& name) {
             // ── Step 2: NASA Exoplanet Archive query ───────────────────────
             auto results = m_nasa->queryByNameSync(name);
             if (results.empty()) {
-                return {std::nullopt, "Not found: \"" + name + "\""};
+                return {std::nullopt, "Not found: \"" + name + "\"", std::nullopt};
             }
 
             auto data = results[0];
@@ -279,7 +279,7 @@ void Application::loadPlanet(const std::string& name) {
                                      usedAnalog.entry->name, usedAnalog.score * 100.0f);
             }
 
-            return {params, label};
+            return {params, label, data};
         });
 }
 
@@ -310,7 +310,7 @@ void Application::update(float deltaTime) {
     // Apply planet load result if ready
     if (m_planetLoading && m_planetFuture.valid()) {
         if (m_planetFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-            auto [params, status] = m_planetFuture.get();
+            auto [params, status, exoData] = m_planetFuture.get();
             if (params.has_value()) {
                 m_renderer->params() = *params;
             }
