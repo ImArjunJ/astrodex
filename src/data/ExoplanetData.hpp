@@ -72,6 +72,11 @@ struct ExoplanetData {
     // Host star
     HostStarData host_star;
 
+    // Position in sky (for galaxy visualization)
+    MeasuredValue<double> ra_hours;              // Right ascension in hours (0-24)
+    MeasuredValue<double> dec_degrees;           // Declination in degrees (-90 to +90)
+    MeasuredValue<double> distance_ly;           // Distance from Earth in light years
+
     // Orbital parameters
     MeasuredValue<double> orbital_period_days;
     MeasuredValue<double> semi_major_axis_au;

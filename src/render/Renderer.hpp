@@ -120,6 +120,12 @@ public:
     SphereRenderer& sphereRenderer() { return m_sphereRenderer; }
     OrbitRenderer& orbitRenderer() { return m_orbitRenderer; }
 
+    // Time control for rotation animation
+    void setPaused(bool paused) { m_paused = paused; }
+    bool isPaused() const { return m_paused; }
+    void setTimeScale(float scale) { m_timeScale = scale; }
+    float timeScale() const { return m_timeScale; }
+
     // Set planet position for detailed rendering
     void setPlanetPosition(const glm::vec3& pos) { m_planetPosition = pos; }
 
@@ -149,6 +155,8 @@ private:
     ShaderProgram m_starfieldShader;
     PlanetParams m_params;
     float m_time = 0.0f;
+    bool m_paused = false;
+    float m_timeScale = 1.0f;
     glm::vec3 m_planetPosition{0.0f, 0.0f, -10.0f};
 
     SphereRenderer m_sphereRenderer;

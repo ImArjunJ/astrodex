@@ -26,6 +26,8 @@ set(ASTROCORE_SOURCES
     src/render/OrbitRenderer.cpp
     src/render/RingRenderer.cpp
     src/ui/UIManager.cpp
+    src/ui/GalaxyView.cpp
+    src/intro/IntroAnimation.cpp
     # Physics engine
     src/physics/CelestialBody.cpp
     src/physics/Octree.cpp

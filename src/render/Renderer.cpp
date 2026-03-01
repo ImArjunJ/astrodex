@@ -114,7 +114,10 @@ void Renderer::beginFrame() {
 }
 
 void Renderer::render(const Camera& camera, bool isEmissive) {
-    m_time += 0.016f;  // ~60fps tick
+    // Update time with pause and scale support
+    if (!m_paused) {
+        m_time += 0.016f * m_timeScale;  // ~60fps tick, scaled
+    }
 
     // Enable depth test so planets occlude each other properly
     glEnable(GL_DEPTH_TEST);

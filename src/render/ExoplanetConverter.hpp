@@ -25,7 +25,7 @@ public:
     // Load pre-cached render params from ~/.cache/astrosplat/planets/
     static std::optional<PlanetParams> loadCachedParams(const std::string& planetName);
 
-    // List all cached planets (returns planet name and type pairs)
+    // List all cached planets (name + type only from cache files)
     struct CachedPlanetInfo {
         std::string name;
         std::string type;

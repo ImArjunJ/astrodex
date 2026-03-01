@@ -238,6 +238,25 @@ void Simulation::loadFromConfig(const SystemConfig& config) {
     LOG_INFO("Loaded system '{}' with {} bodies", config.name, m_world.bodyCount());
 }
 
+void Simulation::clear() {
+    // Clear physics world
+    m_world = PhysicsWorld();
+    m_world.setIntegrator(IntegratorType::Verlet);
+
+    // Clear visual data
+    m_appearances.clear();
+    m_ringParams.clear();
+
+    // Clear focus/selection
+    m_focusBody = nullptr;
+    m_selectedBody = nullptr;
+
+    // Flag to clear orbit trails on next render
+    m_orbitTrailsNeedClear = true;
+
+    LOG_INFO("Simulation cleared");
+}
+
 Simulation::Stats Simulation::getStats() const {
     Stats stats;
     stats.bodyCount = static_cast<int>(m_world.bodyCount());

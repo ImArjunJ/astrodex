@@ -91,6 +91,9 @@ public:
     // Load from a SystemConfig
     void loadFromConfig(const SystemConfig& config);
 
+    // Clear all simulation state (bodies, appearances, etc.)
+    void clear();
+
     // Statistics
     struct Stats {
         int bodyCount = 0;

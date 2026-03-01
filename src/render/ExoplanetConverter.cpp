@@ -799,7 +799,7 @@ std::vector<ExoplanetConverter::CachedPlanetInfo> ExoplanetConverter::listCached
                   return a.name < b.name;
               });
 
-    LOG_INFO("Found {} cached planets", results.size());
+    LOG_INFO("Found {} cached planets", static_cast<int>(results.size()));
     return results;
 }
 

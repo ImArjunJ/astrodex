@@ -96,6 +96,7 @@ std::string NasaApiClient::buildADQL(const std::string& whereClause, int limit) 
          << "st_logg, "                           // Stellar surface gravity
          << "st_spectype, "
          << "sy_dist, "
+         << "ra, dec, "                             // Coordinates for galaxy positioning
          << "disc_year, discoverymethod "
          << "FROM ps "
          << "WHERE default_flag = 1";
@@ -248,6 +249,18 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
     if (auto val = getValue("sy_dist")) {
         data.host_star.distance_pc.value = *val;
         data.host_star.distance_pc.source = DataSource::NASA_TAP;
+        // Also calculate distance in light years (1 parsec = 3.26156 ly)
+        data.distance_ly.value = *val * 3.26156;
+        data.distance_ly.source = DataSource::CALCULATED;
+    }
+    // Sky coordinates for galaxy visualization
+    if (auto val = getValue("ra")) {
+        data.ra_hours.value = *val / 15.0;  // Convert degrees to hours (360° = 24h)
+        data.ra_hours.source = DataSource::NASA_TAP;
+    }
+    if (auto val = getValue("dec")) {
+        data.dec_degrees.value = *val;
+        data.dec_degrees.source = DataSource::NASA_TAP;
     }
     // NEW: Stellar metallicity (important for planet composition)
     if (auto val = getValue("st_met")) {
