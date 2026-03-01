@@ -1,5 +1,7 @@
 #pragma once
 
+#include "explorer/StarData.hpp"
+
 #include <imgui.h>
 #include <glm/glm.hpp>
 #include <vector>
@@ -10,8 +12,13 @@
 namespace astrocore {
 
 struct PlanetParams;
+struct StarVertex;
+struct StarInfo;
 class PlanetThumbnailRenderer;
-class Galaxy3DRenderer;
+class StarRenderer;
+class FreeFlyCamera;
+class StarData;
+class StarLOD;
 
 // GalaxyView - Galaxy navigation screen with cached exoplanet browser
 class GalaxyView {
@@ -178,34 +185,32 @@ private:
     void renderCatalogTile(int planetIdx, float x, float y, float size);
     bool planetPassesFilter(int planetIdx) const;
 
-    // 3D Galaxy View
-    void render3DGalaxy(float W, float H);
+    // Real star field (Gaia DR3 + HYG)
+    void renderStarField(float W, float H);
     void handleCameraInput(float dt);
     void updateCameraAnimation(float dt);
-    void flyToObject(int objectId);
-    glm::mat4 getViewMatrix() const;
-    glm::mat4 getProjectionMatrix(float W, float H) const;
+    void updateStarLOD();
 
-    std::unique_ptr<Galaxy3DRenderer> m_galaxyRenderer;
+    std::unique_ptr<StarRenderer>  m_starRenderer;
+    std::unique_ptr<FreeFlyCamera> m_freeCamera;
+    std::unique_ptr<StarData>      m_starData;
+    std::unique_ptr<StarLOD>       m_starLOD;
 
-    // 3D Camera state
-    glm::vec3 m_cameraPos = glm::vec3(0.0f, 200.0f, 500.0f);
-    glm::vec3 m_cameraTarget = glm::vec3(0.0f);
-    float m_cameraYaw = 0.0f;    // Horizontal rotation
-    float m_cameraPitch = -0.3f; // Vertical rotation (looking down slightly)
-    float m_cameraSpeed = 200.0f;
-    float m_cameraSensitivity = 0.003f;
+    // Star render settings
+    float m_pointScale      = 2.0f;
+    float m_brightnessBoost = 1.5f;
+    bool  m_debugStars      = false;
+    float m_shellMultiplier = 1.0f;
 
-    // Camera animation (for flying to planets)
-    bool m_flyingToTarget = false;
-    glm::vec3 m_flyStartPos;
-    glm::vec3 m_flyEndPos;
-    float m_flyStartYaw = 0.0f;
-    float m_flyStartPitch = 0.0f;
-    float m_flyEndYaw = 0.0f;
-    float m_flyEndPitch = 0.0f;
-    float m_flyProgress = 0.0f;
-    float m_flyDuration = 2.5f;
+    // LOD state
+    bool  m_useLOD = false;
+    std::vector<StarVertex> m_visibleStars;
+    int   m_visibleCount = 0;
+    int   m_totalStarCount = 0;
+
+    // Nearest star cache
+    float    m_nearestTimer = 0.0f;
+    StarInfo m_cachedNearest{};
 
     // Transition state (zooming into/out of planet)
     enum class TransitionState { None, ZoomingIn, ViewingPlanet, ZoomingOut };
@@ -213,6 +218,18 @@ private:
     float m_transitionProgress = 0.0f;
     float m_transitionDuration = 2.0f;
     int m_transitionPlanetIdx = -1;
+
+    // Warp drive effect
+    float m_warpFactor = 0.0f;       // 0 = normal, 1 = full warp streaks
+    glm::vec3 m_warpDirection{0.0f}; // random direction for warp travel
+    float m_warpTargetYaw = 0.0f;    // yaw/pitch facing the warp direction
+    float m_warpTargetPitch = 0.0f;
+
+    // Camera state saved for zoom transitions
+    glm::vec3 m_savedCameraPos{0.0f};
+    float m_savedCameraYaw = -90.0f;
+    float m_savedCameraPitch = 0.0f;
+    float m_savedCameraSpeed = 1.0f;
 
     // Input state
     bool m_rightMouseDown = false;

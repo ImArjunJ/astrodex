@@ -91,24 +91,62 @@ std::future<bool> ExoplanetEuClient::downloadCatalog() {
     return std::async(std::launch::async, [this]() {
         if (!m_impl->curl) return false;
 
-        LOG_INFO("ExoplanetEu: Downloading full catalog...");
-        m_impl->responseBuffer.clear();
+        std::string csvData;
+        std::string cachePath = m_impl->config.cache_directory + "/exoplanet_eu_catalog.csv";
 
-        curl_easy_setopt(m_impl->curl, CURLOPT_URL, m_impl->config.api_endpoint.c_str());
-        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEFUNCTION, Impl::writeCallback);
-        curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, m_impl.get());
-        curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, 120L);  // Large file
-        curl_easy_setopt(m_impl->curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(m_impl->curl, CURLOPT_USERAGENT, "AstroCore/0.1.0");
+        // Try loading from disk cache first
+        if (m_impl->config.use_cache) {
+            std::error_code ec;
+            if (std::filesystem::exists(cachePath, ec)) {
+                auto lastWrite = std::filesystem::last_write_time(cachePath, ec);
+                auto age = std::filesystem::file_time_type::clock::now() - lastWrite;
+                auto ageHours = std::chrono::duration_cast<std::chrono::hours>(age).count();
 
-        CURLcode res = curl_easy_perform(m_impl->curl);
-        if (res != CURLE_OK) {
-            LOG_ERROR("ExoplanetEu: Download failed: {}", curl_easy_strerror(res));
-            return false;
+                if (ageHours < 24) {
+                    std::ifstream f(cachePath);
+                    if (f.good()) {
+                        csvData.assign(std::istreambuf_iterator<char>(f),
+                                       std::istreambuf_iterator<char>());
+                        LOG_INFO("ExoplanetEu: Using cached catalog ({} hours old, {:.1f} MB)",
+                                 ageHours, csvData.size() / 1e6);
+                    }
+                }
+            }
+        }
+
+        // Download if no cache hit
+        if (csvData.empty()) {
+            LOG_INFO("ExoplanetEu: Downloading full catalog...");
+            m_impl->responseBuffer.clear();
+
+            curl_easy_setopt(m_impl->curl, CURLOPT_URL, m_impl->config.api_endpoint.c_str());
+            curl_easy_setopt(m_impl->curl, CURLOPT_WRITEFUNCTION, Impl::writeCallback);
+            curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, m_impl.get());
+            curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, 120L);
+            curl_easy_setopt(m_impl->curl, CURLOPT_FOLLOWLOCATION, 1L);
+            curl_easy_setopt(m_impl->curl, CURLOPT_USERAGENT, "AstroCore/0.1.0");
+
+            CURLcode res = curl_easy_perform(m_impl->curl);
+            if (res != CURLE_OK) {
+                LOG_ERROR("ExoplanetEu: Download failed: {}", curl_easy_strerror(res));
+                return false;
+            }
+
+            csvData = std::move(m_impl->responseBuffer);
+
+            // Save to disk cache
+            if (m_impl->config.use_cache && !csvData.empty()) {
+                std::filesystem::create_directories(m_impl->config.cache_directory);
+                std::ofstream out(cachePath, std::ios::binary);
+                if (out.good()) {
+                    out.write(csvData.data(), static_cast<std::streamsize>(csvData.size()));
+                    LOG_INFO("ExoplanetEu: Saved catalog cache ({:.1f} MB)", csvData.size() / 1e6);
+                }
+            }
         }
 
         // Parse CSV
-        std::istringstream stream(m_impl->responseBuffer);
+        std::istringstream stream(csvData);
         std::string line;
         std::vector<std::string> headers;
 
