@@ -94,7 +94,7 @@ static PlanetParams makeVenus() {
 static PlanetParams makeEarth() {
     PlanetParams p;
     p.radius            = 2.0f;
-    p.waterLevel        = 0.22f;
+    p.waterLevel        = 0.04f;
     p.waterColorDeep    = {0.01f, 0.05f, 0.15f};
     p.waterColorSurface = {0.02f, 0.12f, 0.27f};
     p.treeColor         = {0.02f, 0.10f, 0.04f};
@@ -107,12 +107,12 @@ static PlanetParams makeEarth() {
     p.atmosphereColor   = {0.05f, 0.30f, 0.90f};
     p.atmosphereDensity = 0.30f;
     p.polarCapSize      = 0.15f;
-    p.continentScale    = 0.60f;
+    p.continentScale    = 1.00f;
     p.noiseStrength     = 0.20f;
     p.craterStrength    = 0.02f;
     p.sunIntensity      = 3.0f;
     p.sunColor          = {1.0f, 1.0f, 0.90f};
-    p.fbmExponentiation = 5.0f;
+    p.fbmExponentiation = 4.0f;
     p.fbmPersistence    = 0.50f;
     return p;
 }

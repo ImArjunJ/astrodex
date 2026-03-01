@@ -103,9 +103,9 @@ static constexpr int presetCount = sizeof(presetNames) / sizeof(presetNames[0]);
 static PlanetParams makePreset(int index) {
     PlanetParams p{}; // Earth defaults
     switch (index) {
-    case 0: // Earth — match SolarSystemDatabase::makeEarth()
+    case 0: // Earth — tuned for Vulkan shader noise pipeline
         p.radius            = 2.0f;
-        p.waterLevel        = 0.22f;
+        p.waterLevel        = 0.04f;
         p.waterColorDeep    = {0.01f, 0.05f, 0.15f};
         p.waterColorSurface = {0.02f, 0.12f, 0.27f};
         p.treeColor         = {0.02f, 0.10f, 0.04f};
@@ -118,12 +118,12 @@ static PlanetParams makePreset(int index) {
         p.atmosphereColor   = {0.05f, 0.30f, 0.90f};
         p.atmosphereDensity = 0.30f;
         p.polarCapSize      = 0.15f;
-        p.continentScale    = 0.60f;
+        p.continentScale    = 1.00f;
         p.noiseStrength     = 0.20f;
         p.craterStrength    = 0.02f;
         p.sunIntensity      = 3.0f;
         p.sunColor          = {1.0f, 1.0f, 0.90f};
-        p.fbmExponentiation = 5.0f;
+        p.fbmExponentiation = 4.0f;
         p.fbmPersistence    = 0.50f;
         break;
     case 1: // Mars — cratered, dry, thin atmosphere
@@ -678,10 +678,16 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing)) {
 
-                // Bring window to front when mouse is over it so clicks reach Selectables
-                bool acHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+                // Manual mouse-over check — works regardless of window z-order
+                // (IsWindowHovered fails when window is behind Planet Editor)
+                ImVec2 acWinPos  = ImGui::GetWindowPos();
+                ImVec2 acWinSize = ImGui::GetWindowSize();
+                ImVec2 mp = ImGui::GetIO().MousePos;
+                bool acHovered = mp.x >= acWinPos.x && mp.x <= acWinPos.x + acWinSize.x &&
+                                 mp.y >= acWinPos.y && mp.y <= acWinPos.y + acWinSize.y;
+
                 if (acHovered) {
-                    ImGui::SetWindowFocus();
+                    ImGui::SetWindowFocus();  // bring to front so clicks reach Selectables
                 }
 
                 int shown = 0;
@@ -702,9 +708,13 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
                     shown++;
                 }
 
-                // Close if user clicked outside both InputText and autocomplete
-                if (ImGui::IsMouseClicked(0) && !acHovered && !inputActive) {
-                    m_acOpen = false;
+                // Close if user clicked outside both autocomplete and InputText
+                if (ImGui::IsMouseClicked(0) && !acHovered) {
+                    bool overInput = mp.x >= acInputPos.x && mp.x <= acInputPos.x + acInputSize.x &&
+                                     mp.y >= acInputPos.y && mp.y <= acInputPos.y + acInputSize.y;
+                    if (!overInput) {
+                        m_acOpen = false;
+                    }
                 }
             }
             ImGui::End();
