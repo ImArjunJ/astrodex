@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 in TES_OUT {
     vec3 worldPos;

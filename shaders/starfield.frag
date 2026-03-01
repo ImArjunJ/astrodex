@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 in vec2 vTexCoord;
 in vec3 vRayDir;

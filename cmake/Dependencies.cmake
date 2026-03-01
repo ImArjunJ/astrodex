@@ -57,8 +57,8 @@ if(NOT glad_POPULATED)
     add_subdirectory(${glad_SOURCE_DIR}/cmake ${glad_BINARY_DIR})
 endif()
 
-# Generate GLAD for OpenGL 4.5 Core
-glad_add_library(glad_gl45_core REPRODUCIBLE API gl:core=4.5)
+# Generate GLAD for OpenGL 4.1 Core (max supported on macOS)
+glad_add_library(glad_gl41_core REPRODUCIBLE API gl:core=4.1)
 
 # Dear ImGui for UI
 FetchContent_Declare(

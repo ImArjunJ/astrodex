@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 // Instanced terrain vertex shader
 // One shared mesh, per-instance UV bounds

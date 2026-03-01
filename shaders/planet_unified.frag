@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 // =============================================================================
 // AstroCore Unified Planet Shader

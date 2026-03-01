@@ -92,38 +92,37 @@ std::future<bool> ExoplanetEuClient::downloadCatalog() {
         if (!m_impl->curl) return false;
 
         std::string csvData;
-        std::string cacheFile = m_impl->config.cache_directory + "/catalog.csv";
-        bool loadedFromCache = false;
+        std::string cachePath = m_impl->config.cache_directory + "/exoplanet_eu_catalog.csv";
 
-        // Check for cached catalog (valid for 24 hours)
-        if (m_impl->config.use_cache && std::filesystem::exists(cacheFile)) {
-            auto lastWrite = std::filesystem::last_write_time(cacheFile);
-            auto now = std::filesystem::file_time_type::clock::now();
-            auto age = std::chrono::duration_cast<std::chrono::hours>(now - lastWrite);
+        // Try loading from disk cache first
+        if (m_impl->config.use_cache) {
+            std::error_code ec;
+            if (std::filesystem::exists(cachePath, ec)) {
+                auto lastWrite = std::filesystem::last_write_time(cachePath, ec);
+                auto age = std::filesystem::file_time_type::clock::now() - lastWrite;
+                auto ageHours = std::chrono::duration_cast<std::chrono::hours>(age).count();
 
-            if (age.count() < 24) {
-                LOG_INFO("ExoplanetEu: Loading catalog from cache ({} hours old)", age.count());
-                std::ifstream file(cacheFile);
-                if (file) {
-                    std::ostringstream ss;
-                    ss << file.rdbuf();
-                    csvData = ss.str();
-                    loadedFromCache = true;
+                if (ageHours < 24) {
+                    std::ifstream f(cachePath);
+                    if (f.good()) {
+                        csvData.assign(std::istreambuf_iterator<char>(f),
+                                       std::istreambuf_iterator<char>());
+                        LOG_INFO("ExoplanetEu: Using cached catalog ({} hours old, {:.1f} MB)",
+                                 ageHours, csvData.size() / 1e6);
+                    }
                 }
-            } else {
-                LOG_INFO("ExoplanetEu: Cache expired ({} hours old), downloading fresh", age.count());
             }
         }
 
-        // Download if not loaded from cache
-        if (!loadedFromCache) {
+        // Download if no cache hit
+        if (csvData.empty()) {
             LOG_INFO("ExoplanetEu: Downloading full catalog...");
             m_impl->responseBuffer.clear();
 
             curl_easy_setopt(m_impl->curl, CURLOPT_URL, m_impl->config.api_endpoint.c_str());
             curl_easy_setopt(m_impl->curl, CURLOPT_WRITEFUNCTION, Impl::writeCallback);
             curl_easy_setopt(m_impl->curl, CURLOPT_WRITEDATA, m_impl.get());
-            curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, 120L);  // Large file
+            curl_easy_setopt(m_impl->curl, CURLOPT_TIMEOUT, 120L);
             curl_easy_setopt(m_impl->curl, CURLOPT_FOLLOWLOCATION, 1L);
             curl_easy_setopt(m_impl->curl, CURLOPT_USERAGENT, "AstroCore/0.1.0");
 
@@ -133,15 +132,15 @@ std::future<bool> ExoplanetEuClient::downloadCatalog() {
                 return false;
             }
 
-            csvData = m_impl->responseBuffer;
+            csvData = std::move(m_impl->responseBuffer);
 
-            // Save to cache
-            if (m_impl->config.use_cache) {
+            // Save to disk cache
+            if (m_impl->config.use_cache && !csvData.empty()) {
                 std::filesystem::create_directories(m_impl->config.cache_directory);
-                std::ofstream file(cacheFile);
-                if (file) {
-                    file << csvData;
-                    LOG_INFO("ExoplanetEu: Saved catalog to cache");
+                std::ofstream out(cachePath, std::ios::binary);
+                if (out.good()) {
+                    out.write(csvData.data(), static_cast<std::streamsize>(csvData.size()));
+                    LOG_INFO("ExoplanetEu: Saved catalog cache ({:.1f} MB)", csvData.size() / 1e6);
                 }
             }
         }

@@ -54,7 +54,7 @@ void OrbitRenderer::shutdown() {
 
 void OrbitRenderer::createShader() {
     const char* vertexSource = R"(
-#version 450 core
+#version 410 core
 
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
@@ -73,7 +73,7 @@ void main() {
 )";
 
     const char* fragmentSource = R"(
-#version 450 core
+#version 410 core
 
 in vec3 vColor;
 in float vAlpha;

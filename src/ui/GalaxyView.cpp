@@ -1,7 +1,10 @@
 #include "ui/GalaxyView.hpp"
 #include "render/ExoplanetConverter.hpp"
 #include "render/PlanetThumbnailRenderer.hpp"
-#include "render/Galaxy3DRenderer.hpp"
+#include "explorer/StarRenderer.hpp"
+#include "explorer/FreeFlyCamera.hpp"
+#include "explorer/StarData.hpp"
+#include "explorer/StarLOD.hpp"
 
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -10,6 +13,7 @@
 
 #include <random>
 #include <cmath>
+#include <cstdlib>
 #include <algorithm>
 #include <cstring>
 
@@ -71,15 +75,31 @@ void GalaxyView::init(float W, float H) {
     m_catalogOpen = false;
     m_catalogSlideAnim = 0.0f;
 
-    // Initialize 3D galaxy renderer
-    m_galaxyRenderer = std::make_unique<Galaxy3DRenderer>();
-    m_galaxyRenderer->init();
-    m_galaxyRenderer->generateGalaxy(60000, 4);  // 60k stars, 4 spiral arms
+    // Initialize real star field (Gaia DR3 + HYG)
+    m_freeCamera = std::make_unique<FreeFlyCamera>();
+    m_freeCamera->setAspectRatio(W / std::max(H, 1.0f));
 
-    // Position camera to look at galaxy from above
-    m_cameraPos = glm::vec3(0.0f, 400.0f, 600.0f);
-    m_cameraYaw = 0.0f;
-    m_cameraPitch = -0.5f;  // Looking down at galaxy
+    m_starRenderer = std::make_unique<StarRenderer>();
+    // Use framebuffer size (not logical size) for Retina/HiDPI
+    ImGuiIO& initIO = ImGui::GetIO();
+    int fbW = static_cast<int>(W * initIO.DisplayFramebufferScale.x);
+    int fbH = static_cast<int>(H * initIO.DisplayFramebufferScale.y);
+    m_starRenderer->init(fbW, fbH, nullptr);
+
+    m_starData = std::make_unique<StarData>();
+    m_starData->load("assets/starmap/.hyg_cache.csv");
+
+    m_starLOD = std::make_unique<StarLOD>();
+    if (m_starLOD->load("assets/starmap/gaia_multilod.bin")) {
+        m_useLOD = true;
+        m_totalStarCount = static_cast<int>(m_starLOD->totalStars());
+    } else {
+        m_starLOD.reset();
+        if (m_starData && m_starData->count() > 0) {
+            m_starRenderer->uploadStars(m_starData->vertices());
+            m_totalStarCount = static_cast<int>(m_starData->count());
+        }
+    }
 }
 
 void GalaxyView::reset() {
@@ -234,15 +254,7 @@ void GalaxyView::loadCachedPlanets() {
     // Update filtered indices
     updateSearch();
 
-    // Sync all planets to 3D renderer
-    if (m_galaxyRenderer) {
-        m_galaxyRenderer->clearObjects();
-        for (int i = 0; i < static_cast<int>(m_planets.size()); ++i) {
-            const auto& p = m_planets[static_cast<size_t>(i)];
-            m_galaxyRenderer->addObject(p.name, p.typeStr, p.distanceLY,
-                                        glm::vec3(p.r, p.g, p.b), i);
-        }
-    }
+    // Planet positions managed by catalog UI (no 3D markers in real star field)
 }
 
 void GalaxyView::assignPlanetPositions(float W, float H) {
@@ -542,8 +554,8 @@ void GalaxyView::drawGlowLine(ImDrawList* dl, ImVec2 a, ImVec2 b, float alpha) c
 void GalaxyView::renderBackground(ImDrawList* /*dl*/, float W, float H) {
     if (!m_initialized) return;
 
-    // Render 3D galaxy (OpenGL rendering, not ImGui)
-    render3DGalaxy(W, H);
+    // Render real star field (OpenGL rendering)
+    renderStarField(W, H);
 }
 
 bool GalaxyView::renderUI(float W, float H) {
@@ -797,6 +809,48 @@ bool GalaxyView::renderUI(float W, float H) {
                 }
             }
             ImGui::PopStyleColor(2);
+        }
+        ImGui::End();
+    }
+
+    // Star field settings panel (bottom-right)
+    {
+        float panelW = 280.f;
+        float panelH = 200.f;
+        ImGui::SetNextWindowPos(ImVec2(W - panelW - 10.f, H - panelH - 10.f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(panelW, panelH), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.85f);
+        if (ImGui::Begin("##star_settings", nullptr,
+                ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+            ImGui::TextDisabled("STAR FIELD");
+            ImGui::Separator();
+
+            ImGui::SliderFloat("Point Size", &m_pointScale, 0.1f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Brightness", &m_brightnessBoost, 0.1f, 100.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+
+            if (m_freeCamera) {
+                float speed = m_freeCamera->getSpeed();
+                if (ImGui::SliderFloat("Speed (pc/s)", &speed, 0.001f, 10000.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) {
+                    m_freeCamera->setSpeed(speed);
+                }
+            }
+
+            ImGui::Separator();
+            if (m_useLOD) {
+                ImGui::Text("Gaia DR3: %d visible / %d total", m_visibleCount, m_totalStarCount);
+            } else {
+                ImGui::Text("HYG: %d stars", m_totalStarCount);
+            }
+
+            if (m_freeCamera) {
+                glm::vec3 pos = m_freeCamera->getPosition();
+                ImGui::TextDisabled("Pos: (%.1f, %.1f, %.1f) pc", pos.x, pos.y, pos.z);
+            }
+
+            if (!m_cachedNearest.name.empty()) {
+                ImGui::TextDisabled("Nearest: %s (%.2f pc)", m_cachedNearest.name.c_str(), m_cachedNearest.distance);
+            }
         }
         ImGui::End();
     }
@@ -1297,69 +1351,31 @@ void GalaxyView::renderCatalogTile(int planetIdx, float /*x*/, float /*y*/, floa
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 3D Galaxy View Functions
+// Real Star Field (Gaia DR3 + HYG)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-glm::mat4 GalaxyView::getViewMatrix() const {
-    // Calculate camera direction from yaw/pitch
-    glm::vec3 direction;
-    direction.x = std::cos(m_cameraPitch) * std::sin(m_cameraYaw);
-    direction.y = std::sin(m_cameraPitch);
-    direction.z = std::cos(m_cameraPitch) * std::cos(m_cameraYaw);
-
-    glm::vec3 target = m_cameraPos + direction;
-    return glm::lookAt(m_cameraPos, target, glm::vec3(0.0f, 1.0f, 0.0f));
-}
-
-glm::mat4 GalaxyView::getProjectionMatrix(float W, float H) const {
-    return glm::perspective(glm::radians(60.0f), W / H, 1.0f, 10000.0f);
-}
-
 void GalaxyView::handleCameraInput(float dt) {
-    if (!m_initialized || m_flyingToTarget) return;
+    if (!m_initialized || !m_freeCamera) return;
+    if (m_transitionState != TransitionState::None) return;
 
-    // Get GLFW window from ImGui
     ImGuiIO& io = ImGui::GetIO();
-
-    // Don't process input if ImGui wants it
     if (io.WantCaptureKeyboard) return;
 
-    // Calculate movement direction based on yaw
-    glm::vec3 forward;
-    forward.x = std::sin(m_cameraYaw);
-    forward.y = 0.0f;
-    forward.z = std::cos(m_cameraYaw);
+    // WASD + Space/Shift movement via FreeFlyCamera
+    bool forward = ImGui::IsKeyDown(ImGuiKey_W);
+    bool back    = ImGui::IsKeyDown(ImGuiKey_S);
+    bool left    = ImGui::IsKeyDown(ImGuiKey_A);
+    bool right   = ImGui::IsKeyDown(ImGuiKey_D);
+    bool up      = ImGui::IsKeyDown(ImGuiKey_Space);
+    bool down    = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
+    m_freeCamera->processKeyboard(forward, back, left, right, up, down, dt);
 
-    glm::vec3 right = glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f));
-
-    float speed = m_cameraSpeed;
-
-    // Sprint with Shift
-    if (ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift)) {
-        speed *= 3.0f;
-    }
-
-    // WASD / Arrow keys for movement
-    if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
-        m_cameraPos += forward * speed * dt;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
-        m_cameraPos -= forward * speed * dt;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
-        m_cameraPos -= right * speed * dt;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
-        m_cameraPos += right * speed * dt;
-    }
-
-    // Q/E for up/down
-    if (ImGui::IsKeyDown(ImGuiKey_Q)) {
-        m_cameraPos.y -= speed * dt;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_E)) {
-        m_cameraPos.y += speed * dt;
-    }
+    // Arrow keys for look
+    bool lookLeft  = ImGui::IsKeyDown(ImGuiKey_LeftArrow);
+    bool lookRight = ImGui::IsKeyDown(ImGuiKey_RightArrow);
+    bool lookUp    = ImGui::IsKeyDown(ImGuiKey_UpArrow);
+    bool lookDown  = ImGui::IsKeyDown(ImGuiKey_DownArrow);
+    m_freeCamera->processArrowKeys(lookLeft, lookRight, lookUp, lookDown, dt);
 
     // Mouse look (right-click drag)
     if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && !io.WantCaptureMouse) {
@@ -1370,75 +1386,83 @@ void GalaxyView::handleCameraInput(float dt) {
             glm::vec2 currentPos(io.MousePos.x, io.MousePos.y);
             glm::vec2 delta = currentPos - m_lastMousePos;
             m_lastMousePos = currentPos;
-
-            m_cameraYaw -= delta.x * m_cameraSensitivity;
-            m_cameraPitch -= delta.y * m_cameraSensitivity;
-
-            // Clamp pitch
-            m_cameraPitch = glm::clamp(m_cameraPitch, -1.5f, 1.5f);
+            m_freeCamera->processMouseMovement(delta.x, -delta.y);
         }
     } else {
         m_rightMouseDown = false;
     }
 
-    // Scroll to zoom (move forward/backward)
+    // Scroll to adjust speed
     if (!io.WantCaptureMouse && std::abs(io.MouseWheel) > 0.01f) {
-        glm::vec3 direction;
-        direction.x = std::cos(m_cameraPitch) * std::sin(m_cameraYaw);
-        direction.y = std::sin(m_cameraPitch);
-        direction.z = std::cos(m_cameraPitch) * std::cos(m_cameraYaw);
-        m_cameraPos += direction * io.MouseWheel * 50.0f;
+        m_freeCamera->processScroll(io.MouseWheel);
     }
 }
 
-void GalaxyView::flyToObject(int objectId) {
-    if (!m_galaxyRenderer) return;
+void GalaxyView::updateStarLOD() {
+    if (!m_useLOD || !m_starLOD || !m_freeCamera) return;
 
-    glm::vec3 targetPos = m_galaxyRenderer->getObjectPosition(objectId);
+    static constexpr float BASE_SHELL_DISTANCES[] = {
+        100.0f, 1000.0f, 5000.0f, 100000.0f
+    };
 
-    // Position camera to view the object from a nice angle
-    m_flyStartPos = m_cameraPos;
-    m_flyEndPos = targetPos + glm::vec3(0.0f, 50.0f, 100.0f);
-
-    // Point camera at target
-    glm::vec3 toTarget = targetPos - m_flyEndPos;
-    m_cameraYaw = std::atan2(toTarget.x, toTarget.z);
-    m_cameraPitch = std::atan2(-toTarget.y, std::sqrt(toTarget.x * toTarget.x + toTarget.z * toTarget.z));
-
-    m_flyingToTarget = true;
-    m_flyProgress = 0.0f;
-    m_flyDuration = 2.0f;
-}
-
-void GalaxyView::render3DGalaxy(float W, float H) {
-    if (!m_galaxyRenderer || !m_initialized) return;
-
-    // Update selected object in renderer
-    if (m_selectedIdx >= 0 && m_selectedIdx < static_cast<int>(m_planets.size())) {
-        m_galaxyRenderer->setSelectedObject(m_selectedIdx);
+    float shells[NUM_LOD_LEVELS];
+    for (int i = 0; i < NUM_LOD_LEVELS; i++) {
+        shells[i] = BASE_SHELL_DISTANCES[i] * m_shellMultiplier;
     }
 
-    // Get view/projection matrices
-    glm::mat4 view = getViewMatrix();
-    glm::mat4 proj = getProjectionMatrix(W, H);
-    glm::mat4 viewProj = proj * view;
+    // Start with HYG as base layer
+    if (m_starData && m_starData->count() > 0) {
+        m_visibleStars = m_starData->vertices();
+    } else {
+        m_visibleStars.clear();
+    }
 
-    // Render the 3D galaxy
-    m_galaxyRenderer->render(viewProj, m_cameraPos, m_time);
+    // Add Gaia LOD stars on top
+    int gaiabudget = 2'000'000 - static_cast<int>(m_visibleStars.size());
+    if (gaiabudget > 0) {
+        std::vector<StarVertex> gaiaStars;
+        m_starLOD->collectVisible(m_freeCamera->getPosition(), shells, gaiaStars, gaiabudget);
+        m_visibleStars.insert(m_visibleStars.end(), gaiaStars.begin(), gaiaStars.end());
+    }
 
-    // Handle mouse picking (click to select planet) - only when not transitioning
-    if (m_transitionState == TransitionState::None) {
-        ImGuiIO& io = ImGui::GetIO();
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.WantCaptureMouse) {
-            glm::vec2 mousePos(io.MousePos.x, io.MousePos.y);
-            int pickedId = m_galaxyRenderer->pickObject(mousePos, viewProj, glm::vec2(W, H));
-            if (pickedId >= 0 && pickedId < static_cast<int>(m_planets.size())) {
-                m_selectedIdx = pickedId;
-                m_selectedName = m_planets[static_cast<size_t>(pickedId)].name;
-                m_selectedPreset = m_planets[static_cast<size_t>(pickedId)].presetIdx;
-            }
+    // Inject Sol marker
+    StarVertex sol;
+    sol.position  = glm::vec3(0.0f);
+    sol.magnitude = -10.0f;
+    sol.color     = glm::vec3(1.0f, 1.0f, 0.0f);
+    m_visibleStars.insert(m_visibleStars.begin(), sol);
+
+    m_visibleCount = static_cast<int>(m_visibleStars.size());
+    m_starRenderer->updateStars(m_visibleStars);
+}
+
+void GalaxyView::renderStarField(float W, float H) {
+    if (!m_starRenderer || !m_freeCamera || !m_initialized) return;
+
+    // Use framebuffer size (not logical size) for Retina/HiDPI
+    ImGuiIO& io = ImGui::GetIO();
+    int fbW = static_cast<int>(W * io.DisplayFramebufferScale.x);
+    int fbH = static_cast<int>(H * io.DisplayFramebufferScale.y);
+    m_freeCamera->setAspectRatio(W / std::max(H, 1.0f));
+    m_starRenderer->resize(fbW, fbH);
+
+    // Update LOD star collection
+    updateStarLOD();
+
+    // Update nearest star cache
+    m_nearestTimer += ImGui::GetIO().DeltaTime;
+    if (m_nearestTimer >= 0.5f) {
+        m_nearestTimer = 0.0f;
+        if (m_useLOD && m_starLOD) {
+            m_cachedNearest = m_starLOD->findNearest(m_freeCamera->getPosition());
+        } else if (m_starData) {
+            m_cachedNearest = m_starData->findNearest(m_freeCamera->getPosition());
         }
     }
+
+    // Render
+    m_starRenderer->beginFrame();
+    m_starRenderer->render(*m_freeCamera, m_time, m_pointScale, m_brightnessBoost, m_debugStars, m_warpFactor);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1447,27 +1471,35 @@ void GalaxyView::render3DGalaxy(float W, float H) {
 
 void GalaxyView::startZoomToPlanet(int planetIdx) {
     if (planetIdx < 0 || planetIdx >= static_cast<int>(m_planets.size())) return;
-    if (!m_galaxyRenderer) return;
+    if (!m_freeCamera) return;
 
     m_transitionPlanetIdx = planetIdx;
     m_transitionState = TransitionState::ZoomingIn;
     m_transitionProgress = 0.0f;
+    m_warpFactor = 0.0f;
 
-    // Store current camera state
-    m_flyStartPos = m_cameraPos;
-    m_flyStartYaw = m_cameraYaw;
-    m_flyStartPitch = m_cameraPitch;
+    // Save current camera state for return trip
+    m_savedCameraPos = m_freeCamera->getPosition();
+    m_savedCameraYaw = m_freeCamera->getYaw();
+    m_savedCameraPitch = m_freeCamera->getPitch();
+    m_savedCameraSpeed = m_freeCamera->getSpeed();
 
-    // Calculate end position - very close to planet, looking at it
-    glm::vec3 planetPos = m_galaxyRenderer->getObjectPosition(planetIdx);
+    // Pick random warp direction: ±30° from current facing
+    glm::vec3 forward = m_freeCamera->getForward();
+    // Build a basis around forward
+    glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
+    glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
+    glm::vec3 up = glm::normalize(glm::cross(right, forward));
 
-    // End position is close to the planet, slightly offset
-    m_flyEndPos = planetPos + glm::vec3(0.0f, 5.0f, 15.0f);
+    // Random offsets within ±30° cone
+    float maxAngle = glm::radians(30.0f);
+    float randYaw   = (static_cast<float>(std::rand()) / RAND_MAX * 2.0f - 1.0f) * maxAngle;
+    float randPitch = (static_cast<float>(std::rand()) / RAND_MAX * 2.0f - 1.0f) * maxAngle;
+    m_warpDirection = glm::normalize(forward + right * std::tan(randYaw) + up * std::tan(randPitch));
 
-    // Calculate yaw/pitch to look at planet from end position
-    glm::vec3 toTarget = planetPos - m_flyEndPos;
-    m_flyEndYaw = std::atan2(toTarget.x, toTarget.z);
-    m_flyEndPitch = std::atan2(-toTarget.y, std::sqrt(toTarget.x * toTarget.x + toTarget.z * toTarget.z));
+    // Compute yaw/pitch that faces the warp direction (so camera rotates to match)
+    m_warpTargetYaw = glm::degrees(std::atan2(m_warpDirection.z, m_warpDirection.x));
+    m_warpTargetPitch = glm::degrees(std::asin(std::clamp(m_warpDirection.y, -1.0f, 1.0f)));
 
     // Set selected planet
     m_selectedIdx = planetIdx;
@@ -1480,30 +1512,13 @@ void GalaxyView::startZoomToGalaxy() {
 
     m_transitionState = TransitionState::ZoomingOut;
     m_transitionProgress = 0.0f;
+    m_warpFactor = 0.0f;
 
-    // Current position is close to planet, we want to zoom back out
-    // Swap start/end for reverse animation
-    glm::vec3 tempPos = m_flyStartPos;
-    m_flyStartPos = m_flyEndPos;
-    m_flyEndPos = tempPos;
-
-    float tempYaw = m_flyStartYaw;
-    m_flyStartYaw = m_flyEndYaw;
-    m_flyEndYaw = tempYaw;
-
-    float tempPitch = m_flyStartPitch;
-    m_flyStartPitch = m_flyEndPitch;
-    m_flyEndPitch = tempPitch;
-
-    // Start from current camera position
-    m_flyStartPos = m_cameraPos;
-    m_flyStartYaw = m_cameraYaw;
-    m_flyStartPitch = m_cameraPitch;
+    // Reverse warp direction
+    m_warpDirection = -m_warpDirection;
 }
 
 void GalaxyView::onPlanetReady() {
-    // Called when planet detail rendering is ready
-    // If we're zooming in and close enough, transition to viewing state
     if (m_transitionState == TransitionState::ZoomingIn && m_transitionProgress >= 0.9f) {
         m_transitionState = TransitionState::ViewingPlanet;
         m_transitionProgress = 1.0f;
@@ -1511,58 +1526,77 @@ void GalaxyView::onPlanetReady() {
 }
 
 void GalaxyView::updateCameraAnimation(float dt) {
-    // Handle zoom transitions
-    if (m_transitionState == TransitionState::ZoomingIn ||
-        m_transitionState == TransitionState::ZoomingOut) {
-
+    if (m_transitionState == TransitionState::ZoomingIn) {
         m_transitionProgress += dt / m_transitionDuration;
-
         if (m_transitionProgress >= 1.0f) {
             m_transitionProgress = 1.0f;
+            m_transitionState = TransitionState::ViewingPlanet;
+            m_warpFactor = 0.0f;
+        }
 
-            if (m_transitionState == TransitionState::ZoomingIn) {
-                // Arrived at planet - wait for planet to be ready or switch immediately
-                m_transitionState = TransitionState::ViewingPlanet;
-            } else {
-                // Returned to galaxy
-                m_transitionState = TransitionState::None;
-                m_transitionPlanetIdx = -1;
+        // Warp ramp: ease in fast, hold, then ease out at the end
+        // 0-20%: ramp up, 20-80%: full warp, 80-100%: ramp down
+        float t = m_transitionProgress;
+        if (t < 0.2f) {
+            m_warpFactor = t / 0.2f;                         // 0→1
+        } else if (t < 0.8f) {
+            m_warpFactor = 1.0f;                              // hold at 1
+        } else {
+            m_warpFactor = 1.0f - (t - 0.8f) / 0.2f;        // 1→0
+        }
+        // Smooth the ramp
+        m_warpFactor = m_warpFactor * m_warpFactor * (3.0f - 2.0f * m_warpFactor);
+
+        if (m_freeCamera) {
+            // Smoothly rotate camera to face warp direction during ramp-up (first 20%)
+            if (t < 0.25f) {
+                float rotT = t / 0.25f;
+                rotT = rotT * rotT * (3.0f - 2.0f * rotT); // smoothstep
+                float curYaw = m_savedCameraYaw + (m_warpTargetYaw - m_savedCameraYaw) * rotT;
+                float curPitch = m_savedCameraPitch + (m_warpTargetPitch - m_savedCameraPitch) * rotT;
+                m_freeCamera->setYawPitch(curYaw, curPitch);
+            }
+
+            // Fly camera FAST in the warp direction
+            float warpSpeed = 500.0f * m_warpFactor;
+            glm::vec3 pos = m_freeCamera->getPosition();
+            pos += m_warpDirection * warpSpeed * dt;
+            m_freeCamera->setPosition(pos);
+        }
+    } else if (m_transitionState == TransitionState::ZoomingOut) {
+        m_transitionProgress += dt / m_transitionDuration;
+        if (m_transitionProgress >= 1.0f) {
+            m_transitionProgress = 1.0f;
+            m_transitionState = TransitionState::None;
+            m_transitionPlanetIdx = -1;
+            m_warpFactor = 0.0f;
+
+            // Restore camera to saved galaxy position and orientation
+            if (m_freeCamera) {
+                m_freeCamera->setPosition(m_savedCameraPos);
+                m_freeCamera->setYawPitch(m_savedCameraYaw, m_savedCameraPitch);
+                m_freeCamera->setSpeed(m_savedCameraSpeed);
             }
         }
 
-        // Smooth ease-in-out interpolation
+        // Reverse warp ramp
         float t = m_transitionProgress;
-        // Cubic ease-in-out for smooth acceleration/deceleration
-        float smoothT;
-        if (t < 0.5f) {
-            smoothT = 4.0f * t * t * t;
+        if (t < 0.2f) {
+            m_warpFactor = t / 0.2f;
+        } else if (t < 0.8f) {
+            m_warpFactor = 1.0f;
         } else {
-            float f = (2.0f * t) - 2.0f;
-            smoothT = 0.5f * f * f * f + 1.0f;
+            m_warpFactor = 1.0f - (t - 0.8f) / 0.2f;
         }
+        m_warpFactor = m_warpFactor * m_warpFactor * (3.0f - 2.0f * m_warpFactor);
 
-        // Interpolate camera position and orientation
-        m_cameraPos = glm::mix(m_flyStartPos, m_flyEndPos, smoothT);
-        m_cameraYaw = m_flyStartYaw + (m_flyEndYaw - m_flyStartYaw) * smoothT;
-        m_cameraPitch = m_flyStartPitch + (m_flyEndPitch - m_flyStartPitch) * smoothT;
-
-        return;  // Don't process other flying animations during transition
-    }
-
-    // Regular fly-to animation (for clicking planets in galaxy)
-    if (!m_flyingToTarget) return;
-
-    m_flyProgress += dt / m_flyDuration;
-
-    if (m_flyProgress >= 1.0f) {
-        m_flyProgress = 1.0f;
-        m_flyingToTarget = false;
-        m_cameraPos = m_flyEndPos;
-    } else {
-        // Smooth ease-in-out interpolation
-        float t = m_flyProgress;
-        float smoothT = t * t * (3.0f - 2.0f * t);  // Smoothstep
-        m_cameraPos = glm::mix(m_flyStartPos, m_flyEndPos, smoothT);
+        // Fly camera in warp direction (reversed)
+        if (m_freeCamera) {
+            float warpSpeed = 500.0f * m_warpFactor;
+            glm::vec3 pos = m_freeCamera->getPosition();
+            pos += m_warpDirection * warpSpeed * dt;
+            m_freeCamera->setPosition(pos);
+        }
     }
 }
 

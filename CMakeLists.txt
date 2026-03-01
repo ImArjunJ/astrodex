@@ -49,7 +49,11 @@ set(ASTROCORE_SOURCES
     src/data/ExoplanetDataAggregator.cpp
     # Exoplanet rendering
     src/render/ExoplanetConverter.cpp
-    src/render/Galaxy3DRenderer.cpp
+    # Star explorer (real Gaia star field for galaxy view)
+    src/explorer/StarRenderer.cpp
+    src/explorer/FreeFlyCamera.cpp
+    src/explorer/StarData.cpp
+    src/explorer/StarLOD.cpp
     # AI inference
     src/ai/InferenceEngine.cpp
     src/ai/BedrockClient.cpp
@@ -66,7 +70,7 @@ target_include_directories(astrocore_lib
 
 target_link_libraries(astrocore_lib
     PUBLIC
-        glad_gl45_core
+        glad_gl41_core
         glfw
         OpenGL::GL
         glm::glm
@@ -89,3 +93,52 @@ add_custom_command(TARGET astrosplat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/configs $<TARGET_FILE_DIR:astrosplat>/configs
 )
+
+# ── Star Explorer ────────────────────────────────────────────────────────────
+# Separate executable for 3D star navigation using OpenGL point rendering.
+# Compiles shared sources (Window, Logger, ShaderProgram) directly to avoid
+# pulling in the full astrocore_lib dependency chain.
+
+set(STAREXPLORER_SOURCES
+    src/explorer/main_explorer.cpp
+    src/explorer/StarExplorerApp.cpp
+    src/explorer/StarRenderer.cpp
+    src/explorer/FreeFlyCamera.cpp
+    src/explorer/StarData.cpp
+    src/explorer/StarLOD.cpp
+    src/explorer/ExplorerUI.cpp
+    src/core/Window.cpp
+    src/core/Logger.cpp
+    src/render/ShaderProgram.cpp
+)
+
+add_executable(starexplorer ${STAREXPLORER_SOURCES})
+target_include_directories(starexplorer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(starexplorer
+    PRIVATE
+        glad_gl41_core
+        glfw
+        OpenGL::GL
+        glm::glm
+        spdlog::spdlog
+        imgui_impl
+)
+
+add_custom_command(TARGET starexplorer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:starexplorer>/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:starexplorer>/assets
+)
+
+# ── Star LOD Builder (offline preprocessing tool) ────────────────────────────
+# Reads gaia_raw.bin and produces gaia_multilod.bin with per-cell LOD assignment.
+
+add_executable(star_lod_builder src/explorer/star_lod_builder.cpp)
+target_compile_features(star_lod_builder PRIVATE cxx_std_17)
+
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(star_lod_builder PRIVATE OpenMP::OpenMP_CXX)
+endif()
