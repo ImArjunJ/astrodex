@@ -13,6 +13,8 @@ struct PlanetParams;
 struct ExoplanetData;
 class VulkanRenderer;
 
+enum class Theme { Dark, Light };
+
 class UIManager {
 public:
     UIManager();
@@ -43,24 +45,37 @@ public:
     // Called by Application to pass loaded exoplanet data for info panel
     void setExoplanetData(const ExoplanetData* data);
 
+    // Returns preset PlanetParams by index (0=Earth … 7=Alien)
+    static PlanetParams getPreset(int index);
+
+    // True for exactly one call after the "← Galaxy" back button is pressed
+    bool wasBackPressed();
+
+    // Sync the current theme to a GalaxyView (call after init)
+    void applyThemeTo(Theme t);
+
+    // Persistent top-right pill toggle — call every frame (galaxy + planet screens)
+    void renderThemeToggle();
+
+    Theme getTheme() const { return m_theme; }
+
 private:
     void setupStyle();
 
-    bool m_initialized = false;
-    int  m_presetIndex = 0;
+    bool  m_initialized  = false;
+    int   m_presetIndex  = 0;
+    Theme m_theme        = Theme::Dark;
+    bool  m_backPressed  = false;
+    float m_toggleAnimT  = 0.f;   // 0 = dark side, 1 = light side (animated)
 
     // Exoplanet search state
     char  m_searchBuf[256] = {};
-    std::string m_exoStatus = "Enter a planet name and press Load.";
+    std::string m_exoStatus = "Select a planet from the Galaxy view.";
     std::function<void(const std::string&)> m_exoCallback;
 
     // Autocomplete state
-    std::vector<std::string> m_cachedNames;  // sorted list of planet names for autocomplete
-
-    // Loading state
-    bool m_isLoading = false;  // disables search input and Load button when true
-
-    // Autocomplete open state (persistent across frames, not tied to InputText focus)
+    std::vector<std::string> m_cachedNames;
+    bool m_isLoading = false;
     bool m_acOpen = false;
 
     // Exoplanet data for info panel (owned by Application)

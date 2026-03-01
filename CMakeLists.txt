@@ -49,6 +49,7 @@ set(ASTROCORE_SOURCES
     src/render/PlanetParams.cpp
     src/render/ExoplanetMapper.cpp
     src/ui/UIManager.cpp
+    src/ui/GalaxyView.cpp
     src/intro/IntroAnimation.cpp
     # Data layer
     src/data/NasaApiClient.cpp
