@@ -72,6 +72,33 @@ void Application::init() {
     // Seed autocomplete name list from solar system database + cache
     buildPlanetNameList();
 
+    // ── Catalogue initialization ─────────────────────────────────────────
+    m_catalogue = std::make_unique<CatalogueView>();
+    m_catalogue->init();
+    m_catalogue->setPlanetCallback([this](const std::string& name) {
+        onCataloguePlanetClicked(name);
+    });
+
+    // Load cached records immediately for offline-first catalogue display
+    {
+        auto cachedNames = m_cacheManager->listCached();
+        for (const auto& cn : cachedNames) {
+            auto data = m_cacheManager->retrieve(cn);
+            if (data.has_value() && !data->name.empty()) {
+                m_catalogueData.push_back(std::move(*data));
+            }
+        }
+        if (!m_catalogueData.empty()) {
+            LOG_INFO("Catalogue: {} cached records loaded instantly", m_catalogueData.size());
+        }
+    }
+
+    // Launch background prefetch of 500 notable exoplanets
+    m_prefetchProgress = std::make_shared<std::atomic<int>>(0);
+    m_prefetchFuture = m_dataFusion->prefetchNotable(500);
+    m_prefetchComplete = false;
+    m_catalogueMode = true;
+
     m_lastFrameTime = m_window->getTime();
     LOG_INFO("Ready");
 }
@@ -339,6 +366,12 @@ void Application::loadPlanet(const std::string& name) {
         });
 }
 
+void Application::onCataloguePlanetClicked(const std::string& name) {
+    LOG_INFO("Catalogue: selected planet '{}'", name);
+    loadPlanet(name);
+    m_catalogueMode = false;
+}
+
 void Application::update(float deltaTime) {
     static bool   dragging = false;
     static double lastX = 0, lastY = 0;
@@ -362,6 +395,34 @@ void Application::update(float deltaTime) {
     }
 
     m_camera->update(deltaTime);
+
+    // ── Poll prefetch future for catalogue data ─────────────────────────
+    if (!m_prefetchComplete && m_prefetchFuture.valid()) {
+        if (m_prefetchFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            auto results = m_prefetchFuture.get();
+            // Merge prefetch results with existing cached data (avoid duplicates)
+            std::set<std::string> existingNames;
+            for (const auto& d : m_catalogueData) existingNames.insert(d.name);
+            for (auto& r : results) {
+                if (existingNames.find(r.name) == existingNames.end()) {
+                    m_catalogueData.push_back(std::move(r));
+                }
+            }
+            m_prefetchComplete = true;
+            m_catalogue->setLoadingProgress(static_cast<int>(m_catalogueData.size()),
+                                             static_cast<int>(m_catalogueData.size()));
+            LOG_INFO("Catalogue: prefetch complete, {} total planets", m_catalogueData.size());
+        } else {
+            // Update loading progress estimate (based on time or counter)
+            m_catalogue->setLoadingProgress(
+                static_cast<int>(m_catalogueData.size()), 500);
+        }
+    }
+
+    // ── Back button returns to catalogue ─────────────────────────────────
+    if (!m_catalogueMode && m_ui->wasBackPressed()) {
+        m_catalogueMode = true;
+    }
 
     // ── Fade transition between planets ──────────────────────────────────
     if (m_transitioning) {
@@ -445,13 +506,27 @@ void Application::render() {
     m_renderer->render(*m_camera);
 
     m_ui->beginFrame();
-    m_ui->render(m_renderer->params());
+
+    if (m_catalogueMode) {
+        // Render catalogue UI (full-screen card grid)
+        float W = static_cast<float>(m_window->getWidth());
+        float H = static_cast<float>(m_window->getHeight());
+        m_catalogue->render(m_catalogueData, W, H);
+    } else {
+        // Render planet detail UI (existing editor panel)
+        m_ui->render(m_renderer->params());
+    }
+
+    // Theme toggle always visible
+    m_ui->renderThemeToggle();
+
     m_ui->endFrame(static_cast<VulkanRenderer*>(m_renderer.get()));
 
     m_renderer->endFrame();
 }
 
 void Application::shutdown() {
+    m_catalogue.reset();
     m_ui.reset();
     m_renderer.reset();
     m_camera.reset();

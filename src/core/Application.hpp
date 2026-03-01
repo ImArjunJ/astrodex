@@ -7,12 +7,14 @@
 #include "data/CacheManager.hpp"
 #include "ai/InferenceEngine.hpp"
 #include "render/ExoplanetMapper.hpp"
+#include "ui/CatalogueView.hpp"
 #include <memory>
 #include <future>
 #include <string>
 #include <optional>
 #include <atomic>
 #include <set>
+#include <vector>
 
 namespace astrocore {
 
@@ -48,6 +50,9 @@ private:
     // Async planet load: returns (newParams, statusMessage, exoData)
     void loadPlanet(const std::string& name);
 
+    // Called when a catalogue card is clicked
+    void onCataloguePlanetClicked(const std::string& name);
+
     // Build the known planet name list from SolarSystemDatabase + cache
     void buildPlanetNameList();
 
@@ -78,6 +83,14 @@ private:
     std::future<std::string> m_validationFuture;
     bool m_validationRunning = false;
     std::string m_currentStatus;  // tracks displayed status for later appending
+
+    // ── Catalogue state ─────────────────────────────────────────────────
+    std::unique_ptr<CatalogueView> m_catalogue;
+    std::vector<ExoplanetData> m_catalogueData;
+    std::future<std::vector<ExoplanetData>> m_prefetchFuture;
+    std::shared_ptr<std::atomic<int>> m_prefetchProgress;
+    bool m_catalogueMode = true;   // true = show catalogue, false = planet detail
+    bool m_prefetchComplete = false;
 
     // Fade transition state
     PlanetParams m_targetParams{};
