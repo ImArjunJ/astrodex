@@ -112,11 +112,12 @@ Wire real exoplanet data from 4 astronomical databases through an AI inference p
 - [x] Columns: name, type, mass, radius, temperature, discovery year
 - [x] Click to select → triggers render pipeline
 
-### R4.3: Mini Render Previews
-- Small thumbnail renders for each catalogue entry
-- Strategy: low-resolution offscreen FBO renders, cached as textures
-- Compute once, cache until data changes
-- Progressive: render visible entries first, background-render rest
+### R4.3: Mini Render Previews ✅
+- [x] Small thumbnail renders for each catalogue entry
+- [x] Strategy: low-resolution offscreen FBO renders, cached as textures
+- [x] Compute once, cache until data changes
+- [x] Progressive: render visible entries first, background-render rest
+- **Completed:** Plan 04-02 (ThumbnailRenderer FBO) + Plan 04-03 (Progressive generation, PNG cache, hover animation)
 
 ---
 

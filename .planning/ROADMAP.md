@@ -84,14 +84,14 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md -- CatalogueView card grid with type/HZ filtering, sorting, prefix search, prefetch integration
 - [x] 04-02-PLAN.md -- ThumbnailRenderer with offscreen Vulkan FBO, PNG serialization, ImGui texture registration (5 min)
-- [ ] 04-03-PLAN.md -- Progressive thumbnail generation and disk caching
+- [x] 04-03-PLAN.md -- Progressive thumbnail generation and disk caching (8 min)
 
 **Success Criteria:**
-- [ ] Local database of 500+ pre-fetched exoplanet records
-- [ ] Scrollable ImGui catalogue panel with sorting/filtering
-- [ ] Mini render previews via low-res offscreen FBO rendering
-- [ ] Click catalogue entry → renders full planet in main viewport
-- [ ] Background prefetch and progressive thumbnail generation
+- [x] Local database of 500+ pre-fetched exoplanet records
+- [x] Scrollable ImGui catalogue panel with sorting/filtering
+- [x] Mini render previews via low-res offscreen FBO rendering
+- [x] Click catalogue entry → renders full planet in main viewport
+- [x] Background prefetch and progressive thumbnail generation
 
 **Estimated Complexity:** Medium — offscreen rendering, texture caching, UI list virtualization
 

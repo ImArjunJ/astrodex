@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: Phase 4 Plan 2 (COMPLETE)
-status: in-progress
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-01T02:59:48Z"
+current_plan: Phase 4 Plan 3 (COMPLETE)
+status: complete
+stopped_at: Completed 04-03-PLAN.md -- Milestone 1 complete
+last_updated: "2026-03-01T03:18:34.811Z"
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Astrodex — Project State
 
 ## Current Status
-- **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline)
-- **Phase:** 4 -- IN PROGRESS (2/3 plans done)
-- **Current Plan:** Phase 4 Plan 2 (COMPLETE)
-- **Next Action:** Execute Phase 4 Plan 3 (Progressive Thumbnail Generation)
-- **Last Session:** 2026-03-01T02:59:48Z
-- **Stopped At:** Completed 04-01-PLAN.md
+- **Milestone:** 1 (Real Exoplanet Data + AI Inference Pipeline) -- COMPLETE
+- **Phase:** 4 -- COMPLETE (3/3 plans done)
+- **Current Plan:** Phase 4 Plan 3 (COMPLETE)
+- **Next Action:** Milestone 1 complete. All 4 phases (12 plans) executed.
+- **Last Session:** 2026-03-01T03:18:34.810Z
+- **Stopped At:** Completed 04-03-PLAN.md -- Milestone 1 complete
 - **Phase 01 Summary:** Multi-source data fusion with NASA, OEC, Gaia, CDS clients. Uncertainty-based selection, JSON cache, haversine coordinate matching.
 - **Phase 02 Plan 03 Summary:** Python ML benchmark harness with BERT, BART, TabTransformer, MaskedAutoencoder model wrappers and comparison document generator.
 - **Phase 02 Plan 01 Summary:** InferenceEngine wired into DataFusionEngine with complete JSON serialization, deterministic fallback, and 17 integration tests (409 assertions).
@@ -30,6 +30,7 @@ progress:
 - **Phase 03 Plan 02 Summary:** Planet info panel with provenance color-coding (white/cyan/yellow), AI reasoning tooltips, fade transition, DataFusionEngine multi-source pipeline wiring.
 - **Phase 04 Plan 01 Summary:** CatalogueView card grid with type/HZ filtering, multi-criteria sorting, prefix search, offline-first prefetch integration into Application lifecycle.
 - **Phase 04 Plan 02 Summary:** Vulkan offscreen FBO with reusable 128px framebuffer, GPU-to-CPU readback via staging buffer, PNG serialization via stb_image_write, ImGui texture registration.
+- **Phase 04 Plan 03 Summary:** Progressive background thumbnail generation with PNG disk cache, ImGui::Image display in catalogue cards, hover-to-animate rotation, 128px resolution approved.
 
 ## Completed
 - [x] Codebase mapped (.planning/codebase/)
@@ -48,6 +49,7 @@ progress:
 - [x] Phase 03 Plan 02: Planet info panel + data provenance + fade transition (~15 min, 2 tasks, 2 commits)
 - [x] Phase 04 Plan 01: CatalogueView card grid with filtering/sorting/search, Application prefetch integration (6 min, 2 tasks, 2 commits)
 - [x] Phase 04 Plan 02: ThumbnailRenderer with offscreen Vulkan FBO, PNG serialization, ImGui texture registration (5 min, 2 tasks, 2 commits, 129 assertions passing)
+- [x] Phase 04 Plan 03: Progressive thumbnail generation with PNG disk cache, hover animation, 128px approved (8 min, 3 tasks, 2 commits)
 
 ## Key Decisions
 1. **Platform:** Desktop (C++/Vulkan) first, WebGPU later — active branches (feat-render, Tej) have migrated from OpenGL to Vulkan/Metal with IRenderer.hpp abstraction
@@ -89,6 +91,10 @@ progress:
 37. **Full-screen catalogue overlay:** Catalogue replaces planet detail entirely (not sidebar), maximizes grid space — Phase 04 Plan 01
 38. **Offline-first cache-then-prefetch:** Load cached records instantly, merge background prefetch results with deduplication — Phase 04 Plan 01
 39. **Habitable zone filter:** Uses sqrt(host_star_luminosity) * 0.95/1.67 AU bounds from ExoplanetData constants — Phase 04 Plan 01
+40. **128px thumbnail resolution kept:** User approved at checkpoint; balances quality, VRAM, and generation speed — Phase 04 Plan 03
+41. **One-per-frame progressive rendering:** std::async dispatch of one thumbnail per frame to avoid blocking catalogue interaction — Phase 04 Plan 03
+42. **Synchronous hover animation:** Single planet re-rendered in main thread each frame; negligible cost for 128px offscreen render — Phase 04 Plan 03
+43. **VulkanRenderer getter methods:** getDevice/getAllocator/getGraphicsQueue/getCommandPool exposed for ThumbnailRenderer construction — Phase 04 Plan 03
 
 ## Research Artifacts
 - `.firecrawl/nasa-tap.md` — NASA TAP API docs
