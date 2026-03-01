@@ -6,12 +6,20 @@
 #include "render/VulkanRenderer.hpp"
 #include "data/SolarSystemDatabase.hpp"
 #include <imgui.h>
+#include <imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
+#include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 #include <chrono>
 #include <filesystem>
 #include <spdlog/fmt/fmt.h>
 #include <set>
 #include <algorithm>
+#include <cctype>
+#include <cstring>
+
+// stb_image for loading cached PNG thumbnails (IMPLEMENTATION defined in VulkanRenderer.cpp)
+#include "../../external/stb_image.h"
 
 namespace astrocore {
 
@@ -100,6 +108,10 @@ void Application::init() {
     m_prefetchFuture = m_dataFusion->prefetchNotable(500);
     m_prefetchComplete = false;
     m_catalogueMode = true;
+
+    // ── Thumbnail renderer initialization ────────────────────────────────
+    initThumbnailRenderer();
+    loadThumbnailsFromCache();
 
     m_lastFrameTime = m_window->getTime();
     LOG_INFO("Ready");
@@ -374,6 +386,337 @@ void Application::onCataloguePlanetClicked(const std::string& name) {
     m_catalogueMode = false;
 }
 
+// ── Thumbnail Management ─────────────────────────────────────────────────────
+
+std::string Application::makePlanetSlug(const std::string& name) {
+    std::string slug;
+    slug.reserve(name.size());
+    for (char c : name) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            slug.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        } else if (c == ' ' || c == '_') {
+            if (!slug.empty() && slug.back() != '-') slug.push_back('-');
+        } else if (c == '-') {
+            slug.push_back('-');
+        }
+    }
+    // Trim trailing hyphens
+    while (!slug.empty() && slug.back() == '-') slug.pop_back();
+    return slug;
+}
+
+void Application::initThumbnailRenderer() {
+    auto* vkr = static_cast<VulkanRenderer*>(m_renderer.get());
+
+    VkDevice device       = static_cast<VkDevice>(vkr->getDevice());
+    VmaAllocator allocator = static_cast<VmaAllocator>(vkr->getAllocator());
+    VkQueue queue         = static_cast<VkQueue>(vkr->getGraphicsQueue());
+    VkCommandPool cmdPool = static_cast<VkCommandPool>(vkr->getCommandPool());
+
+    m_thumbnailRenderer = std::make_unique<ThumbnailRenderer>(
+        device, allocator, queue, cmdPool, 128);
+
+    // Create a fixed thumbnail camera (frames a unit sphere at distance 3)
+    m_thumbnailCamera = std::make_unique<Camera>();
+    m_thumbnailCamera->setPosition(glm::vec3(0.f, 0.f, 3.f));
+    m_thumbnailCamera->setTarget(glm::vec3(0.f, 0.f, 0.f));
+
+    LOG_INFO("ThumbnailRenderer initialized for catalogue previews");
+}
+
+void Application::loadThumbnailsFromCache() {
+    const std::string cacheDir = ".cache/thumbnails";
+
+    // Create cache directory if it doesn't exist
+    std::filesystem::create_directories(cacheDir);
+
+    if (!std::filesystem::exists(cacheDir)) return;
+
+    int loaded = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(cacheDir)) {
+        if (!entry.is_regular_file()) continue;
+        auto ext = entry.path().extension().string();
+        if (ext != ".png") continue;
+
+        // Extract planet name from filename (slug format)
+        std::string slug = entry.path().stem().string();
+        std::string filepath = entry.path().string();
+
+        ImTextureID texID = loadPNGAsTexture(filepath);
+        if (texID != 0) {
+            // We need to match the slug back to a planet name in catalogueData
+            // For simplicity, store by slug and also try to match exact names
+            m_catalogue->setThumbnail(slug, texID);
+
+            // Also try to find the exact planet name and set that too
+            for (const auto& planet : m_catalogueData) {
+                if (makePlanetSlug(planet.name) == slug) {
+                    m_catalogue->setThumbnail(planet.name, texID);
+                    break;
+                }
+            }
+            ++loaded;
+        }
+    }
+
+    if (loaded > 0) {
+        LOG_INFO("Loaded {} cached thumbnails from {}", loaded, cacheDir);
+    }
+}
+
+ImTextureID Application::loadPNGAsTexture(const std::string& filepath) {
+    // Load PNG via stb_image (already included via VulkanRenderer.cpp, but we
+    // need the header here too). stb_image is included without IMPLEMENTATION
+    // since VulkanRenderer.cpp already defines it.
+    int w, h, ch;
+    unsigned char* pixels = stbi_load(filepath.c_str(), &w, &h, &ch, 4);
+    if (!pixels) {
+        LOG_WARN("Failed to load thumbnail PNG: {}", filepath);
+        return 0;
+    }
+
+    auto* vkr = static_cast<VulkanRenderer*>(m_renderer.get());
+    VkDevice device       = static_cast<VkDevice>(vkr->getDevice());
+    VmaAllocator allocator = static_cast<VmaAllocator>(vkr->getAllocator());
+    VkQueue queue         = static_cast<VkQueue>(vkr->getGraphicsQueue());
+    VkCommandPool cmdPool = static_cast<VkCommandPool>(vkr->getCommandPool());
+
+    // Create VkImage for the texture
+    VkImage image;
+    VmaAllocation alloc;
+    {
+        VkImageCreateInfo imgCI{};
+        imgCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imgCI.imageType = VK_IMAGE_TYPE_2D;
+        imgCI.format = VK_FORMAT_R8G8B8A8_UNORM;
+        imgCI.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+        imgCI.mipLevels = 1;
+        imgCI.arrayLayers = 1;
+        imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imgCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        VmaAllocationCreateInfo allocCI{};
+        allocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+        if (vmaCreateImage(allocator, &imgCI, &allocCI, &image, &alloc, nullptr) != VK_SUCCESS) {
+            stbi_image_free(pixels);
+            return 0;
+        }
+    }
+
+    // Create staging buffer and upload pixels
+    VkBuffer stagingBuf;
+    VmaAllocation stagingAlloc;
+    VkDeviceSize imageSize = static_cast<VkDeviceSize>(w) * h * 4;
+    {
+        VkBufferCreateInfo bufCI{};
+        bufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufCI.size = imageSize;
+        bufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+        VmaAllocationCreateInfo allocCI{};
+        allocCI.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+        if (vmaCreateBuffer(allocator, &bufCI, &allocCI, &stagingBuf, &stagingAlloc, nullptr) != VK_SUCCESS) {
+            vmaDestroyImage(allocator, image, alloc);
+            stbi_image_free(pixels);
+            return 0;
+        }
+
+        void* mapped;
+        vmaMapMemory(allocator, stagingAlloc, &mapped);
+        std::memcpy(mapped, pixels, imageSize);
+        vmaUnmapMemory(allocator, stagingAlloc);
+    }
+
+    stbi_image_free(pixels);
+
+    // Upload: transition + copy + transition
+    {
+        VkCommandBuffer cmd;
+        VkCommandBufferAllocateInfo cmdAI{};
+        cmdAI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cmdAI.commandPool = cmdPool;
+        cmdAI.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmdAI.commandBufferCount = 1;
+        vkAllocateCommandBuffers(device, &cmdAI, &cmd);
+
+        VkCommandBufferBeginInfo beginI{};
+        beginI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &beginI);
+
+        // Transition: UNDEFINED -> TRANSFER_DST
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                             0, nullptr, 0, nullptr, 1, &barrier);
+
+        // Copy buffer to image
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+        vkCmdCopyBufferToImage(cmd, stagingBuf, image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        // Transition: TRANSFER_DST -> SHADER_READ_ONLY
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                             0, nullptr, 0, nullptr, 1, &barrier);
+
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd;
+        vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
+        vkQueueWaitIdle(queue);
+
+        vkFreeCommandBuffers(device, cmdPool, 1, &cmd);
+    }
+
+    // Cleanup staging buffer
+    vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
+
+    // Create image view
+    VkImageView view;
+    {
+        VkImageViewCreateInfo viewCI{};
+        viewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewCI.image = image;
+        viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewCI.format = VK_FORMAT_R8G8B8A8_UNORM;
+        viewCI.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCreateImageView(device, &viewCI, nullptr, &view);
+    }
+
+    // Create sampler
+    VkSampler sampler;
+    {
+        VkSamplerCreateInfo sampCI{};
+        sampCI.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampCI.magFilter = VK_FILTER_LINEAR;
+        sampCI.minFilter = VK_FILTER_LINEAR;
+        sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(device, &sampCI, nullptr, &sampler);
+    }
+
+    // Register with ImGui
+    VkDescriptorSet descSet = ImGui_ImplVulkan_AddTexture(
+        sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ImTextureID texID = reinterpret_cast<ImTextureID>(descSet);
+
+    return texID;
+}
+
+void Application::updateThumbnailGeneration(float deltaTime) {
+    if (!m_thumbnailRenderer) return;
+    if (!m_catalogueMode) return;  // Only generate when catalogue is visible
+
+    // Initialize queue once catalogue data is populated
+    if (!m_thumbnailQueueInitialized && !m_catalogueData.empty()) {
+        m_thumbnailQueueInitialized = true;
+        m_thumbnailQueue.clear();
+
+        // Queue all planets for thumbnail generation
+        for (int i = 0; i < static_cast<int>(m_catalogueData.size()); ++i) {
+            // Skip if already cached on disk
+            std::string slug = makePlanetSlug(m_catalogueData[i].name);
+            std::string cachePath = ".cache/thumbnails/" + slug + ".png";
+            if (!std::filesystem::exists(cachePath)) {
+                m_thumbnailQueue.push_back(i);
+            }
+        }
+
+        LOG_INFO("Thumbnail queue: {} planets to render", m_thumbnailQueue.size());
+    }
+
+    // Generate one thumbnail per frame (synchronous, very fast for placeholder renders)
+    if (!m_thumbnailQueue.empty()) {
+        int idx = m_thumbnailQueue.front();
+        m_thumbnailQueue.pop_front();
+
+        if (idx < 0 || idx >= static_cast<int>(m_catalogueData.size())) return;
+
+        const auto& planet = m_catalogueData[idx];
+        std::string slug = makePlanetSlug(planet.name);
+        std::string cachePath = ".cache/thumbnails/" + slug + ".png";
+
+        // Skip if already exists (may have been cached during this session)
+        if (std::filesystem::exists(cachePath)) return;
+
+        // Convert ExoplanetData to PlanetParams for rendering
+        PlanetParams params;
+        if (planet.mass_earth.hasValue() && planet.radius_earth.hasValue()) {
+            params = ExoplanetMapper::toPlanetParams(planet);
+        } else {
+            // Fallback: find closest solar system analog
+            if (planet.mass_earth.hasValue() && planet.radius_earth.hasValue() &&
+                planet.equilibrium_temp_k.hasValue()) {
+                auto analog = SolarSystemDatabase::instance().findClosestAnalog(
+                    planet.mass_earth.value, planet.radius_earth.value,
+                    planet.equilibrium_temp_k.value, 0.15f);
+                if (analog && analog->entry) {
+                    params = analog->entry->visualParams;
+                } else {
+                    params = ExoplanetMapper::toPlanetParams(planet);
+                }
+            } else {
+                params = ExoplanetMapper::toPlanetParams(planet);
+            }
+        }
+
+        // Render thumbnail
+        ImTextureID texID = m_thumbnailRenderer->renderThumbnail(params, *m_thumbnailCamera);
+
+        // Save to PNG cache
+        m_thumbnailRenderer->saveToPNG(cachePath);
+
+        // Set the thumbnail in CatalogueView
+        m_catalogue->setThumbnail(planet.name, texID);
+    }
+
+    // ── Hover animation (slow rotation of hovered planet) ────────────────
+    int hoveredIdx = m_catalogue->getHoveredCardIndex();
+    std::string hoveredName = m_catalogue->getHoveredPlanetName();
+    if (hoveredIdx >= 0 && hoveredIdx < static_cast<int>(m_catalogueData.size()) &&
+        !hoveredName.empty()) {
+        const auto& planet = m_catalogueData[hoveredIdx];
+
+        // Get params for this planet
+        PlanetParams params = ExoplanetMapper::toPlanetParams(planet);
+
+        // Apply slow rotation based on accumulated time
+        static float hoverRotation = 0.f;
+        hoverRotation += deltaTime * 0.1f;  // ~10 seconds per full rotation
+        params.rotationOffset = hoverRotation;
+
+        // Re-render thumbnail with updated rotation (synchronous, fast)
+        ImTextureID texID = m_thumbnailRenderer->renderThumbnail(params, *m_thumbnailCamera);
+
+        // Update texture in catalogue (do NOT save animated frames to disk)
+        m_catalogue->setThumbnail(planet.name, texID);
+    }
+}
+
 void Application::update(float deltaTime) {
     static bool   dragging = false;
     static double lastX = 0, lastY = 0;
@@ -425,6 +768,9 @@ void Application::update(float deltaTime) {
     if (!m_catalogueMode && m_ui->wasBackPressed()) {
         m_catalogueMode = true;
     }
+
+    // ── Progressive thumbnail generation ─────────────────────────────────
+    updateThumbnailGeneration(deltaTime);
 
     // ── Fade transition between planets ──────────────────────────────────
     if (m_transitioning) {
@@ -513,7 +859,8 @@ void Application::render() {
         // Render catalogue UI (full-screen card grid)
         float W = static_cast<float>(m_window->getWidth());
         float H = static_cast<float>(m_window->getHeight());
-        m_catalogue->render(m_catalogueData, W, H);
+        float dt = static_cast<float>(m_window->getTime() - m_lastFrameTime);
+        m_catalogue->render(m_catalogueData, W, H, dt);
     } else {
         // Render planet detail UI (existing editor panel)
         m_ui->render(m_renderer->params());
@@ -528,6 +875,8 @@ void Application::render() {
 }
 
 void Application::shutdown() {
+    m_thumbnailRenderer.reset();
+    m_thumbnailCamera.reset();
     m_catalogue.reset();
     m_ui.reset();
     m_renderer.reset();
