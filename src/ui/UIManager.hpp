@@ -3,11 +3,16 @@
 #include <imgui.h>
 #include <string>
 #include <vector>
+#include <memory>
 #include <functional>
 #include "render/RingRenderer.hpp"
 #include "render/ExoplanetConverter.hpp"
 #include "data/ExoplanetData.hpp"
 #include "ai/InferenceEngine.hpp"
+
+namespace astrocore {
+class DataVisualization;
+}
 
 struct GLFWwindow;
 
@@ -124,6 +129,9 @@ private:
     // Current exoplanet data for DATA tab
     ExoplanetData m_currentExoData;
     bool m_hasExoData = false;
+
+    // Data visualization for GRAPHS tab
+    std::unique_ptr<DataVisualization> m_dataViz;
 };
 
 }  // namespace astrocore

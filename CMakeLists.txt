@@ -25,8 +25,10 @@ set(ASTROCORE_SOURCES
     src/render/SphereRenderer.cpp
     src/render/OrbitRenderer.cpp
     src/render/RingRenderer.cpp
+    src/render/PlanetThumbnailRenderer.cpp
     src/ui/UIManager.cpp
     src/ui/GalaxyView.cpp
+    src/ui/DataVisualization.cpp
     src/intro/IntroAnimation.cpp
     # Physics engine
     src/physics/CelestialBody.cpp
@@ -68,6 +70,7 @@ target_link_libraries(astrocore_lib
         glm::glm
         spdlog::spdlog
         imgui_impl
+        implot_impl
         nlohmann_json::nlohmann_json
         CURL::libcurl
 )

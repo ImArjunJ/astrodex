@@ -85,6 +85,22 @@ target_include_directories(imgui_impl PUBLIC
 )
 target_link_libraries(imgui_impl PUBLIC glfw)
 
+# ImPlot - Plotting library for Dear ImGui
+FetchContent_Declare(
+    implot
+    GIT_REPOSITORY https://github.com/epezent/implot.git
+    GIT_TAG        v0.16
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(implot)
+
+add_library(implot_impl STATIC
+    ${implot_SOURCE_DIR}/implot.cpp
+    ${implot_SOURCE_DIR}/implot_items.cpp
+)
+target_include_directories(implot_impl PUBLIC ${implot_SOURCE_DIR})
+target_link_libraries(implot_impl PUBLIC imgui_impl)
+
 # pybind11 (will be added in Phase 7)
 # FetchContent_Declare(
 #     pybind11

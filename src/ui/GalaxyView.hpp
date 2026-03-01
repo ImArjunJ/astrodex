@@ -3,16 +3,19 @@
 #include <imgui.h>
 #include <vector>
 #include <string>
+#include <memory>
 #include <functional>
 
 namespace astrocore {
 
 struct PlanetParams;
+class PlanetThumbnailRenderer;
 
 // GalaxyView - Galaxy navigation screen with cached exoplanet browser
 class GalaxyView {
 public:
     GalaxyView();
+    ~GalaxyView();
 
     void init(float W, float H);
     void reset();
@@ -42,7 +45,7 @@ public:
     // Update a planet's metadata (call after fetching from NASA)
     void updatePlanetMetadata(const std::string& name, const std::string& hostStar,
                               float distanceLY, float radiusEarth, float massEarth,
-                              float tempK);
+                              float tempK, const std::string& gaiaDr3Id = "");
 
     // Check if selected planet needs metadata fetch
     bool selectedNeedsMetadata() const;
@@ -69,6 +72,7 @@ private:
         std::string name;
         std::string typeStr;
         std::string hostStar;
+        std::string gaiaDr3Id;    // Gaia DR3 source ID for cross-matching
         float       x, y;
         float       size;
         float       r, g, b;
@@ -150,6 +154,27 @@ private:
     std::string m_exoStatus = "Select a planet to view...";
     bool m_fetchingMetadata = false;
     bool m_solarSystemRequested = false;
+
+    // Catalog panel state
+    std::unique_ptr<PlanetThumbnailRenderer> m_thumbnailRenderer;
+    bool m_catalogOpen = false;
+    float m_catalogSlideAnim = 0.0f;  // 0 = closed, 1 = fully open
+    float m_catalogScrollY = 0.0f;
+    int m_catalogTileSize = 100;
+    float m_catalogPanelWidth = 450.f;  // User-resizable width
+
+    // Catalog filter settings
+    float m_filterHueMin = 0.0f;
+    float m_filterHueMax = 1.0f;
+    float m_filterBrightnessMin = 0.0f;
+    float m_filterBrightnessMax = 1.0f;
+    bool m_filterHasAtmosphere = false;
+    bool m_filterAtmosphereEnabled = false;
+    std::string m_catalogTypeFilter;  // Empty = all types
+
+    void renderCatalogPanel(float W, float H);
+    void renderCatalogTile(int planetIdx, float x, float y, float size);
+    bool planetPassesFilter(int planetIdx) const;
 };
 
 }  // namespace astrocore

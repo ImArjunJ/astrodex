@@ -95,6 +95,7 @@ std::string NasaApiClient::buildADQL(const std::string& whereClause, int limit) 
          << "st_rotp, "                           // Stellar rotation period
          << "st_logg, "                           // Stellar surface gravity
          << "st_spectype, "
+         << "gaia_id, "                             // Gaia DR3 source ID
          << "sy_dist, "
          << "ra, dec, "                             // Coordinates for galaxy positioning
          << "disc_year, discoverymethod "
@@ -288,6 +289,8 @@ ExoplanetData NasaApiClient::parseRow(const nlohmann::json& row) const {
         data.host_star.surface_gravity_logg.value = *val;
         data.host_star.surface_gravity_logg.source = DataSource::NASA_TAP;
     }
+    // Gaia DR3 source ID
+    data.host_star.gaia_dr3_id = getString("gaia_id");
 
     // Orbital parameters
     if (auto val = getValue("pl_orbper")) {

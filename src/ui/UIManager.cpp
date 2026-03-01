@@ -1,4 +1,5 @@
 #include "ui/UIManager.hpp"
+#include "ui/DataVisualization.hpp"
 #include "render/Renderer.hpp"
 #include "config/PresetManager.hpp"
 #include "core/Logger.hpp"
@@ -465,11 +466,21 @@ void UIManager::init(GLFWwindow* window) {
 
     setupStyle();
     refreshCachedPlanets();
+
+    // Initialize data visualization
+    m_dataViz = std::make_unique<DataVisualization>();
+    m_dataViz->init();
+    m_dataViz->applyTheme(m_theme == Theme::Dark);
+
     m_initialized = true;
     LOG_INFO("ImGui initialized (OpenGL backend)");
 }
 
 void UIManager::shutdown() {
+    if (m_dataViz) {
+        m_dataViz->shutdown();
+        m_dataViz.reset();
+    }
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -773,6 +784,16 @@ void UIManager::render(PlanetParams& p, ImVec2* outPos, ImVec2* outSize) {
             ImGui::EndTabItem();
         }
 
+        // GRAPHS tab
+        if (ImGui::BeginTabItem(" GRAPHS ")) {
+            if (m_dataViz) {
+                m_dataViz->renderGraphsTab();
+            } else {
+                ImGui::TextDisabled("Data visualization not available");
+            }
+            ImGui::EndTabItem();
+        }
+
         // WORLD tab
         if (ImGui::BeginTabItem(" WORLD  ")) {
             ImGui::Spacing();
@@ -888,11 +909,17 @@ void UIManager::setExoplanetStatus(const std::string& status) {
 void UIManager::setCurrentExoplanetData(const ExoplanetData& data) {
     m_currentExoData = data;
     m_hasExoData = true;
+    if (m_dataViz) {
+        m_dataViz->setCurrentPlanet(data);
+    }
 }
 
 void UIManager::clearCurrentExoplanetData() {
     m_currentExoData = ExoplanetData{};
     m_hasExoData = false;
+    if (m_dataViz) {
+        m_dataViz->clearCurrentPlanet();
+    }
 }
 
 PlanetParams UIManager::getPreset(int index) {
@@ -908,6 +935,9 @@ bool UIManager::wasBackPressed() {
 void UIManager::applyThemeTo(Theme t) {
     m_theme = t;
     setupStyle();
+    if (m_dataViz) {
+        m_dataViz->applyTheme(t == Theme::Dark);
+    }
 }
 
 void UIManager::renderThemeToggle() {

@@ -51,6 +51,7 @@ struct MeasuredValue {
 // Host star data
 struct HostStarData {
     std::string name;
+    std::string gaia_dr3_id;                    // Gaia DR3 source ID for cross-matching
     MeasuredValue<double> effective_temp_k;     // Stellar effective temperature
     MeasuredValue<double> radius_solar;         // Stellar radius in solar radii
     MeasuredValue<double> mass_solar;           // Stellar mass in solar masses

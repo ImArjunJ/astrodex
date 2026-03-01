@@ -100,10 +100,11 @@ void Application::init() {
                     distLY,
                     d.radius_earth.hasValue() ? static_cast<float>(d.radius_earth.value) : 0.f,
                     d.mass_earth.hasValue() ? static_cast<float>(d.mass_earth.value) : 0.f,
-                    d.equilibrium_temp_k.hasValue() ? static_cast<float>(d.equilibrium_temp_k.value) : 0.f
+                    d.equilibrium_temp_k.hasValue() ? static_cast<float>(d.equilibrium_temp_k.value) : 0.f,
+                    d.host_star.gaia_dr3_id
                 );
-                LOG_INFO("Fetched metadata for {}: host={}, dist={:.1f}ly",
-                         name, d.host_star.name, distLY);
+                LOG_INFO("Fetched metadata for {}: host={}, dist={:.1f}ly, gaia={}",
+                         name, d.host_star.name, distLY, d.host_star.gaia_dr3_id);
             } catch (const std::exception& e) {
                 LOG_WARN("Failed to fetch metadata for {}: {}", name, e.what());
             }
